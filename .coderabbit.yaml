@@ -1,0 +1,57 @@
+# CodeRabbit Configuration
+# https://docs.coderabbit.ai/guides/configure-coderabbit
+
+reviews:
+  # Enable high-level summary
+  high_level_summary: true
+  # Enable poem in review
+  poem: false
+  # Enable review status
+  review_status: true
+  # Collapse walkthrough above this many files
+  collapse_walkthrough: 5
+  # Auto review enabled
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - initial
+  
+  # Path-based review instructions
+  path_instructions:
+    - path: "backend/**/*.py"
+      instructions: |
+        Review Python code for:
+        - FastAPI best practices
+        - Async/await correctness
+        - Type hints usage
+        - SQL injection vulnerabilities
+        - Proper error handling
+        - Pydantic model validation
+    
+    - path: "frontend/**/*.vue"
+      instructions: |
+        Review Vue 3 code for:
+        - Composition API best practices
+        - Proper TypeScript usage
+        - Reactive state management
+        - Component organization
+        - Accessibility considerations
+    
+    - path: "frontend/**/*.ts"
+      instructions: |
+        Review TypeScript code for:
+        - Type safety
+        - API client patterns
+        - Error handling
+        - Code organization
+
+# Chat settings
+chat:
+  auto_reply: true
+
+# Code generation settings  
+knowledge_base:
+  learnings:
+    scope: auto

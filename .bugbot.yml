@@ -1,0 +1,65 @@
+# Bugbot Configuration
+# Configure automatic bug detection and analysis
+
+settings:
+  # Enable automatic PR comments
+  auto_comment: true
+  
+  # Severity levels to report
+  severity_levels:
+    - critical
+    - high
+    - medium
+  
+  # File patterns to analyze
+  include_patterns:
+    - "**/*.py"
+    - "**/*.ts"
+    - "**/*.vue"
+    - "**/*.js"
+  
+  # Patterns to exclude
+  exclude_patterns:
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/.venv/**"
+    - "**/coverage/**"
+    - "**/*.test.*"
+    - "**/*.spec.*"
+
+# Analysis rules
+rules:
+  # Security checks
+  security:
+    enabled: true
+    checks:
+      - sql_injection
+      - xss
+      - secrets_exposure
+      - insecure_dependencies
+  
+  # Code quality
+  quality:
+    enabled: true
+    checks:
+      - unused_variables
+      - dead_code
+      - complexity
+      - code_duplication
+  
+  # Performance
+  performance:
+    enabled: true
+    checks:
+      - n_plus_one_queries
+      - memory_leaks
+      - inefficient_loops
+
+# Notification settings
+notifications:
+  # Comment on PR with findings
+  pr_comment: true
+  # Request changes for critical issues
+  request_changes_on_critical: true

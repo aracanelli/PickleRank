@@ -1,0 +1,22 @@
+import { api } from '@/app/core/http/api-client'
+import type { RankingsResponse, MatchHistoryResponse } from '@/app/core/models/dto'
+
+export const rankingsApi = {
+  async getRankings(groupId: string): Promise<RankingsResponse> {
+    return api.get(`/api/groups/${groupId}/rankings`)
+  },
+
+  async getHistory(
+    groupId: string,
+    options?: { from?: string; to?: string; playerId?: string }
+  ): Promise<MatchHistoryResponse> {
+    const params = new URLSearchParams()
+    if (options?.from) params.set('from', options.from)
+    if (options?.to) params.set('to', options.to)
+    if (options?.playerId) params.set('playerId', options.playerId)
+    
+    const query = params.toString()
+    return api.get(`/api/groups/${groupId}/history${query ? `?${query}` : ''}`)
+  }
+}
+
