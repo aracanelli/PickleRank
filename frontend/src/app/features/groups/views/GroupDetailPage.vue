@@ -199,7 +199,6 @@ function getStatusLabel(status: string): string {
 
 async function downloadTemplate() {
   try {
-    const { api } = await import('@/app/core/http/api-client')
     const { useAuthStore } = await import('@/stores/auth')
     const authStore = useAuthStore()
     const token = await authStore.getToken()

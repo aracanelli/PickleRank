@@ -81,6 +81,8 @@ async def get_db_pool() -> asyncpg.Pool:
 
     if _pool is None:
         _pool = await init_db_pool()
+        if _pool is None:
+            raise RuntimeError("Database connection pool could not be initialized. Check your SUPABASE_DB_URL environment variable.")
 
     return _pool
 

@@ -213,7 +213,7 @@ function toggleSidebar() {
     </template>
 
     <!-- Event Detail Modal -->
-    <Modal :open="showEventDetail && selectedEvent" title="Event Details" @close="closeEventDetail">
+    <Modal :open="showEventDetail && !!selectedEvent" title="Event Details" @close="closeEventDetail">
       <div v-if="selectedEvent" class="event-detail-content">
         <div class="event-detail-header">
           <h3>{{ selectedEvent.name }}</h3>

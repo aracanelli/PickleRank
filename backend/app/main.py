@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,15 +20,28 @@ from app.logging_config import get_logger, setup_logging
 setup_logging()
 logger = get_logger(__name__)
 
+# Check if running on Vercel (serverless)
+IS_VERCEL = os.getenv("VERCEL") == "1"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
     logger.info("Starting application...")
-    await init_db_pool()
+    try:
+        # For serverless, we'll initialize the pool lazily on first use
+        # But try to initialize it here if not on Vercel
+        if not IS_VERCEL:
+            await init_db_pool()
+    except Exception as e:
+        logger.warning(f"Failed to initialize database pool at startup: {e}")
+        logger.info("Will attempt lazy initialization on first database request")
     yield
     logger.info("Shutting down application...")
-    await close_db_pool()
+    try:
+        await close_db_pool()
+    except Exception as e:
+        logger.warning(f"Error closing database pool: {e}")
 
 
 class CORSErrorMiddleware(BaseHTTPMiddleware):
@@ -39,7 +53,12 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
             return response
         except Exception as e:
             logger.error(f"Unhandled exception: {e}")
-            settings = get_settings()
+            try:
+                settings = get_settings()
+                cors_origins = settings.cors_origins
+            except:
+                cors_origins = ["*"]
+            
             origin = request.headers.get("origin", "")
             
             response = JSONResponse(
@@ -48,8 +67,8 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
             )
             
             # Add CORS headers if origin is allowed
-            if origin in settings.cors_origins:
-                response.headers["Access-Control-Allow-Origin"] = origin
+            if cors_origins == ["*"] or origin in cors_origins:
+                response.headers["Access-Control-Allow-Origin"] = origin or "*"
                 response.headers["Access-Control-Allow-Credentials"] = "true"
             
             return response
@@ -57,25 +76,34 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except Exception as e:
+        logger.error(f"Failed to load settings: {e}")
+        # Create a minimal app even if settings fail
+        settings = None
 
     app = FastAPI(
         title="Pickleball Matchmaking API",
         description="API for pickleball event matchmaking and ranking",
         version="1.0.0",
-        docs_url="/docs" if not settings.is_production else None,
-        redoc_url="/redoc" if not settings.is_production else None,
+        docs_url="/docs" if (settings and not settings.is_production) else None,
+        redoc_url="/redoc" if (settings and not settings.is_production) else None,
         lifespan=lifespan,
     )
 
     # Rate limiting
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    try:
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    except Exception as e:
+        logger.warning(f"Failed to setup rate limiting: {e}")
 
     # CORS - must be added BEFORE other middleware
+    cors_origins = settings.cors_origins if settings else ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -119,5 +147,20 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+# Create the app instance
+try:
+    app = create_app()
+    logger.info("FastAPI application created successfully")
+except Exception as e:
+    logger.error(f"Failed to create FastAPI application: {e}", exc_info=True)
+    # Create a minimal app for error reporting
+    app = FastAPI(title="Pickleball Matchmaking API")
+    
+    @app.get("/")
+    async def error_root():
+        return {"error": "Application failed to initialize", "detail": str(e)}
+    
+    @app.get("/api/health")
+    async def error_health():
+        return {"status": "error", "detail": "Application initialization failed"}
 
