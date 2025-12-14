@@ -1,7 +1,7 @@
 {
   "version": 2,
   "functions": {
-    "backend/app/main.py": { "runtime": "python3.12" }
+    "app/main.py": { "runtime": "python3.12" }
   },
-  "routes": [{ "src": "/(.*)", "dest": "backend/app/main.py" }]
+  "routes": [{ "src": "/(.*)", "dest": "app/main.py" }]
 }
