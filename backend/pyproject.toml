@@ -4,6 +4,35 @@ version = "1.0.0"
 description = "Pickleball Event Matchmaking & Ranking Platform API"
 requires-python = ">=3.11"
 
+dependencies = [
+  # Core
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "pydantic==2.10.4",
+  "pydantic-settings==2.7.0",
+  "python-dotenv==1.0.1",
+
+  # Database
+  "asyncpg==0.30.0",
+  "psycopg2-binary==2.9.10",
+
+  # Auth
+  "PyJWT==2.10.1",
+  "cryptography==44.0.0",
+  "httpx==0.28.1",
+
+  # Utilities
+  "python-multipart==0.0.20",
+
+  # Testing
+  "pytest==8.3.4",
+  "pytest-asyncio==0.25.0",
+  "pytest-cov==6.0.0",
+
+  # Rate limiting
+  "slowapi==0.1.9"
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
@@ -17,6 +46,3 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
-
-
-
