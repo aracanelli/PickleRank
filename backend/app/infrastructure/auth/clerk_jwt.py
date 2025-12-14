@@ -88,3 +88,5 @@ async def verify_clerk_token(token: str) -> Dict[str, Any]:
         logger.error(f"Token verification error: {e}")
         raise UnauthorizedError("Token verification failed")
 
+
+

@@ -175,3 +175,5 @@ async def remove_player_from_group(
     service = PlayerService(db)
     await service.remove_player_from_group(user.user_id, group_id, group_player_id)
 
+
+

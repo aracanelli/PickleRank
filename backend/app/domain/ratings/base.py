@@ -91,3 +91,5 @@ class RatingSystem(ABC):
         else:  # TEAM2_WIN
             return 0.0 if is_team1 else 1.0
 
+
+

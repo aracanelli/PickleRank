@@ -75,3 +75,5 @@ class RatingUpdatesRepository:
         )
         return [dict(row) for row in rows]
 
+
+

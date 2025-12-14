@@ -253,3 +253,5 @@ JOIN players p4 ON p4.id = gp4.player_id
 WHERE e.status = 'COMPLETED';
 ```
 
+
+

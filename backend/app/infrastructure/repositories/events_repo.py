@@ -176,3 +176,5 @@ class EventsRepository:
                 data["generation_meta"] = json.loads(data["generation_meta"])
         return data
 
+
+

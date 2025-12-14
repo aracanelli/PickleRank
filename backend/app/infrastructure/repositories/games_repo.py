@@ -175,3 +175,5 @@ class GamesRepository:
         )
         return [(row["p1"], row["p2"]) for row in rows]
 
+
+

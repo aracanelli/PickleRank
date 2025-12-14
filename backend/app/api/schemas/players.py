@@ -171,3 +171,5 @@ class GroupPlayerListResponse(BaseModel):
     """Response for listing group players."""
 
     players: list[GroupPlayerResponse]
+
+

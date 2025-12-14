@@ -144,3 +144,5 @@ class CatchUpEloRating(RatingSystem):
                 # Below median: normal losses
                 return base_delta
 
+
+

@@ -204,3 +204,5 @@ class TestCatchUpEloRating:
             diff = abs(catchup_deltas[pid].delta - serious_deltas[pid].delta)
             assert diff < 1  # Allow small floating point differences
 
+
+

@@ -79,3 +79,5 @@ Views interact with services directly for simplicity.
 - Clerk (authentication)
 - Vite (build tool)
 
+
+

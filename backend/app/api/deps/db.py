@@ -14,3 +14,5 @@ async def get_db() -> AsyncGenerator[Connection, None]:
     async with pool.acquire() as connection:
         yield connection
 
+
+

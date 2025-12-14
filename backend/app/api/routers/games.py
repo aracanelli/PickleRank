@@ -25,3 +25,5 @@ async def update_score(
     service = EventService(db)
     return await service.update_score(user.user_id, game_id, data.score_team1, data.score_team2)
 
+
+

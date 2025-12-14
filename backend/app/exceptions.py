@@ -85,3 +85,5 @@ class MatchmakingError(AppException):
             detail=f"Matchmaking failed: {detail}",
         )
 
+
+

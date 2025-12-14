@@ -103,3 +103,5 @@ async def recalculate_ratings(
     service = GroupService(db)
     return await service.recalculate_ratings(user.user_id, group_id)
 
+
+

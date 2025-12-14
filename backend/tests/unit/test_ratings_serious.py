@@ -248,3 +248,5 @@ class TestSeriousEloRating:
         # No deltas should be returned for UNSET games
         assert len(deltas) == 0
 
+
+

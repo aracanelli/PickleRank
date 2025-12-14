@@ -80,3 +80,5 @@ class SeriousEloRating(RatingSystem):
 
         return result
 
+
+

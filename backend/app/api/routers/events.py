@@ -176,3 +176,5 @@ async def import_history(
     service = EventService(db)
     return await service.import_history(user.user_id, group_id, file)
 
+
+

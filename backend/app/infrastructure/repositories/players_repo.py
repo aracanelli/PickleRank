@@ -386,3 +386,5 @@ class GroupPlayersRepository:
         )
         return result == "DELETE 1"
 
+
+
