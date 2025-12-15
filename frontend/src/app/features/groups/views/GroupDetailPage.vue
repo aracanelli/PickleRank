@@ -66,6 +66,15 @@ function formatRating(rating: number): string {
   return rating.toFixed(1)
 }
 
+// Check if current user is an organizer in this group
+const isOrganizer = computed(() => {
+  // Find a player in the group that is linked to my userId and has ORGANIZER role
+  const myPlayer = players.value.find(
+    p => p.userId && p.userId === currentUserId.value && p.role === 'ORGANIZER'
+  )
+  return !!myPlayer
+})
+
 async function loadPendingEvents() {
   isLoadingEvents.value = true
   try {
@@ -220,7 +229,7 @@ function closeImportModal() {
           </p>
         </div>
         <!-- Desktop header actions -->
-        <div class="header-actions desktop-only">
+        <div class="header-actions desktop-only" v-if="isOrganizer">
           <BaseButton variant="secondary" @click="router.push(`/groups/${groupId}/settings`)">
             <Settings :size="16" /> Settings
           </BaseButton>
@@ -229,7 +238,7 @@ function closeImportModal() {
           </BaseButton>
         </div>
         <!-- Mobile header actions (icon buttons) -->
-        <div class="header-actions mobile-only">
+        <div class="header-actions mobile-only" v-if="isOrganizer">
           <button class="mobile-icon-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
             <Settings :size="20" />
           </button>
@@ -253,13 +262,13 @@ function closeImportModal() {
             <span class="qa-label">History</span>
           </div>
         </BaseCard>
-        <BaseCard clickable @click="showImportModal = true">
+        <BaseCard v-if="isOrganizer" clickable @click="showImportModal = true">
           <div class="quick-action">
             <div class="qa-icon"><Upload :size="32" /></div>
             <span class="qa-label">Import History</span>
           </div>
         </BaseCard>
-        <BaseCard clickable @click="router.push(`/groups/${groupId}/events/new`)">
+        <BaseCard v-if="isOrganizer" clickable @click="router.push(`/groups/${groupId}/events/new`)">
           <div class="quick-action">
             <div class="qa-icon"><Target :size="32" /></div>
             <span class="qa-label">New Event</span>
@@ -277,7 +286,7 @@ function closeImportModal() {
               <span class="count-badge sub">{{ subPlayers.length }} Sub</span>
             </div>
           </div>
-          <div class="section-actions">
+          <div class="section-actions" v-if="isOrganizer">
             <BaseButton size="sm" @click="router.push(`/groups/${groupId}/players/manage`)">
               Manage Players
             </BaseButton>
@@ -452,11 +461,11 @@ function closeImportModal() {
         <ChartBar :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">History</span>
       </button>
-      <button class="bottom-nav-item" @click="showImportModal = true">
+      <button v-if="isOrganizer" class="bottom-nav-item" @click="showImportModal = true">
         <Upload :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">Import</span>
       </button>
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/events/new`)">
+      <button v-if="isOrganizer" class="bottom-nav-item" @click="router.push(`/groups/${groupId}/events/new`)">
         <Target :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">New Event</span>
       </button>
