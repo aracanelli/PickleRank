@@ -794,3 +794,4 @@ function getResultBadge(result: string): string {
 
 
 
+
