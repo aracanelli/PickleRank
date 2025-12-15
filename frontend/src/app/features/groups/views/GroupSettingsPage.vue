@@ -250,7 +250,7 @@ async function recalculateRatings() {
           </div>
         </BaseCard>
 
-        </BaseCard>
+
 
         <!-- Default Event Settings -->
         <BaseCard title="Default Event Settings">
