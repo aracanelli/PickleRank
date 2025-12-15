@@ -66,9 +66,14 @@ function formatRating(rating: number): string {
   return rating.toFixed(1)
 }
 
-// Check if current user is an organizer in this group
+// Check if current user is the group owner or has ORGANIZER role
 const isOrganizer = computed(() => {
-  // Find a player in the group that is linked to my userId and has ORGANIZER role
+  // First check if user is the group owner
+  if (group.value && currentUserId.value && group.value.ownerUserId === currentUserId.value) {
+    return true
+  }
+  
+  // Otherwise check if user has a linked player with ORGANIZER role
   const myPlayer = players.value.find(
     p => p.userId && p.userId === currentUserId.value && p.role === 'ORGANIZER'
   )

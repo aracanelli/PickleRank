@@ -383,6 +383,7 @@ class GroupService:
         settings = GroupSettings(**group["settings"])
         return GroupResponse(
             id=group["id"],
+            owner_user_id=group["owner_user_id"],
             name=group["name"],
             sport=group["sport"],
             settings=settings,

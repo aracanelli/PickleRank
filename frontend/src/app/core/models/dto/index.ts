@@ -16,6 +16,7 @@ export interface GroupSettings {
 
 export interface GroupDto {
   id: string
+  ownerUserId: string
   name: string
   sport: string
   settings: GroupSettings

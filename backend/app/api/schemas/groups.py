@@ -76,6 +76,7 @@ class GroupResponse(BaseModel):
     """Group response."""
 
     id: UUID
+    owner_user_id: UUID = Field(alias="ownerUserId")
     name: str
     sport: str
     settings: GroupSettings
@@ -85,6 +86,7 @@ class GroupResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 class GroupListItem(BaseModel):
