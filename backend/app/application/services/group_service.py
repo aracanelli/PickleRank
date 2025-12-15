@@ -16,6 +16,7 @@ from app.api.schemas.groups import (
 )
 from app.exceptions import ForbiddenError, NotFoundError
 from app.infrastructure.repositories.groups_repo import GroupsRepository
+from app.infrastructure.repositories.players_repo import GroupPlayersRepository
 
 
 class GroupService:
@@ -24,6 +25,7 @@ class GroupService:
     def __init__(self, conn: Connection):
         self.conn = conn
         self.groups_repo = GroupsRepository(conn)
+        self.group_players_repo = GroupPlayersRepository(conn)
 
     async def create_group(self, user_id: str, data: GroupCreate) -> GroupResponse:
         """Create a new group."""
@@ -78,10 +80,16 @@ class GroupService:
         if not group:
             raise NotFoundError("Group", str(group_id))
 
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        # Check ownership
+        if str(group["owner_user_id"]) == user_id:
+             return self._to_response(group)
+             
+        # Check membership
+        is_member = await self.group_players_repo.is_member(user_id, group_id)
+        if is_member:
+             return self._to_response(group)
 
-        return self._to_response(group)
+        raise ForbiddenError("You don't have access to this group")
 
     async def update_settings(
         self, user_id: str, group_id: UUID, data: GroupSettingsUpdate

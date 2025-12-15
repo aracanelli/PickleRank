@@ -434,6 +434,21 @@ class GroupPlayersRepository:
         )
         return result == "DELETE 1"
 
+    async def is_member(self, user_id: str, group_id: UUID) -> bool:
+        """Check if a user is a member of a group."""
+        val = await self.conn.fetchval(
+            """
+            SELECT 1 
+            FROM group_players gp
+            JOIN players p ON p.id = gp.player_id
+            WHERE gp.group_id = $1 AND p.user_id = $2
+            LIMIT 1
+            """,
+            group_id,
+            UUID(user_id)
+        )
+        return val is not None
+
 
 
 

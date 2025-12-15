@@ -306,14 +306,17 @@ class PlayerService:
         self, user_id: str, group_id: UUID
     ) -> List[GroupPlayerResponse]:
         """List all players in a group."""
-        # Verify group ownership
+        # Verify group ownership or membership
         group = await self.groups_repo.get_by_id(group_id)
 
         if not group:
             raise NotFoundError("Group", str(group_id))
 
         if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+            # Check if user is a member
+            is_member = await self.group_players_repo.is_member(user_id, group_id)
+            if not is_member:
+                raise ForbiddenError("You don't have access to this group")
 
         # Get players
         players = await self.group_players_repo.list_by_group(group_id)
