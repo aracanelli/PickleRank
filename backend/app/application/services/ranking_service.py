@@ -23,12 +23,14 @@ class RankingService:
 
     async def get_rankings(self, user_id: str, group_id: UUID) -> List[RankingEntry]:
         """Get rankings for a group."""
-        # Verify group ownership
+        # Verify group ownership or membership
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
         if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+            is_member = await self.group_players_repo.is_member(user_id, group_id)
+            if not is_member:
+                raise ForbiddenError("You don't have access to this group")
 
         # Get all players sorted by rating
         players = await self.group_players_repo.list_by_group(group_id)
@@ -66,12 +68,14 @@ class RankingService:
         player_id: Optional[UUID] = None,
     ) -> List[MatchHistoryEntry]:
         """Get match history for a group."""
-        # Verify group ownership
+        # Verify group ownership or membership
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
         if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+            is_member = await self.group_players_repo.is_member(user_id, group_id)
+            if not is_member:
+                raise ForbiddenError("You don't have access to this group")
 
         # Build query - use stored team ELO from games table
         query = """
