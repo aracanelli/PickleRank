@@ -4,6 +4,7 @@ Player service - handles player-related use cases.
 from typing import List, Optional
 from uuid import UUID
 
+import asyncpg
 from asyncpg import Connection
 
 from app.api.schemas.players import (
@@ -19,12 +20,13 @@ from app.api.schemas.players import (
     SkillLevel,
     UpdateGroupPlayerRequest,
 )
-from app.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from app.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.infrastructure.repositories.groups_repo import GroupsRepository
 from app.infrastructure.repositories.players_repo import (
     GroupPlayersRepository,
     PlayersRepository,
 )
+from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
 
 
 class PlayerService:
@@ -35,6 +37,7 @@ class PlayerService:
         self.players_repo = PlayersRepository(conn)
         self.group_players_repo = GroupPlayersRepository(conn)
         self.groups_repo = GroupsRepository(conn)
+        self.rating_updates_repo = RatingUpdatesRepository(conn)
 
     async def create_player(self, user_id: str, data: PlayerCreate) -> PlayerResponse:
         """Create a new global player."""
@@ -319,8 +322,21 @@ class PlayerService:
 
         # Get players
         players = await self.group_players_repo.list_by_group(group_id)
+        
+        # Get rating_before from last completed event to calculate deltas
+        rating_before_map = await self.rating_updates_repo.get_last_event_deltas(group_id)
 
-        return [self._to_group_player_response(p) for p in players]
+        # Build responses with calculated deltas
+        responses = []
+        for p in players:
+            # Calculate delta as current - before (if player was in last event)
+            rating_before = rating_before_map.get(p["id"])
+            rating_delta = None
+            if rating_before is not None:
+                rating_delta = float(p["rating"]) - rating_before
+            responses.append(self._to_group_player_response(p, rating_delta))
+        
+        return responses
 
     async def remove_player_from_group(
         self, user_id: str, group_id: UUID, group_player_id: UUID
@@ -335,15 +351,21 @@ class PlayerService:
         if str(group["owner_user_id"]) != user_id:
             raise ForbiddenError("You don't own this group")
 
-        # Remove
-        removed = await self.group_players_repo.remove_from_group(
-            group_id, group_player_id
-        )
+        # Try to remove - may fail if player has game history
+        try:
+            removed = await self.group_players_repo.remove_from_group(
+                group_id, group_player_id
+            )
+        except asyncpg.ForeignKeyViolationError:
+            raise ConflictError(
+                "Cannot remove player - they have participated in games. "
+                "You can change their membership type to 'Sub' instead."
+            )
 
         if not removed:
             raise NotFoundError("GroupPlayer", str(group_player_id))
 
-    def _to_group_player_response(self, gp: dict) -> GroupPlayerResponse:
+    def _to_group_player_response(self, gp: dict, rating_delta: float = None) -> GroupPlayerResponse:
         """Convert a group player dict to a response."""
         win_rate = gp.get("win_rate", 0)
         if win_rate is None and gp["games_played"] > 0:
@@ -374,6 +396,7 @@ class PlayerService:
             losses=gp["losses"],
             ties=gp["ties"],
             winRate=float(win_rate),
+            ratingDelta=rating_delta,
         )
 
 

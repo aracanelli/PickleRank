@@ -110,6 +110,11 @@ router.beforeEach(async (to, _from) => {
     return redirect || '/groups'
   }
 
+  // If user is authenticated and on home page, redirect to dashboard
+  if (to.name === 'home' && authStore.isAuthenticated) {
+    return '/groups'
+  }
+
   return true
 })
 

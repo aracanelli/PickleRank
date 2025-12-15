@@ -143,6 +143,7 @@ class RankingService:
             
             matches.append(
                 MatchHistoryEntry(
+                    gameId=row["game_id"],
                     eventId=row["event_id"],
                     eventName=row["event_name"],
                     date=row["event_date"] or datetime.now(),

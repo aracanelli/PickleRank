@@ -59,6 +59,10 @@ export const eventsApi = {
 
   async delete(eventId: string): Promise<void> {
     return api.delete(`/api/events/${eventId}`)
+  },
+
+  async update(eventId: string, data: { name?: string }): Promise<EventDto> {
+    return api.patch(`/api/events/${eventId}`, data)
   }
 }
 

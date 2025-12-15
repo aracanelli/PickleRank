@@ -11,6 +11,7 @@ export interface GroupSettings {
   autoRelaxEloDiff: boolean
   autoRelaxStep: number
   autoRelaxMaxEloDiff: number
+  defaultRounds?: number
 }
 
 export interface GroupDto {
@@ -61,6 +62,7 @@ export interface GroupPlayerDto {
   losses: number
   ties: number
   winRate: number
+  ratingDelta?: number
 }
 
 export type SkillLevel = 'ADVANCED' | 'INTERMEDIATE' | 'BEGINNER'
@@ -170,6 +172,7 @@ export interface RankingEntryDto {
   rank: number
   playerId: string
   displayName: string
+  membershipType?: MembershipType
   rating: number
   gamesPlayed: number
   wins: number
@@ -183,6 +186,7 @@ export interface RankingsResponse {
 }
 
 export interface MatchHistoryEntryDto {
+  gameId: string
   eventId: string
   eventName?: string
   date: string

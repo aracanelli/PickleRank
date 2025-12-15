@@ -34,7 +34,23 @@ class EventsRepository:
             courts,
             rounds,
         )
-        return self._row_to_dict(row)
+    async def update(self, event_id: UUID, values: Dict[str, Any]) -> None:
+        """Update event fields."""
+        if not values:
+            return
+
+        set_clauses = []
+        args = [event_id]
+        for i, (key, value) in enumerate(values.items()):
+            set_clauses.append(f"{key} = ${i + 2}")
+            args.append(value)
+        
+        query = f"""
+            UPDATE events
+            SET {', '.join(set_clauses)}, updated_at = NOW()
+            WHERE id = $1
+        """
+        await self.conn.execute(query, *args)
 
     async def get_by_id(self, event_id: UUID) -> Optional[Dict[str, Any]]:
         """Get an event by ID."""

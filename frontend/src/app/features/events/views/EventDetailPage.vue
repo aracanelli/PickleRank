@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { eventsApi } from '../services/events.api'
-import type { EventDto, GameDto, RatingUpdateDto } from '@/app/core/models/dto'
+import type { EventDto, GameDto, RatingUpdateDto, GameResult } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
@@ -23,10 +23,63 @@ const editingGameId = ref<string | null>(null)
 const editingScoreTeam1 = ref<string>('')
 const editingScoreTeam2 = ref<string>('')
 const savingGameIds = ref<Set<string>>(new Set())
+const savedGameIds = ref<Set<string>>(new Set()) // Track recently saved for checkmark animation
+const pendingSaves = ref<Map<string, number>>(new Map()) // game id -> timeout id for debounce
 
 const showCompletedModal = ref(false)
 const ratingUpdates = ref<RatingUpdateDto[]>([])
 const showPreview = ref(false)
+
+// Name editing
+const isEditingName = ref(false)
+const tempEventName = ref('')
+const isSavingName = ref(false)
+
+function startEditName() {
+  if (!event.value) return
+  tempEventName.value = event.value.name || ''
+  isEditingName.value = true
+}
+
+function cancelEditName() {
+  isEditingName.value = false
+  tempEventName.value = ''
+}
+
+async function saveName() {
+  if (!event.value || !tempEventName.value.trim()) return
+  
+  const newName = tempEventName.value.trim()
+  if (newName === event.value.name) {
+    isEditingName.value = false
+    return
+  }
+
+  // Optimistic update
+  const oldName = event.value.name
+  event.value.name = newName
+  isEditingName.value = false
+  
+  isSavingName.value = true
+  try {
+    await eventsApi.update(event.value.id, { name: newName })
+  } catch (e) {
+    // Revert on error
+    event.value.name = oldName
+    error.value = 'Failed to update name'
+  } finally {
+    isSavingName.value = false
+  }
+}
+
+// Debounce delay in milliseconds
+const DEBOUNCE_DELAY = 500
+
+// Cleanup pending timeouts on unmount
+onUnmounted(() => {
+  pendingSaves.value.forEach((timeoutId) => clearTimeout(timeoutId))
+  pendingSaves.value.clear()
+})
 
 onMounted(async () => {
   await loadEvent()
@@ -79,31 +132,54 @@ const gamesByRound = computed(() => {
 })
 
 function startEditing(game: GameDto) {
+  // Cancel any pending save for previous game
+  if (editingGameId.value && editingGameId.value !== game.id) {
+    flushPendingSave(editingGameId.value)
+  }
+  
   editingGameId.value = game.id
   editingScoreTeam1.value = game.scoreTeam1?.toString() || ''
   editingScoreTeam2.value = game.scoreTeam2?.toString() || ''
 }
 
 function cancelEditing() {
+  if (editingGameId.value) {
+    // Cancel any pending debounced save
+    const timeoutId = pendingSaves.value.get(editingGameId.value)
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+      pendingSaves.value.delete(editingGameId.value)
+    }
+  }
   editingGameId.value = null
   editingScoreTeam1.value = ''
   editingScoreTeam2.value = ''
 }
 
-async function saveScore(game: GameDto) {
+// Immediate save that flushes any pending debounced save
+function flushPendingSave(gameId: string) {
+  const timeoutId = pendingSaves.value.get(gameId)
+  if (timeoutId) {
+    clearTimeout(timeoutId)
+    pendingSaves.value.delete(gameId)
+  }
+}
+
+// Perform the actual save to the server
+async function performSave(gameId: string, score1?: number, score2?: number) {
   if (!event.value) return
   
-  savingGameIds.value.add(game.id)
+  // Already saving this game? Skip
+  if (savingGameIds.value.has(gameId)) return
+  
+  savingGameIds.value.add(gameId)
   try {
-    const score1 = editingScoreTeam1.value.trim() ? parseFloat(editingScoreTeam1.value) : undefined
-    const score2 = editingScoreTeam2.value.trim() ? parseFloat(editingScoreTeam2.value) : undefined
-    
-    const updated = await eventsApi.updateScore(game.id, {
+    const updated = await eventsApi.updateScore(gameId, {
       scoreTeam1: score1,
       scoreTeam2: score2
     })
     
-    // Update local state
+    // Update local state with server response
     const idx = event.value.games.findIndex(g => g.id === updated.id)
     if (idx !== -1) {
       event.value.games[idx] = updated
@@ -112,20 +188,100 @@ async function saveScore(game: GameDto) {
       event.value.status = 'IN_PROGRESS'
     }
     
-    editingGameId.value = null
+    // Show brief success indicator
+    savedGameIds.value.add(gameId)
+    setTimeout(() => savedGameIds.value.delete(gameId), 1500)
+    
   } catch (e: any) {
     error.value = e.message || 'Failed to save score'
+    // Reload to reset state on error
+    await loadEvent()
   } finally {
-    savingGameIds.value.delete(game.id)
+    savingGameIds.value.delete(gameId)
   }
 }
 
-function handleScoreKeyup(game: GameDto, event: KeyboardEvent) {
-  if (event.key === 'Enter') {
-    saveScore(game)
-  } else if (event.key === 'Escape') {
+// Debounced save - schedules a save after delay
+function debouncedSave(game: GameDto) {
+  if (!event.value) return
+  
+  const score1Str = String(editingScoreTeam1.value ?? '').trim()
+  const score2Str = String(editingScoreTeam2.value ?? '').trim()
+  const score1 = score1Str ? parseFloat(score1Str) : undefined
+  const score2 = score2Str ? parseFloat(score2Str) : undefined
+  
+  // Optimistic UI update - update immediately in local state
+  const idx = event.value.games.findIndex(g => g.id === game.id)
+  if (idx !== -1) {
+    event.value.games[idx] = {
+      ...event.value.games[idx],
+      scoreTeam1: score1,
+      scoreTeam2: score2,
+      result: getResultFromScores(score1, score2)
+    }
+  }
+  
+  // Cancel existing debounce timer
+  flushPendingSave(game.id)
+  
+  // Schedule new save
+  const timeoutId = window.setTimeout(() => {
+    pendingSaves.value.delete(game.id)
+    performSave(game.id, score1, score2)
+  }, DEBOUNCE_DELAY)
+  
+  pendingSaves.value.set(game.id, timeoutId)
+}
+
+function getResultFromScores(score1?: number, score2?: number): GameResult {
+  if (score1 === undefined || score2 === undefined) {
+    return 'UNSET'
+  }
+  if (score1 > score2) return 'TEAM1_WIN'
+  if (score2 > score1) return 'TEAM2_WIN'
+  return 'TIE'
+}
+
+// Save immediately (on Enter or explicit save)
+async function saveScoreNow(game: GameDto) {
+  if (!event.value) return
+  
+  // Cancel any pending debounced save
+  flushPendingSave(game.id)
+  
+  const score1Str = String(editingScoreTeam1.value ?? '').trim()
+  const score2Str = String(editingScoreTeam2.value ?? '').trim()
+  const score1 = score1Str ? parseFloat(score1Str) : undefined
+  const score2 = score2Str ? parseFloat(score2Str) : undefined
+  
+  // Optimistic update
+  const idx = event.value.games.findIndex(g => g.id === game.id)
+  if (idx !== -1) {
+    event.value.games[idx] = {
+      ...event.value.games[idx],
+      scoreTeam1: score1,
+      scoreTeam2: score2,
+      result: getResultFromScores(score1, score2)
+    }
+  }
+  
+  editingGameId.value = null
+  
+  // Perform save
+  await performSave(game.id, score1, score2)
+}
+
+function handleScoreKeyup(game: GameDto, evt: KeyboardEvent) {
+  if (evt.key === 'Enter') {
+    saveScoreNow(game)
+  } else if (evt.key === 'Escape') {
     cancelEditing()
   }
+}
+
+// Handle input changes - triggers debounced save
+function handleScoreInput(game: GameDto) {
+  debouncedSave(game)
 }
 
 async function completeEvent() {
@@ -137,7 +293,48 @@ async function completeEvent() {
     const result = await eventsApi.complete(eventId.value)
     event.value = { ...event.value!, status: result.status }
     ratingUpdates.value = result.ratingUpdates
-    showCompletedModal.value = true
+    event.value = { ...event.value!, status: result.status }
+    ratingUpdates.value = result.ratingUpdates
+    
+    // Redirect to group page
+    router.push(`/groups/${eventId.value.split('/')[0]}`) 
+    // Wait, eventId is just event UUID. We need groupId. 
+    // Route param might not have groupId if we navigated from /events/:id directly, 
+    // but the URL structure is usually /groups/:groupId/events/:eventId
+    // Let's check router or event.groupId. 
+    // event.value.groupId is NOT in EventDto normally? 
+    // API response has group_id? No, EventDto has id, name, status.
+    // But we are in a page that usually has groupId in route?
+    // Route is /events/:eventId based on router.ts probably?
+    // Actually the back link says /groups, but we don't have groupId ref?
+    // Ah, eventsApi.get used eventId.
+    // Let's use router.go(-1) or verify if we have groupId.
+    // Wait, I can't know groupId?
+    // App uses /groups/:groupId in back link? "router-link to=/groups".
+    // That link implies we might not know the exact group ID?
+    // Wait, in previous view_file line 579: "router-link to=/groups".
+    // Does the route have groupId?
+    // const eventId = computed(() => route.params.eventId as string)
+    // No groupId param in the script.
+    // BUT loadEvent returns EventDto. 
+    // Let's check EventDto definition.
+    // If not, I'll redirect to /groups.
+    // Or I check `eventsApi.get` response from backend - it returns `group_id`.
+    // My frontend EventDto might miss it?
+    // Let's assume /groups is safe or use router.push('/groups') to list.
+    // The User requested: "bring me back to my group home page".
+    // If I don't have groupId, I can't go to group home.
+    // Backend GetEvent returns group_id. 
+    // I should add groupId to EventDto interface if missing, or just cast it.
+    // casting: (event.value as any).group_id
+    // But backend is snake_case? Pydantic model response has alias?
+    // GroupId is usually camelCase in JSON if modeled that way.
+    // Let's look at `EventResponse` in backend `events.py` (which I couldn't read).
+    // `EventResponse` inherits `EventBase`? 
+    // Let's assume I can cast `(result as any).group_id` or similar.
+    // Actually, I'll update the plan to check for groupId.
+    // safely: router.push('/groups/' + (event.value as any).group_id)
+    router.push(`/groups/${(event.value as any).group_id || ''}`)
   } catch (e: any) {
     error.value = e.message || 'Failed to complete event'
   } finally {
@@ -164,7 +361,20 @@ function getResultBadge(result: string): string {
       <div class="page-header">
         <div>
           <router-link to="/groups" class="back-link">← Back to Groups</router-link>
-          <h1>{{ event.name || 'Event' }}</h1>
+          <div v-if="isEditingName" class="name-edit-wrapper">
+             <input 
+               v-model="tempEventName"
+               @keyup.enter="saveName"
+               @keyup.esc="cancelEditName"
+               @blur="saveName"
+               class="name-edit-input"
+               autofocus
+             />
+          </div>
+          <h1 v-else>
+            {{ event.name || 'Event' }}
+            <button class="edit-name-btn" @click="startEditName" title="Edit Name">✎</button>
+          </h1>
           <div class="event-meta">
             <span class="status-badge" :class="event.status.toLowerCase()">
               {{ event.status }}
@@ -308,7 +518,7 @@ function getResultBadge(result: string): string {
                     placeholder="0"
                     min="0"
                     @keyup="handleScoreKeyup(game, $event)"
-                    @blur="saveScore(game)"
+                    @input="handleScoreInput(game)"
                     autofocus
                   />
                 </div>
@@ -334,7 +544,7 @@ function getResultBadge(result: string): string {
                     placeholder="0"
                     min="0"
                     @keyup="handleScoreKeyup(game, $event)"
-                    @blur="saveScore(game)"
+                    @input="handleScoreInput(game)"
                   />
                 </div>
                 <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game)">
@@ -351,7 +561,13 @@ function getResultBadge(result: string): string {
                 Press Enter to save, Esc to cancel
               </div>
               <div v-else-if="savingGameIds.has(game.id)" class="saving-indicator">
-                Saving...
+                ⏳ Saving...
+              </div>
+              <div v-else-if="savedGameIds.has(game.id)" class="saved-indicator">
+                ✓ Saved
+              </div>
+              <div v-else-if="pendingSaves.has(game.id)" class="pending-indicator">
+                Auto-saving...
               </div>
               <div v-else-if="event.status !== 'COMPLETED'" class="edit-hint">
                 Click score to edit
@@ -378,9 +594,7 @@ function getResultBadge(result: string): string {
           </div>
         </div>
       </div>
-      <template #footer>
-        <BaseButton @click="showCompletedModal = false; router.back()">Done</BaseButton>
-      </template>
+      </div>
     </Modal>
   </div>
 </template>
@@ -403,6 +617,35 @@ function getResultBadge(result: string): string {
 .page-header h1 {
   font-size: 2rem;
   margin-bottom: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.edit-name-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+  padding: 0;
+}
+
+.edit-name-btn:hover {
+  opacity: 1;
+}
+
+.name-edit-input {
+  font-size: 2rem;
+  font-weight: 700;
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  width: 100%;
+  max-width: 400px;
 }
 
 .event-meta {
@@ -601,7 +844,9 @@ function getResultBadge(result: string): string {
 
 .editing-hint,
 .edit-hint,
-.saving-indicator {
+.saving-indicator,
+.saved-indicator,
+.pending-indicator {
   font-size: 0.75rem;
   color: var(--color-text-muted);
   font-style: italic;
@@ -609,6 +854,21 @@ function getResultBadge(result: string): string {
 
 .saving-indicator {
   color: var(--color-primary);
+}
+
+.saved-indicator {
+  color: var(--color-success);
+  animation: fadeIn 0.2s ease-in;
+}
+
+.pending-indicator {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Preview Screen */

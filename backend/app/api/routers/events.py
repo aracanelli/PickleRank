@@ -21,6 +21,7 @@ from app.api.schemas.events import (
     SwapRequest,
     SwapResponse,
 )
+from app.api.schemas.event_updates import EventUpdate
 from app.application.services.event_service import EventService
 
 router = APIRouter()
@@ -66,6 +67,20 @@ async def get_event(
     """Get event details with games."""
     service = EventService(db)
     return await service.get_event(user.user_id, event_id)
+
+
+@router.patch("/events/{event_id}", response_model=EventResponse)
+@limiter.limit(DEFAULT_RATE)
+async def update_event(
+    request: Request,
+    event_id: UUID,
+    data: EventUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Update event details."""
+    service = EventService(db)
+    return await service.update_event(user.user_id, event_id, data)
 
 
 @router.post("/events/{event_id}/generate", response_model=GenerateResponse)

@@ -311,7 +311,7 @@ class GroupPlayersRepository:
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
             WHERE gp.group_id = $1
-            ORDER BY gp.membership_type ASC, gp.rating DESC
+            ORDER BY gp.rating DESC
             """,
             group_id,
         )

@@ -3,8 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
+import { eventsApi } from '@/app/features/events/services/events.api'
 import type { MatchHistoryEntryDto, GroupDto } from '@/app/core/models/dto'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
+import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
@@ -108,6 +110,40 @@ function closeEventDetail() {
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
+
+// History Editing
+const showEditModal = ref(false)
+const editingMatch = ref<MatchHistoryEntryDto | null>(null)
+const editScore1 = ref<number | undefined>(undefined)
+const editScore2 = ref<number | undefined>(undefined)
+const isSavingEdit = ref(false)
+
+function openEditMatch(match: MatchHistoryEntryDto) {
+  editingMatch.value = match
+  editScore1.value = match.scoreTeam1
+  editScore2.value = match.scoreTeam2
+  showEditModal.value = true
+}
+
+async function saveMatchEdit() {
+  if (!editingMatch.value) return
+  
+  isSavingEdit.value = true
+  try {
+    await eventsApi.updateScore(editingMatch.value.gameId, {
+      scoreTeam1: editScore1.value,
+      scoreTeam2: editScore2.value
+    })
+    
+    // Close and reload to get recalculated values
+    showEditModal.value = false
+    await loadHistory()
+  } catch (e: any) {
+    alert('Failed to update score: ' + e.message)
+  } finally {
+    isSavingEdit.value = false
+  }
+}
 </script>
 
 <template>
@@ -179,6 +215,9 @@ function toggleSidebar() {
                 <span class="result-badge" :class="match.result.toLowerCase()">
                   {{ getResultLabel(match.result) }}
                 </span>
+                <button class="edit-btn" @click="openEditMatch(match)" title="Edit Score">
+                  Edit
+                </button>
               </div>
 
               <div class="match-teams">
@@ -248,6 +287,30 @@ function toggleSidebar() {
           </div>
         </div>
       </div>
+    </Modal>
+
+    <!-- Edit Match Modal -->
+    <Modal :open="showEditModal" title="Edit Match Score" @close="showEditModal = false">
+      <div v-if="editingMatch" class="edit-form">
+        <div class="edit-teams">
+          <div class="edit-team">
+            <span class="edit-team-label text-truncate">{{ editingMatch.team1.join(' & ') }}</span>
+            <input type="number" v-model="editScore1" class="edit-input" placeholder="0" min="0" />
+          </div>
+          <span class="edit-vs">vs</span>
+          <div class="edit-team">
+            <span class="edit-team-label text-truncate">{{ editingMatch.team2.join(' & ') }}</span>
+            <input type="number" v-model="editScore2" class="edit-input" placeholder="0" min="0" />
+          </div>
+        </div>
+        <p class="edit-warning">
+          ⚠️ Updating this score will recalculate ratings for the entire group from this event onwards. This may take a moment.
+        </p>
+      </div>
+      <template #footer>
+        <BaseButton variant="secondary" @click="showEditModal = false">Cancel</BaseButton>
+        <BaseButton :loading="isSavingEdit" @click="saveMatchEdit">Save & Recalculate</BaseButton>
+      </template>
     </Modal>
   </div>
 </template>
@@ -701,6 +764,86 @@ function toggleSidebar() {
     width: 100%;
   }
 }
+</style>
+
+<style scoped>
+.edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-left: 8px;
+}
+
+.edit-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+.edit-form {
+  padding: 1rem 0;
+}
+
+.edit-teams {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.edit-team {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.edit-team-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edit-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.edit-vs {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.edit-warning {
+  font-size: 0.8rem;
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.1);
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  margin-top: 1rem;
+}
+
+
 </style>
 
 

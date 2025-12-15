@@ -30,6 +30,7 @@ class GroupSettings(BaseModel):
     auto_relax_elo_diff: bool = Field(default=True, alias="autoRelaxEloDiff")
     auto_relax_step: float = Field(default=0.01, ge=0.005, le=0.1, alias="autoRelaxStep")
     auto_relax_max_elo_diff: float = Field(default=0.25, ge=0.1, le=0.5, alias="autoRelaxMaxEloDiff")
+    default_rounds: int = Field(default=1, ge=1, le=10, alias="defaultRounds")
 
     class Config:
         populate_by_name = True
@@ -65,6 +66,7 @@ class GroupSettingsUpdate(BaseModel):
     auto_relax_elo_diff: Optional[bool] = Field(None, alias="autoRelaxEloDiff")
     auto_relax_step: Optional[float] = Field(None, ge=0.005, le=0.1, alias="autoRelaxStep")
     auto_relax_max_elo_diff: Optional[float] = Field(None, ge=0.1, le=0.5, alias="autoRelaxMaxEloDiff")
+    default_rounds: Optional[int] = Field(None, ge=1, le=10, alias="defaultRounds")
 
     class Config:
         populate_by_name = True

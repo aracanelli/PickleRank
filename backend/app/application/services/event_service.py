@@ -26,6 +26,7 @@ from app.api.schemas.events import (
     RatingUpdate,
     SwapResponse,
 )
+from app.api.schemas.event_updates import EventUpdate
 from app.domain.matchmaking.constraints import ConstraintChecker, ConstraintConfig, Player
 from app.domain.matchmaking.generator import ScheduleGenerator
 from app.domain.ratings.base import GameForRating, GameResult as DomainGameResult, PlayerRating
@@ -138,6 +139,56 @@ class EventService:
 
         participant_count = await self.events_repo.get_participant_count(event_id)
         games = await self._get_games_with_players(event_id)
+
+        gen_meta = None
+        if event["generation_meta"]:
+            gen_meta = GenerationMeta(
+                seedUsed=event["generation_meta"].get("seed_used", ""),
+                eloDiffConfigured=event["generation_meta"].get("elo_diff_configured", 0),
+                eloDiffUsed=event["generation_meta"].get("elo_diff_used", 0),
+                relaxIterations=event["generation_meta"].get("relax_iterations", 0),
+                attempts=event["generation_meta"].get("attempts", 0),
+                durationMs=event["generation_meta"].get("duration_ms", 0),
+                constraintToggles=event["generation_meta"].get("constraint_toggles", {}),
+            )
+
+        return EventResponse(
+            id=event["id"],
+            name=event["name"],
+            status=EventStatus(event["status"]),
+            startsAt=event["starts_at"],
+            courts=event["courts"],
+            rounds=event["rounds"],
+            participantCount=participant_count,
+            generationMeta=gen_meta,
+            games=games,
+        )
+
+    async def update_event(self, user_id: str, event_id: UUID, data: "EventUpdate") -> EventResponse:
+        """Update event details."""
+        event = await self.events_repo.get_by_id(event_id)
+        if not event:
+            raise NotFoundError("Event", str(event_id))
+
+        # Verify ownership
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if str(group["owner_user_id"]) != user_id:
+            raise ForbiddenError("You don't own this event's group")
+
+        # Update fields
+        updates = {}
+        if data.name is not None:
+            updates["name"] = data.name
+
+        if updates:
+            await self.events_repo.update(event_id, updates)
+            # Fetch updated
+            event = await self.events_repo.get_by_id(event_id)
+
+        # Get games (needed for response)
+        games = await self._get_games_with_players(event_id)
+        
+        participant_count = await self.events_repo.get_participant_count(event_id)
 
         gen_meta = None
         if event["generation_meta"]:
@@ -375,8 +426,10 @@ class EventService:
 
         # Check event status
         event = await self.events_repo.get_by_id(game["event_id"])
-        if event["status"] == "COMPLETED":
-            raise BadRequestError("Cannot update score of a completed event")
+        
+        # ALLOW updates for COMPLETED events (Request #4)
+        # if event["status"] == "COMPLETED":
+        #     raise BadRequestError("Cannot update score of a completed event")
 
         # Update score
         updated = await self.games_repo.update_score(game_id, score_team1, score_team2)
@@ -384,6 +437,14 @@ class EventService:
         # Update event status to IN_PROGRESS if needed
         if event["status"] == "GENERATED":
             await self.events_repo.update_status(event["id"], "IN_PROGRESS")
+            
+        # If event was COMPLETED, trigger recalculation
+        if event["status"] == "COMPLETED":
+            # Recalculate ratings for the whole group
+            # We import locally to avoid circular dependencies
+            from app.application.services.group_service import GroupService
+            group_service = GroupService(self.conn)
+            await group_service.recalculate_ratings(user_id, group["id"])
 
         # Get player info
         games_with_players = await self._get_games_with_players(game["event_id"])

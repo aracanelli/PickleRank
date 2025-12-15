@@ -75,6 +75,28 @@ class RatingUpdatesRepository:
         )
         return [dict(row) for row in rows]
 
-
+    async def get_last_event_deltas(self, group_id: UUID) -> Dict[UUID, float]:
+        """
+        Get rating_before values from the most recent completed event for a group.
+        Returns a dict of group_player_id -> rating_before.
+        The actual delta will be calculated as current_rating - rating_before.
+        """
+        rows = await self.conn.fetch(
+            """
+            SELECT ru.group_player_id, ru.rating_before
+            FROM rating_updates ru
+            JOIN events e ON e.id = ru.event_id
+            JOIN group_players gp ON gp.id = ru.group_player_id AND gp.group_id = $1
+            WHERE e.group_id = $1 AND e.status = 'COMPLETED'
+            AND e.id = (
+                SELECT id FROM events 
+                WHERE group_id = $1 AND status = 'COMPLETED'
+                ORDER BY starts_at DESC, created_at DESC
+                LIMIT 1
+            )
+            """,
+            group_id,
+        )
+        return {row["group_player_id"]: float(row["rating_before"]) for row in rows}
 
 

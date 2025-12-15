@@ -13,6 +13,7 @@ const router = useRouter()
 const route = useRoute()
 const groupId = computed(() => route.params.groupId as string)
 
+const group = ref<any>(null) // Using any for simplicity or import GroupDto
 const players = ref<GroupPlayerDto[]>([])
 const selectedPlayerIds = ref<Set<string>>(new Set())
 const isLoading = ref(true)
@@ -44,7 +45,7 @@ const selectedSubCount = computed(() =>
 )
 
 onMounted(async () => {
-  await loadPlayers()
+  await Promise.all([loadPlayers(), loadGroup()])
 })
 
 // Auto-select all permanent players and set default courts when players are loaded
@@ -72,6 +73,17 @@ async function loadPlayers() {
     error.value = e.message || 'Failed to load players'
   } finally {
     isLoading.value = false
+  }
+}
+
+async function loadGroup() {
+  try {
+    group.value = await groupsApi.get(groupId.value)
+    if (group.value.settings?.defaultRounds) {
+      rounds.value = group.value.settings.defaultRounds
+    }
+  } catch (e) {
+    console.error('Failed to load group settings', e)
   }
 }
 

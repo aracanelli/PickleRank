@@ -161,6 +161,7 @@ class GroupPlayerResponse(BaseModel):
     losses: int
     ties: int
     win_rate: float = Field(alias="winRate")
+    rating_delta: Optional[float] = Field(None, alias="ratingDelta", description="Rating change from last completed event")
 
     class Config:
         from_attributes = True

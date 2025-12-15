@@ -31,6 +31,7 @@ const noRepeatOpponentInEvent = ref(true)
 const autoRelaxEloDiff = ref(true)
 const autoRelaxStep = ref(0.01)
 const autoRelaxMaxEloDiff = ref(0.25)
+const defaultRounds = ref(1)
 
 onMounted(async () => {
   await loadGroup()
@@ -59,6 +60,7 @@ async function loadGroup() {
     autoRelaxEloDiff.value = s.autoRelaxEloDiff
     autoRelaxStep.value = s.autoRelaxStep
     autoRelaxMaxEloDiff.value = s.autoRelaxMaxEloDiff
+    defaultRounds.value = s.defaultRounds || 1
   } catch (e: any) {
     error.value = e.message || 'Failed to load group'
   } finally {
@@ -116,6 +118,7 @@ async function saveSettings() {
       autoRelaxEloDiff: autoRelaxEloDiff.value,
       autoRelaxStep: autoRelaxStep.value,
       autoRelaxMaxEloDiff: autoRelaxMaxEloDiff.value,
+      defaultRounds: defaultRounds.value
     })
     success.value = 'Settings saved successfully!'
     setTimeout(() => success.value = '', 3000)
@@ -244,6 +247,17 @@ async function recalculateRatings() {
               <input type="number" v-model.number="eloConst" class="input" :min="ratingSystem === 'RACS_ELO' ? 0.1 : 100" :max="ratingSystem === 'RACS_ELO' ? 1 : 800" :step="ratingSystem === 'RACS_ELO' ? 0.1 : 50" />
               <span class="hint">Sensitivity</span>
             </div>
+          </div>
+        </BaseCard>
+
+        </BaseCard>
+
+        <!-- Default Event Settings -->
+        <BaseCard title="Default Event Settings">
+          <div class="form-group">
+            <label class="label">Default Rounds</label>
+            <input type="number" v-model.number="defaultRounds" class="input" min="1" max="10" />
+            <span class="hint">Number of rounds pre-filled when creating an event</span>
           </div>
         </BaseCard>
 

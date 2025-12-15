@@ -7,7 +7,6 @@ import type { GroupDto, GroupPlayerDto, PlayerDto, MembershipType, SkillLevel, B
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -21,10 +20,13 @@ const isSaving = ref(false)
 const error = ref('')
 const successMessage = ref('')
 
-// Selection state: map of playerId -> membershipType
+// Selection state for adding new players: map of playerId -> membershipType
 const selectedPlayers = ref<Map<string, MembershipType>>(new Map())
 // Skill level for subs: map of playerId -> skillLevel
 const subSkillLevels = ref<Map<string, SkillLevel>>(new Map())
+
+// Track updates in progress
+const updatingPlayerId = ref<string | null>(null)
 
 onMounted(async () => {
   await loadData()
@@ -55,25 +57,12 @@ const availablePlayers = computed(() => {
   return allPlayers.value.filter(p => !existingPlayerIds.has(p.id))
 })
 
+// Separate permanent and sub players
+const permanentExisting = computed(() => existingPlayers.value.filter(p => p.membershipType === 'PERMANENT'))
+const subExisting = computed(() => existingPlayers.value.filter(p => p.membershipType === 'SUB'))
+
 // Count of selected players
 const selectedCount = computed(() => selectedPlayers.value.size)
-
-// Count by type
-const permanentCount = computed(() => {
-  let count = 0
-  selectedPlayers.value.forEach(type => {
-    if (type === 'PERMANENT') count++
-  })
-  return count
-})
-
-const subCount = computed(() => {
-  let count = 0
-  selectedPlayers.value.forEach(type => {
-    if (type === 'SUB') count++
-  })
-  return count
-})
 
 function isSelected(playerId: string): boolean {
   return selectedPlayers.value.has(playerId)
@@ -115,18 +104,6 @@ function getSkillLevel(playerId: string): SkillLevel {
   return subSkillLevels.value.get(playerId) || 'INTERMEDIATE'
 }
 
-function selectAllAs(type: MembershipType) {
-  availablePlayers.value.forEach(p => {
-    selectedPlayers.value.set(p.id, type)
-  })
-  selectedPlayers.value = new Map(selectedPlayers.value)
-}
-
-function clearSelection() {
-  selectedPlayers.value = new Map()
-  subSkillLevels.value = new Map()
-}
-
 async function saveSelection() {
   if (selectedCount.value === 0) return
 
@@ -147,30 +124,61 @@ async function saveSelection() {
     const response = await groupsApi.bulkAddPlayers(groupId.value, { players })
     
     const addedCount = response.added.length
-    const skippedCount = response.skipped.length
     
     if (addedCount > 0) {
-      successMessage.value = `Successfully added ${addedCount} player${addedCount !== 1 ? 's' : ''}`
-      if (skippedCount > 0) {
-        successMessage.value += ` (${skippedCount} skipped - already in group)`
-      }
-    } else if (skippedCount > 0) {
-      successMessage.value = `All ${skippedCount} players were already in the group`
+      successMessage.value = `Added ${addedCount} player${addedCount !== 1 ? 's' : ''}`
     }
 
     // Clear selection and reload
     selectedPlayers.value = new Map()
     subSkillLevels.value = new Map()
     await loadData()
-
-    // Auto-navigate back after success
-    setTimeout(() => {
-      router.push(`/groups/${groupId.value}`)
-    }, 1500)
   } catch (e: any) {
     error.value = e.message || 'Failed to add players'
   } finally {
     isSaving.value = false
+  }
+}
+
+async function toggleMembershipType(player: GroupPlayerDto) {
+  const newType: MembershipType = player.membershipType === 'PERMANENT' ? 'SUB' : 'PERMANENT'
+  
+  updatingPlayerId.value = player.id
+  try {
+    await groupsApi.updateGroupPlayer(groupId.value, player.id, { membershipType: newType })
+    await loadData()
+    successMessage.value = `Changed ${player.displayName} to ${newType === 'PERMANENT' ? 'Permanent' : 'Sub'}`
+  } catch (e: any) {
+    error.value = e.message || 'Failed to update player'
+  } finally {
+    updatingPlayerId.value = null
+  }
+}
+
+async function updateSkillLevel(player: GroupPlayerDto, skillLevel: SkillLevel) {
+  updatingPlayerId.value = player.id
+  try {
+    await groupsApi.updateGroupPlayer(groupId.value, player.id, { skillLevel })
+    await loadData()
+  } catch (e: any) {
+    error.value = e.message || 'Failed to update skill level'
+  } finally {
+    updatingPlayerId.value = null
+  }
+}
+
+async function removePlayer(player: GroupPlayerDto) {
+  if (!confirm(`Remove ${player.displayName} from the group?`)) return
+  
+  updatingPlayerId.value = player.id
+  try {
+    await groupsApi.removePlayer(groupId.value, player.id)
+    await loadData()
+    successMessage.value = `Removed ${player.displayName}`
+  } catch (e: any) {
+    error.value = e.message || 'Failed to remove player'
+  } finally {
+    updatingPlayerId.value = null
   }
 }
 </script>
@@ -180,7 +188,7 @@ async function saveSelection() {
     <div class="page-header">
       <div>
         <router-link :to="`/groups/${groupId}`" class="back-link">← Back to Group</router-link>
-        <h1>Add Players to Group</h1>
+        <h1>Manage Players</h1>
         <p v-if="group" class="subtitle">{{ group.name }}</p>
       </div>
     </div>
@@ -191,109 +199,186 @@ async function saveSelection() {
       <div v-if="error" class="error-message">{{ error }}</div>
       <div v-if="successMessage" class="success-message">{{ successMessage }}</div>
 
-      <EmptyState
-        v-if="availablePlayers.length === 0"
-        icon="✅"
-        title="All players added"
-        description="All your players are already in this group."
-      >
-        <template #action>
-          <BaseButton @click="router.push('/players')">Create More Players</BaseButton>
-        </template>
-      </EmptyState>
-
-      <template v-else>
-        <!-- Selection Summary -->
-        <BaseCard class="selection-summary">
-          <div class="summary-content">
-            <div class="summary-stats">
-              <div class="stat">
-                <span class="stat-value">{{ selectedCount }}</span>
-                <span class="stat-label">Selected</span>
-              </div>
-              <div class="stat permanent">
-                <span class="stat-value">{{ permanentCount }}</span>
-                <span class="stat-label">Permanent</span>
-              </div>
-              <div class="stat sub">
-                <span class="stat-value">{{ subCount }}</span>
-                <span class="stat-label">Sub</span>
-              </div>
-            </div>
-            <div class="summary-actions">
-              <button class="text-btn" @click="selectAllAs('PERMANENT')">All as Permanent</button>
-              <button class="text-btn" @click="selectAllAs('SUB')">All as Sub</button>
-              <button class="text-btn danger" @click="clearSelection">Clear</button>
-            </div>
-          </div>
-        </BaseCard>
-
-        <!-- Player Selection Grid -->
-        <div class="players-section">
-          <h2>Available Players ({{ availablePlayers.length }})</h2>
-          <p class="help-text">Click "P" for Permanent or "S" for Sub to select players.</p>
-          
+      <!-- Existing Players Section -->
+      <section class="section" v-if="existingPlayers.length > 0">
+        <h2>Group Players ({{ existingPlayers.length }})</h2>
+        <p class="help-text">Manage membership type, skill level for subs, or remove players.</p>
+        
+        <!-- Permanent Players -->
+        <div v-if="permanentExisting.length > 0" class="players-subsection">
+          <h3 class="subsection-title">
+            <span class="type-indicator permanent"></span>
+            Permanent ({{ permanentExisting.length }})
+          </h3>
           <div class="players-grid">
-            <div
-              v-for="player in availablePlayers"
-              :key="player.id"
-              class="player-card"
-              :class="{ selected: isSelected(player.id) }"
+            <div 
+              v-for="player in permanentExisting" 
+              :key="player.id" 
+              class="player-card existing"
             >
               <div class="player-info">
-                <div class="player-avatar">{{ player.displayName[0] }}</div>
+                <div class="player-avatar permanent">{{ player.displayName[0] }}</div>
                 <div class="player-details">
                   <span class="player-name">{{ player.displayName }}</span>
-                  <span v-if="player.notes" class="player-notes">{{ player.notes }}</span>
+                  <span class="player-stats">
+                    {{ player.rating.toFixed(1) }} • {{ player.gamesPlayed }} games
+                  </span>
                 </div>
               </div>
-              <div class="type-buttons">
-                <button
-                  class="type-btn permanent"
-                  :class="{ active: getSelectedType(player.id) === 'PERMANENT' }"
-                  @click="togglePlayer(player.id, 'PERMANENT')"
-                  title="Add as Permanent"
+              <div class="player-actions">
+                <button 
+                  class="action-btn switch"
+                  :disabled="updatingPlayerId === player.id"
+                  @click="toggleMembershipType(player)"
+                  title="Change to Sub"
                 >
-                  P
+                  → Sub
                 </button>
-                <button
-                  class="type-btn sub"
-                  :class="{ active: getSelectedType(player.id) === 'SUB' }"
-                  @click="togglePlayer(player.id, 'SUB')"
-                  title="Add as Sub"
+                <button 
+                  class="action-btn remove"
+                  :disabled="updatingPlayerId === player.id"
+                  @click="removePlayer(player)"
+                  title="Remove from group"
                 >
-                  S
+                  ✕
                 </button>
-                <!-- Skill Level Dropdown for Subs -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sub Players -->
+        <div v-if="subExisting.length > 0" class="players-subsection">
+          <h3 class="subsection-title">
+            <span class="type-indicator sub"></span>
+            Subs ({{ subExisting.length }})
+          </h3>
+          <div class="players-grid">
+            <div 
+              v-for="player in subExisting" 
+              :key="player.id" 
+              class="player-card existing sub"
+            >
+              <div class="player-info">
+                <div class="player-avatar sub">{{ player.displayName[0] }}</div>
+                <div class="player-details">
+                  <span class="player-name">{{ player.displayName }}</span>
+                  <span class="player-stats">
+                    {{ player.rating.toFixed(1) }} • {{ player.gamesPlayed }} games
+                  </span>
+                </div>
+              </div>
+              <div class="player-actions">
                 <select
-                  v-if="getSelectedType(player.id) === 'SUB'"
                   class="skill-select"
-                  :value="getSkillLevel(player.id)"
-                  @change="setSkillLevel(player.id, ($event.target as HTMLSelectElement).value as SkillLevel)"
+                  :disabled="updatingPlayerId === player.id"
+                  :value="player.skillLevel || 'INTERMEDIATE'"
+                  @change="updateSkillLevel(player, ($event.target as HTMLSelectElement).value as SkillLevel)"
                 >
                   <option value="ADVANCED">A (+100)</option>
                   <option value="INTERMEDIATE">I (base)</option>
                   <option value="BEGINNER">B (-100)</option>
                 </select>
+                <button 
+                  class="action-btn switch"
+                  :disabled="updatingPlayerId === player.id"
+                  @click="toggleMembershipType(player)"
+                  title="Change to Permanent"
+                >
+                  → Perm
+                </button>
+                <button 
+                  class="action-btn remove"
+                  :disabled="updatingPlayerId === player.id"
+                  @click="removePlayer(player)"
+                  title="Remove from group"
+                >
+                  ✕
+                </button>
               </div>
             </div>
           </div>
         </div>
+      </section>
 
-        <!-- Actions -->
-        <div class="form-actions">
-          <BaseButton variant="secondary" @click="router.push(`/groups/${groupId}`)">
-            Cancel
-          </BaseButton>
+      <hr class="divider" v-if="existingPlayers.length > 0 && availablePlayers.length > 0" />
+
+      <!-- Add New Players Section -->
+      <section class="section" v-if="availablePlayers.length > 0">
+        <h2>Add Players ({{ availablePlayers.length }} available)</h2>
+        <p class="help-text">Click "P" for Permanent or "S" for Sub to select players to add.</p>
+        
+        <div class="players-grid">
+          <div
+            v-for="player in availablePlayers"
+            :key="player.id"
+            class="player-card"
+            :class="{ selected: isSelected(player.id) }"
+          >
+            <div class="player-info">
+              <div class="player-avatar" :class="{ selected: isSelected(player.id) }">
+                {{ player.displayName[0] }}
+              </div>
+              <div class="player-details">
+                <span class="player-name">{{ player.displayName }}</span>
+                <span v-if="player.notes" class="player-notes">{{ player.notes }}</span>
+              </div>
+            </div>
+            <div class="type-buttons">
+              <button
+                class="type-btn permanent"
+                :class="{ active: getSelectedType(player.id) === 'PERMANENT' }"
+                @click="togglePlayer(player.id, 'PERMANENT')"
+                title="Add as Permanent"
+              >
+                P
+              </button>
+              <button
+                class="type-btn sub"
+                :class="{ active: getSelectedType(player.id) === 'SUB' }"
+                @click="togglePlayer(player.id, 'SUB')"
+                title="Add as Sub"
+              >
+                S
+              </button>
+              <!-- Skill Level Dropdown for Subs -->
+              <select
+                v-if="getSelectedType(player.id) === 'SUB'"
+                class="skill-select"
+                :value="getSkillLevel(player.id)"
+                @change="setSkillLevel(player.id, ($event.target as HTMLSelectElement).value as SkillLevel)"
+              >
+                <option value="ADVANCED">A (+100)</option>
+                <option value="INTERMEDIATE">I (base)</option>
+                <option value="BEGINNER">B (-100)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Button -->
+        <div class="form-actions" v-if="selectedCount > 0">
           <BaseButton
             :loading="isSaving"
-            :disabled="selectedCount === 0"
             @click="saveSelection"
           >
-            Add {{ selectedCount }} Player{{ selectedCount !== 1 ? 's' : '' }} to Group
+            Add {{ selectedCount }} Player{{ selectedCount !== 1 ? 's' : '' }}
           </BaseButton>
         </div>
-      </template>
+      </section>
+
+      <!-- No players available to add -->
+      <section v-if="availablePlayers.length === 0 && existingPlayers.length > 0" class="section">
+        <BaseCard class="all-added-card">
+          <div class="all-added-content">
+            <span class="all-added-icon">✅</span>
+            <p>All your players are in this group.</p>
+            <BaseButton variant="secondary" size="sm" @click="router.push('/players')">
+              Create More Players
+            </BaseButton>
+          </div>
+        </BaseCard>
+      </section>
     </template>
   </div>
 </template>
@@ -341,72 +426,11 @@ async function saveSelection() {
   margin-bottom: var(--spacing-lg);
 }
 
-.selection-summary {
+.section {
   margin-bottom: var(--spacing-xl);
 }
 
-.summary-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--spacing-md);
-}
-
-.summary-stats {
-  display: flex;
-  gap: var(--spacing-xl);
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat-value {
-  display: block;
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-}
-
-.stat-label {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.stat.permanent .stat-value {
-  color: var(--color-primary);
-}
-
-.stat.sub .stat-value {
-  color: #f59e0b;
-}
-
-.summary-actions {
-  display: flex;
-  gap: var(--spacing-md);
-}
-
-.text-btn {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  padding: var(--spacing-xs) var(--spacing-sm);
-}
-
-.text-btn:hover {
-  text-decoration: underline;
-}
-
-.text-btn.danger {
-  color: var(--color-error);
-}
-
-.players-section h2 {
+.section h2 {
   font-size: 1.25rem;
   margin-bottom: var(--spacing-xs);
 }
@@ -417,11 +441,46 @@ async function saveSelection() {
   margin-bottom: var(--spacing-lg);
 }
 
+.players-subsection {
+  margin-bottom: var(--spacing-lg);
+}
+
+.subsection-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-md);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.type-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.type-indicator.permanent {
+  background: var(--color-primary);
+}
+
+.type-indicator.sub {
+  background: #f59e0b;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--spacing-xl) 0;
+}
+
 .players-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-xl);
 }
 
 .player-card {
@@ -433,11 +492,20 @@ async function saveSelection() {
   border: 2px solid var(--color-border);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
+  gap: var(--spacing-sm);
 }
 
 .player-card.selected {
   border-color: var(--color-primary);
   background: rgba(16, 185, 129, 0.05);
+}
+
+.player-card.existing {
+  border-color: var(--color-border);
+}
+
+.player-card.existing.sub {
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .player-info {
@@ -461,8 +529,14 @@ async function saveSelection() {
   flex-shrink: 0;
 }
 
-.player-card.selected .player-avatar {
+.player-avatar.selected,
+.player-avatar.permanent {
   background: var(--color-primary);
+  color: white;
+}
+
+.player-avatar.sub {
+  background: #f59e0b;
   color: white;
 }
 
@@ -479,6 +553,11 @@ async function saveSelection() {
   text-overflow: ellipsis;
 }
 
+.player-stats {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
 .player-notes {
   font-size: 0.75rem;
   color: var(--color-text-muted);
@@ -487,9 +566,49 @@ async function saveSelection() {
   text-overflow: ellipsis;
 }
 
+.player-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.action-btn {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.action-btn:hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+}
+
+.action-btn.switch:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.action-btn.remove:hover:not(:disabled) {
+  border-color: var(--color-error);
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .type-buttons {
   display: flex;
   gap: var(--spacing-xs);
+  flex-shrink: 0;
 }
 
 .type-btn {
@@ -536,12 +655,6 @@ async function saveSelection() {
   font-weight: 600;
   font-size: 0.75rem;
   cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23f59e0b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding-right: 24px;
 }
 
 .skill-select:focus {
@@ -556,31 +669,57 @@ async function saveSelection() {
 
 .form-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-md);
+  justify-content: center;
   padding-top: var(--spacing-lg);
-  border-top: 1px solid var(--color-border);
+}
+
+.all-added-card {
+  text-align: center;
+}
+
+.all-added-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+}
+
+.all-added-icon {
+  font-size: 2rem;
+}
+
+.all-added-content p {
+  color: var(--color-text-secondary);
 }
 
 @media (max-width: 768px) {
-  .summary-content {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .summary-stats {
-    justify-content: space-around;
-  }
-
-  .summary-actions {
-    justify-content: center;
-  }
-
   .players-grid {
     grid-template-columns: 1fr;
   }
+
+  .player-card {
+    flex-wrap: wrap;
+  }
+
+  .player-actions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .type-buttons {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--color-border);
+  }
 }
 </style>
+
 
 
 

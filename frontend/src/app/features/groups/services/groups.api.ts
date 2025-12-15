@@ -29,6 +29,7 @@ export interface UpdateGroupSettingsRequest {
   autoRelaxEloDiff?: boolean
   autoRelaxStep?: number
   autoRelaxMaxEloDiff?: number
+  defaultRounds?: number
 }
 
 export const groupsApi = {

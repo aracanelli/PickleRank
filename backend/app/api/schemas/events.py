@@ -1,9 +1,9 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class EventStatus(str, Enum):
@@ -24,30 +24,8 @@ class GameResult(str, Enum):
     UNSET = "UNSET"
 
 
-class EventCreate(BaseModel):
-    """Request to create an event."""
-
-    name: Optional[str] = Field(None, max_length=100)
-    starts_at: Optional[datetime] = Field(None, alias="startsAt")
-    courts: int = Field(..., ge=1, le=20)
-    rounds: int = Field(..., ge=1, le=20)
-    participant_ids: List[UUID] = Field(..., alias="participantIds")
-
-    @field_validator("participant_ids")
-    @classmethod
-    def validate_participants(cls, v: List[UUID], info) -> List[UUID]:
-        if len(v) < 4:
-            raise ValueError("At least 4 participants required")
-        if len(set(v)) != len(v):
-            raise ValueError("Duplicate participants not allowed")
-        return v
-
-    class Config:
-        populate_by_name = True
-
-
 class PlayerInfo(BaseModel):
-    """Player info in game context."""
+    """Player info for game response."""
 
     id: UUID
     display_name: str = Field(alias="displayName")
@@ -75,14 +53,14 @@ class GameResponse(BaseModel):
 
 
 class GenerationMeta(BaseModel):
-    """Generation metadata."""
+    """Metadata about schedule generation."""
 
     seed_used: str = Field(alias="seedUsed")
     elo_diff_configured: float = Field(alias="eloDiffConfigured")
     elo_diff_used: float = Field(alias="eloDiffUsed")
     relax_iterations: int = Field(alias="relaxIterations")
     attempts: int
-    duration_ms: int = Field(alias="durationMs")
+    duration_ms: float = Field(alias="durationMs")
     constraint_toggles: Dict[str, bool] = Field(alias="constraintToggles")
 
     class Config:
@@ -100,14 +78,14 @@ class EventResponse(BaseModel):
     rounds: int
     participant_count: int = Field(alias="participantCount")
     generation_meta: Optional[GenerationMeta] = Field(None, alias="generationMeta")
-    games: List[GameResponse] = []
+    games: List[GameResponse]
 
     class Config:
         populate_by_name = True
 
 
 class EventListItem(BaseModel):
-    """Event list item (summary)."""
+    """Event list item."""
 
     id: UUID
     name: Optional[str] = None
@@ -126,6 +104,19 @@ class EventListResponse(BaseModel):
     events: List[EventListItem]
 
 
+class EventCreate(BaseModel):
+    """Request to create an event."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    starts_at: datetime = Field(default_factory=datetime.now, alias="startsAt")
+    courts: int = Field(ge=1, le=10)
+    rounds: int = Field(ge=1, le=20)
+    participant_ids: List[UUID] = Field(alias="participantIds")
+
+    class Config:
+        populate_by_name = True
+
+
 class GenerateRequest(BaseModel):
     """Request to generate schedule."""
 
@@ -136,7 +127,7 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    """Response from schedule generation."""
+    """Response after generation."""
 
     status: EventStatus
     generation_meta: GenerationMeta = Field(alias="generationMeta")
@@ -149,23 +140,23 @@ class GenerateResponse(BaseModel):
 class SwapRequest(BaseModel):
     """Request to swap players."""
 
-    round_index: int = Field(..., ge=0, alias="roundIndex")
-    player1_id: UUID = Field(..., alias="player1Id")
-    player2_id: UUID = Field(..., alias="player2Id")
+    round_index: int = Field(alias="roundIndex")
+    player1_id: UUID = Field(alias="player1Id")
+    player2_id: UUID = Field(alias="player2Id")
 
     class Config:
         populate_by_name = True
 
 
 class SwapResponse(BaseModel):
-    """Response from player swap."""
+    """Response after swap."""
 
     success: bool
-    warnings: List[str] = []
+    warnings: List[str]
 
 
 class RatingUpdate(BaseModel):
-    """Rating update info."""
+    """Rating update for a player."""
 
     player_id: UUID = Field(alias="playerId")
     display_name: str = Field(alias="displayName")
@@ -178,14 +169,10 @@ class RatingUpdate(BaseModel):
 
 
 class CompleteResponse(BaseModel):
-    """Response from event completion."""
+    """Response after completing event."""
 
     status: EventStatus
     rating_updates: List[RatingUpdate] = Field(alias="ratingUpdates")
 
     class Config:
         populate_by_name = True
-
-
-
-

@@ -31,6 +31,7 @@ class RankingsResponse(BaseModel):
 class MatchHistoryEntry(BaseModel):
     """Match history entry."""
 
+    game_id: UUID = Field(alias="gameId")
     event_id: UUID = Field(alias="eventId")
     event_name: Optional[str] = Field(None, alias="eventName")
     date: datetime

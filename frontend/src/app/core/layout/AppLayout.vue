@@ -13,7 +13,11 @@ const showAccountSwitcher = ref(false)
 onMounted(() => {
   const handleClickOutside = (e: MouseEvent) => {
     const target = e.target as HTMLElement
-    if (!target.closest('.user-menu') && !target.closest('.account-switcher')) {
+    // Don't close if clicking on menu-related elements
+    if (!target.closest('.user-menu') && 
+        !target.closest('.account-switcher') && 
+        !target.closest('.menu-toggle') && 
+        !target.closest('.nav-mobile')) {
       isMenuOpen.value = false
       showAccountSwitcher.value = false
     }

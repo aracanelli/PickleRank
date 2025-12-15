@@ -2,9 +2,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
-import { playersApi } from '@/app/features/players/services/players.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
-import type { GroupDto, GroupPlayerDto, PlayerDto, MembershipType, SkillLevel, EventListItemDto } from '@/app/core/models/dto'
+import type { GroupDto, GroupPlayerDto, EventListItemDto } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
@@ -17,24 +16,15 @@ const groupId = computed(() => route.params.groupId as string)
 
 const group = ref<GroupDto | null>(null)
 const players = ref<GroupPlayerDto[]>([])
-const allPlayers = ref<PlayerDto[]>([])
 const pendingEvents = ref<EventListItemDto[]>([])
 const isLoading = ref(true)
 const isLoadingEvents = ref(false)
 const error = ref('')
 
-const showAddPlayerModal = ref(false)
-const selectedPlayerId = ref('')
-const selectedMembershipType = ref<MembershipType>('PERMANENT')
-const isAddingPlayer = ref(false)
-
 const showImportModal = ref(false)
 const importFile = ref<File | null>(null)
 const isImporting = ref(false)
 const importResult = ref<{ eventsCreated: number; gamesImported: number } | null>(null)
-
-// Track which player is being updated
-const updatingPlayerId = ref<string | null>(null)
 
 onMounted(async () => {
   await Promise.all([loadGroup(), loadPlayers(), loadPendingEvents()])
@@ -51,12 +41,8 @@ async function loadGroup() {
 async function loadPlayers() {
   isLoading.value = true
   try {
-    const [groupPlayersRes, allPlayersRes] = await Promise.all([
-      groupsApi.getPlayers(groupId.value),
-      playersApi.list()
-    ])
+    const groupPlayersRes = await groupsApi.getPlayers(groupId.value)
     players.value = groupPlayersRes.players
-    allPlayers.value = allPlayersRes.players
   } catch (e: any) {
     error.value = e.message || 'Failed to load players'
   } finally {
@@ -64,87 +50,12 @@ async function loadPlayers() {
   }
 }
 
-const availablePlayers = computed(() => {
-  const groupPlayerIds = new Set(players.value.map(p => p.playerId))
-  return allPlayers.value.filter(p => !groupPlayerIds.has(p.id))
-})
-
 // Compute permanent and sub counts
 const permanentPlayers = computed(() => players.value.filter(p => p.membershipType === 'PERMANENT'))
 const subPlayers = computed(() => players.value.filter(p => p.membershipType === 'SUB'))
 
-async function addPlayer() {
-  if (!selectedPlayerId.value) return
-  
-  isAddingPlayer.value = true
-  try {
-    await groupsApi.addPlayer(groupId.value, selectedPlayerId.value, selectedMembershipType.value)
-    await loadPlayers()
-    showAddPlayerModal.value = false
-    selectedPlayerId.value = ''
-    selectedMembershipType.value = 'PERMANENT'
-  } catch (e: any) {
-    error.value = e.message || 'Failed to add player'
-  } finally {
-    isAddingPlayer.value = false
-  }
-}
-
-async function toggleMembershipType(player: GroupPlayerDto) {
-  const newType: MembershipType = player.membershipType === 'PERMANENT' ? 'SUB' : 'PERMANENT'
-  
-  updatingPlayerId.value = player.id
-  try {
-    await groupsApi.updateGroupPlayer(groupId.value, player.id, { membershipType: newType })
-    // Update local state
-    const idx = players.value.findIndex(p => p.id === player.id)
-    if (idx !== -1) {
-      players.value[idx] = { ...players.value[idx], membershipType: newType }
-    }
-  } catch (e: any) {
-    error.value = e.message || 'Failed to update player'
-  } finally {
-    updatingPlayerId.value = null
-  }
-}
-
-async function updateSkillLevel(player: GroupPlayerDto, skillLevel: SkillLevel) {
-  updatingPlayerId.value = player.id
-  try {
-    const updated = await groupsApi.updateGroupPlayer(groupId.value, player.id, {
-      skillLevel
-    })
-    // Update local state
-    const idx = players.value.findIndex(p => p.id === player.id)
-    if (idx !== -1) {
-      players.value[idx] = updated
-    }
-  } catch (e: any) {
-    error.value = e.message || 'Failed to update skill level'
-  } finally {
-    updatingPlayerId.value = null
-  }
-}
-
-async function removePlayer(groupPlayerId: string) {
-  if (!confirm('Remove this player from the group?')) return
-  
-  try {
-    await groupsApi.removePlayer(groupId.value, groupPlayerId)
-    await loadPlayers()
-  } catch (e: any) {
-    error.value = e.message || 'Failed to remove player'
-  }
-}
-
 function formatRating(rating: number): string {
   return rating.toFixed(1)
-}
-
-function openAddModal() {
-  showAddPlayerModal.value = true
-  selectedPlayerId.value = ''
-  selectedMembershipType.value = 'PERMANENT'
 }
 
 async function loadPendingEvents() {
@@ -293,13 +204,23 @@ function closeImportModal() {
           <h1>{{ group.name }}</h1>
           <p class="subtitle">{{ group.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up Mode' : 'Serious ELO' }} • {{ players.length }} players</p>
         </div>
-        <div class="header-actions">
+        <!-- Desktop header actions -->
+        <div class="header-actions desktop-only">
           <BaseButton variant="secondary" @click="router.push(`/groups/${groupId}/settings`)">
             ⚙️ Settings
           </BaseButton>
           <BaseButton @click="router.push(`/groups/${groupId}/events/new`)">
             + New Event
           </BaseButton>
+        </div>
+        <!-- Mobile header actions (icon buttons) -->
+        <div class="header-actions mobile-only">
+          <button class="mobile-icon-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
+            ⚙️
+          </button>
+          <button class="mobile-icon-btn primary" @click="router.push(`/groups/${groupId}/events/new`)" title="New Event">
+            ➕
+          </button>
         </div>
       </div>
 
@@ -342,73 +263,50 @@ function closeImportModal() {
             </div>
           </div>
           <div class="section-actions">
-            <BaseButton variant="secondary" size="sm" @click="router.push(`/groups/${groupId}/players/manage`)">
+            <BaseButton size="sm" @click="router.push(`/groups/${groupId}/players/manage`)">
               Manage Players
             </BaseButton>
-            <BaseButton size="sm" @click="openAddModal">+ Add Player</BaseButton>
           </div>
         </div>
 
         <EmptyState
-          v-if="players.length === 0"
+          v-if="permanentPlayers.length === 0"
           icon="👥"
-          title="No players yet"
-          description="Add players to your group to start creating events."
+          title="No permanent players yet"
+          description="Add permanent players to your group to start creating events."
         >
           <template #action>
-            <div class="empty-actions">
-              <BaseButton variant="secondary" @click="router.push(`/groups/${groupId}/players/manage`)">
-                Bulk Add Players
-              </BaseButton>
-              <BaseButton @click="openAddModal">Add First Player</BaseButton>
-            </div>
+            <BaseButton @click="router.push(`/groups/${groupId}/players/manage`)">
+              Manage Players
+            </BaseButton>
           </template>
         </EmptyState>
 
         <div v-else class="players-list">
-          <div v-for="player in players" :key="player.id" class="player-item">
+          <div v-for="player in permanentPlayers" :key="player.id" class="player-item">
             <div class="player-info">
-              <div class="player-avatar" :class="player.membershipType.toLowerCase()">
+              <div class="player-avatar">
                 {{ player.displayName[0] }}
               </div>
               <div class="player-details">
-                <div class="player-name-row">
-                  <span class="player-name">{{ player.displayName }}</span>
-                  <button
-                    class="membership-badge"
-                    :class="player.membershipType.toLowerCase()"
-                    :disabled="updatingPlayerId === player.id"
-                    @click="toggleMembershipType(player)"
-                    :title="`Click to change to ${player.membershipType === 'PERMANENT' ? 'Sub' : 'Permanent'}`"
-                  >
-                    {{ player.membershipType === 'PERMANENT' ? 'Permanent' : 'Sub' }}
-                  </button>
-                </div>
+                <span class="player-name">{{ player.displayName }}</span>
                 <span class="player-stats">
                   {{ player.gamesPlayed }} games • {{ (player.winRate * 100).toFixed(0) }}% win rate
                 </span>
               </div>
             </div>
             <div class="player-rating">
-              <span class="rating-value">{{ formatRating(player.rating) }}</span>
+              <div class="rating-row">
+                <span class="rating-value">{{ formatRating(player.rating) }}</span>
+                <span v-if="player.ratingDelta && player.ratingDelta > 0" class="rating-delta positive">
+                  ▲ +{{ player.ratingDelta.toFixed(1) }}
+                </span>
+                <span v-else-if="player.ratingDelta && player.ratingDelta < 0" class="rating-delta negative">
+                  ▼ {{ player.ratingDelta.toFixed(1) }}
+                </span>
+              </div>
               <span class="rating-label">Rating</span>
             </div>
-            <!-- Skill Level for Subs -->
-            <select
-              v-if="player.membershipType === 'SUB'"
-              class="skill-level-select"
-              :disabled="updatingPlayerId === player.id"
-              @change="updateSkillLevel(player, ($event.target as HTMLSelectElement).value as SkillLevel)"
-              :value="player.skillLevel || 'INTERMEDIATE'"
-              title="Sub skill level (affects base rating on recalculate)"
-            >
-              <option value="ADVANCED">A (+100)</option>
-              <option value="INTERMEDIATE">I (base)</option>
-              <option value="BEGINNER">B (-100)</option>
-            </select>
-            <button class="remove-btn" @click="removePlayer(player.id)" title="Remove from group">
-              ✕
-            </button>
           </div>
         </div>
       </section>
@@ -476,59 +374,6 @@ function closeImportModal() {
       </section>
     </template>
 
-    <!-- Add Player Modal -->
-    <Modal :open="showAddPlayerModal" title="Add Player to Group" @close="showAddPlayerModal = false">
-      <div v-if="availablePlayers.length === 0" class="empty-players">
-        <p>No available players to add.</p>
-        <router-link to="/players">Create new players first</router-link>
-      </div>
-      <div v-else>
-        <div class="form-group">
-          <label class="label">Select Player</label>
-          <select v-model="selectedPlayerId" class="select">
-            <option value="">Choose a player...</option>
-            <option v-for="p in availablePlayers" :key="p.id" :value="p.id">
-              {{ p.displayName }}
-            </option>
-          </select>
-        </div>
-        
-        <div class="form-group">
-          <label class="label">Membership Type</label>
-          <div class="membership-options">
-            <button
-              class="membership-option"
-              :class="{ active: selectedMembershipType === 'PERMANENT' }"
-              @click="selectedMembershipType = 'PERMANENT'"
-            >
-              <span class="option-indicator permanent"></span>
-              <span class="option-label">Permanent</span>
-              <span class="option-desc">Regular member</span>
-            </button>
-            <button
-              class="membership-option"
-              :class="{ active: selectedMembershipType === 'SUB' }"
-              @click="selectedMembershipType = 'SUB'"
-            >
-              <span class="option-indicator sub"></span>
-              <span class="option-label">Sub</span>
-              <span class="option-desc">Substitute player</span>
-            </button>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <BaseButton variant="secondary" @click="showAddPlayerModal = false">Cancel</BaseButton>
-        <BaseButton 
-          :loading="isAddingPlayer" 
-          :disabled="!selectedPlayerId"
-          @click="addPlayer"
-        >
-          Add Player
-        </BaseButton>
-      </template>
-    </Modal>
-
     <!-- Import History Modal -->
     <Modal :open="showImportModal" title="Import History" @close="closeImportModal">
       <div class="import-content">
@@ -574,6 +419,26 @@ function closeImportModal() {
         </BaseButton>
       </template>
     </Modal>
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav" v-if="group">
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
+        <span class="bottom-nav-icon">🏆</span>
+        <span class="bottom-nav-label">Rankings</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
+        <span class="bottom-nav-icon">📊</span>
+        <span class="bottom-nav-label">History</span>
+      </button>
+      <button class="bottom-nav-item" @click="showImportModal = true">
+        <span class="bottom-nav-icon">📥</span>
+        <span class="bottom-nav-label">Import</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/events/new`)">
+        <span class="bottom-nav-icon">🎯</span>
+        <span class="bottom-nav-label">New Event</span>
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -808,6 +673,26 @@ function closeImportModal() {
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.rating-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+}
+
+.rating-delta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.rating-delta.positive {
+  color: var(--color-success, #10b981);
+}
+
+.rating-delta.negative {
+  color: var(--color-error, #ef4444);
 }
 
 .remove-btn {
@@ -1092,22 +977,127 @@ function closeImportModal() {
   flex-shrink: 0;
 }
 
+/* Responsive visibility utilities */
+.desktop-only {
+  display: flex;
+}
+
+.mobile-only {
+  display: none;
+}
+
+/* Mobile icon buttons */
+.mobile-icon-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mobile-icon-btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-light);
+}
+
+.mobile-icon-btn.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.mobile-icon-btn.primary:hover {
+  background: var(--color-primary-hover);
+}
+
+/* Mobile bottom navigation bar */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--color-bg-card);
+  border-top: 1px solid var(--color-border);
+  padding: var(--spacing-sm) var(--spacing-md);
+  padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0));
+  z-index: 100;
+  justify-content: space-around;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-sm);
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-width: 64px;
+}
+
+.bottom-nav-item:hover,
+.bottom-nav-item:active {
+  color: var(--color-primary);
+}
+
+.bottom-nav-icon {
+  font-size: 1.5rem;
+}
+
+.bottom-nav-label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 @media (max-width: 768px) {
+  /* Show/hide responsive elements */
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .mobile-bottom-nav {
+    display: flex;
+  }
+
+  /* Hide quick actions on mobile - they're in bottom nav now */
+  .quick-actions {
+    display: none;
+  }
+
+  /* Add padding at bottom for fixed nav bar */
+  .group-detail {
+    padding-bottom: 100px;
+  }
+
   .page-header {
-    flex-direction: column;
+    flex-direction: row;
     gap: var(--spacing-md);
+    align-items: flex-start;
   }
 
-  .header-actions {
-    width: 100%;
-  }
-
-  .header-actions button {
+  .page-header > div:first-child {
     flex: 1;
   }
 
-  .quick-actions {
-    grid-template-columns: 1fr;
+  .header-actions.mobile-only {
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
   }
 
   .section-header {
