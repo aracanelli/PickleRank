@@ -594,7 +594,7 @@ function getResultBadge(result: string): string {
           </div>
         </div>
       </div>
-      </div>
+
     </Modal>
   </div>
 </template>
