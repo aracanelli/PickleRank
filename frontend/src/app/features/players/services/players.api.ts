@@ -41,6 +41,14 @@ export const playersApi = {
 
   async bulkCreate(data: BulkCreatePlayersRequest): Promise<BulkCreatePlayersResponse> {
     return api.post('/api/players/bulk', data)
+  },
+
+  async generateInvite(playerId: string): Promise<string> {
+    return api.post(`/api/players/${playerId}/invite`, {})
+  },
+
+  async linkPlayer(token: string): Promise<PlayerDto> {
+    return api.post(`/api/players/link?token=${encodeURIComponent(token)}`, {})
   }
 }
 

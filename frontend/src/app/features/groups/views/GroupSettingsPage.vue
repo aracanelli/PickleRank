@@ -155,6 +155,24 @@ async function recalculateRatings() {
     isRecalculating.value = false
   }
 }
+
+const isArchiving = ref(false)
+
+async function archiveGroup() {
+  if (!confirm('Are you sure you want to archive this group? It will be hidden from your dashboard.')) {
+    return
+  }
+
+  isArchiving.value = true
+  error.value = ''
+  try {
+    await groupsApi.archive(groupId.value)
+    router.push('/groups')
+  } catch (e: any) {
+    error.value = e.message || 'Failed to archive group'
+    isArchiving.value = false
+  }
+}
 </script>
 
 <template>
@@ -320,6 +338,21 @@ async function recalculateRatings() {
               :loading="isRecalculating"
             >
               🔄 Recalculate
+            </BaseButton>
+          </div>
+
+          <div class="danger-item">
+            <div class="danger-info">
+              <strong>Archive Group</strong>
+              <span class="hint">Hide this group from your dashboard. Only you can archive it.</span>
+            </div>
+            <BaseButton 
+              variant="danger" 
+              type="button" 
+              @click="archiveGroup" 
+              :loading="isArchiving"
+            >
+              📦 Archive
             </BaseButton>
           </div>
         </BaseCard>

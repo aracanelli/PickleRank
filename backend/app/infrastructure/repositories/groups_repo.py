@@ -32,7 +32,7 @@ class GroupsRepository:
         """Get a group by ID."""
         row = await self.conn.fetchrow(
             """
-            SELECT id, owner_user_id, name, sport, settings_json, created_at, updated_at
+            SELECT id, owner_user_id, name, sport, settings_json, created_at, updated_at, is_archived
             FROM groups
             WHERE id = $1
             """,
@@ -45,17 +45,49 @@ class GroupsRepository:
         rows = await self.conn.fetch(
             """
             SELECT 
-                g.id, g.name, g.sport, g.created_at,
+                g.id, g.name, g.sport, g.created_at, g.is_archived,
                 COUNT(gp.id) as player_count
             FROM groups g
             LEFT JOIN group_players gp ON gp.group_id = g.id
-            WHERE g.owner_user_id = $1
+            WHERE g.owner_user_id = $1 AND g.is_archived = FALSE
             GROUP BY g.id
             ORDER BY g.created_at DESC
             """,
             UUID(owner_user_id),
         )
         return [dict(row) for row in rows]
+
+    async def list_member_groups(self, user_id: str) -> List[Dict[str, Any]]:
+        """List groups where the user is a member (via linked player)."""
+        rows = await self.conn.fetch(
+            """
+            SELECT 
+                g.id, g.name, g.sport, g.created_at, g.is_archived,
+                COUNT(gp2.id) as player_count
+            FROM groups g
+            JOIN group_players gp ON gp.group_id = g.id
+            JOIN players p ON p.id = gp.player_id
+            LEFT JOIN group_players gp2 ON gp2.group_id = g.id
+            WHERE p.user_id = $1 AND g.is_archived = FALSE
+            GROUP BY g.id
+            ORDER BY g.created_at DESC
+            """,
+            UUID(user_id),
+        )
+        return [dict(row) for row in rows]
+
+    async def archive(self, group_id: UUID) -> Optional[Dict[str, Any]]:
+        """Archive a group."""
+        row = await self.conn.fetchrow(
+            """
+            UPDATE groups
+            SET is_archived = TRUE, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, owner_user_id, name, sport, settings_json, created_at, updated_at, is_archived
+            """,
+            group_id,
+        )
+        return self._row_to_dict(row) if row else None
 
     async def update_settings(
         self, group_id: UUID, settings: Dict[str, Any]

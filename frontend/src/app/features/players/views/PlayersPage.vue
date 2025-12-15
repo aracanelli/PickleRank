@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { playersApi } from '../services/players.api'
 import type { PlayerDto } from '@/app/core/models/dto'
+import { Users, Search, Plus, FileText, CheckCircle, AlertTriangle, Link, UserPlus, Copy, Check } from 'lucide-vue-next'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
@@ -25,6 +26,12 @@ const showBulkModal = ref(false)
 const bulkNames = ref('')
 const isBulkCreating = ref(false)
 const bulkResult = ref<{ created: number; skipped: string[] } | null>(null)
+
+// Invite logic
+const showInviteModal = ref(false)
+const inviteLink = ref('')
+const invitingPlayerName = ref('')
+const copySuccess = ref(false)
 
 onMounted(async () => {
   await loadPlayers()
@@ -103,6 +110,29 @@ function closeBulkModal() {
   bulkResult.value = null
 }
 
+async function generateInvite(player: PlayerDto) {
+  try {
+     const token = await playersApi.generateInvite(player.id)
+     const baseUrl = window.location.origin
+     inviteLink.value = `${baseUrl}/link-player?token=${token}`
+     invitingPlayerName.value = player.displayName
+     showInviteModal.value = true
+     copySuccess.value = false
+  } catch (e: any) {
+     error.value = e.message || 'Failed to generate invite'
+  }
+}
+
+async function copyLink() {
+  try {
+    await navigator.clipboard.writeText(inviteLink.value)
+    copySuccess.value = true
+    setTimeout(() => { copySuccess.value = false }, 2000)
+  } catch (e) {
+    console.error('Failed to copy', e)
+  }
+}
+
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', {
     month: 'short',
@@ -135,10 +165,10 @@ function getBulkNameCount(): number {
       </div>
       <div class="header-actions">
         <BaseButton variant="secondary" @click="showBulkModal = true">
-          + Bulk Add
+          <FileText :size="16" /> Bulk Add
         </BaseButton>
         <BaseButton @click="showCreateModal = true">
-          + New Player
+          <Plus :size="16" /> New Player
         </BaseButton>
       </div>
     </div>
@@ -161,7 +191,7 @@ function getBulkNameCount(): number {
 
     <EmptyState
       v-else-if="players.length === 0 && !searchQuery"
-      icon="👥"
+      :icon="Users"
       title="No players yet"
       description="Create players here and add them to your groups."
     >
@@ -175,7 +205,7 @@ function getBulkNameCount(): number {
 
     <EmptyState
       v-else-if="players.length === 0 && searchQuery"
-      icon="🔍"
+      :icon="Search"
       title="No players found"
       description="Try a different search term."
     />
@@ -187,7 +217,19 @@ function getBulkNameCount(): number {
           <div class="player-info">
             <h3>{{ player.displayName }}</h3>
             <p v-if="player.notes" class="player-notes">{{ player.notes }}</p>
-            <span class="player-date">Added {{ formatDate(player.createdAt) }}</span>
+            
+            <div class="player-meta">
+                <span class="player-date">Added {{ formatDate(player.createdAt) }}</span>
+                
+                <div class="link-actions">
+                    <span v-if="player.userId" class="status-badge linked" title="Linked to user">
+                        <UserPlus :size="12"/> Linked
+                    </span>
+                    <button v-else @click="generateInvite(player)" class="link-btn" title="Generate Link">
+                        <Link :size="12" /> Link
+                    </button>
+                </div>
+            </div>
           </div>
         </div>
       </BaseCard>
@@ -245,10 +287,10 @@ Sarah Williams"
       <!-- Results -->
       <div v-if="bulkResult" class="bulk-result">
         <div v-if="bulkResult.created > 0" class="result-success">
-          ✅ Successfully created {{ bulkResult.created }} player{{ bulkResult.created !== 1 ? 's' : '' }}
+          <CheckCircle :size="16" /> Successfully created {{ bulkResult.created }} player{{ bulkResult.created !== 1 ? 's' : '' }}
         </div>
         <div v-if="bulkResult.skipped.length > 0" class="result-skipped">
-          <span class="result-label">⚠️ Skipped (already exist):</span>
+          <span class="result-label"><AlertTriangle :size="16" /> Skipped (already exist):</span>
           <ul>
             <li v-for="name in bulkResult.skipped" :key="name">{{ name }}</li>
           </ul>
@@ -267,6 +309,24 @@ Sarah Williams"
         >
           Add {{ getBulkNameCount() }} Player{{ getBulkNameCount() !== 1 ? 's' : '' }}
         </BaseButton>
+      </template>
+    </Modal>
+
+    <!-- Invite Modal -->
+    <Modal :open="showInviteModal" title="Link Player to User" @close="showInviteModal = false">
+      <div class="invite-content">
+        <p>Send this link to <strong>{{ invitingPlayerName }}</strong>. When they click it, this player profile will be linked to their account.</p>
+        
+        <div class="invite-link-box">
+          <input type="text" readonly :value="inviteLink" class="link-input" />
+          <BaseButton size="sm" @click="copyLink">
+            <template v-if="copySuccess"><Check :size="16" /> Copied</template>
+            <template v-else><Copy :size="16" /> Copy</template>
+          </BaseButton>
+        </div>
+      </div>
+      <template #footer>
+        <BaseButton @click="showInviteModal = false">Close</BaseButton>
       </template>
     </Modal>
   </div>
@@ -466,6 +526,75 @@ Sarah Williams"
   .players-grid {
     grid-template-columns: 1fr;
   }
+  .players-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.player-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: var(--spacing-sm);
+}
+
+.link-actions {
+    display: flex;
+    align-items: center;
+}
+
+.status-badge.linked {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--color-primary);
+    background: rgba(16, 185, 129, 0.1);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+}
+
+.link-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.link-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.invite-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.invite-link-box {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.link-input {
+  flex: 1;
+  padding: var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
 }
 </style>
 

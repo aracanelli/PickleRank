@@ -68,6 +68,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/link-player',
+      name: 'link-player',
+      component: () => import('@/app/features/players/views/LinkPlayerPage.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/app/features/home/views/NotFoundPage.vue')

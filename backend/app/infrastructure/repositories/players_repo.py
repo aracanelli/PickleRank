@@ -11,18 +11,19 @@ class PlayersRepository:
         self.conn = conn
 
     async def create(
-        self, owner_user_id: str, display_name: str, notes: Optional[str] = None
+        self, owner_user_id: str, display_name: str, notes: Optional[str] = None, user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new global player."""
         row = await self.conn.fetchrow(
             """
-            INSERT INTO players (owner_user_id, display_name, notes)
-            VALUES ($1, $2, $3)
-            RETURNING id, display_name, notes, created_at, updated_at
+            INSERT INTO players (owner_user_id, display_name, notes, user_id)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, display_name, notes, user_id, invite_token, created_at, updated_at
             """,
             UUID(owner_user_id),
             display_name,
             notes,
+            UUID(user_id) if user_id else None,
         )
         return dict(row)
 
@@ -30,7 +31,7 @@ class PlayersRepository:
         """Get a player by ID."""
         row = await self.conn.fetchrow(
             """
-            SELECT id, owner_user_id, display_name, notes, created_at, updated_at
+            SELECT id, owner_user_id, display_name, notes, user_id, invite_token, created_at, updated_at
             FROM players
             WHERE id = $1
             """,
@@ -45,7 +46,7 @@ class PlayersRepository:
         if search:
             rows = await self.conn.fetch(
                 """
-                SELECT id, display_name, notes, created_at
+                SELECT id, display_name, notes, user_id, invite_token, created_at
                 FROM players
                 WHERE owner_user_id = $1 AND display_name ILIKE $2
                 ORDER BY display_name
@@ -56,7 +57,7 @@ class PlayersRepository:
         else:
             rows = await self.conn.fetch(
                 """
-                SELECT id, display_name, notes, created_at
+                SELECT id, display_name, notes, user_id, invite_token, created_at
                 FROM players
                 WHERE owner_user_id = $1
                 ORDER BY display_name
@@ -65,11 +66,25 @@ class PlayersRepository:
             )
         return [dict(row) for row in rows]
 
+    async def list_by_linked_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """List players linked to a user."""
+        rows = await self.conn.fetch(
+            """
+            SELECT id, owner_user_id, display_name, notes, user_id, invite_token, created_at
+            FROM players
+            WHERE user_id = $1
+            """,
+            UUID(user_id),
+        )
+        return [dict(row) for row in rows]
+
     async def update(
         self,
         player_id: UUID,
         display_name: Optional[str] = None,
         notes: Optional[str] = None,
+        user_id: Optional[str] = None,
+        invite_token: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Update a player."""
         # Build dynamic update
@@ -87,6 +102,16 @@ class PlayersRepository:
             params.append(notes)
             param_idx += 1
 
+        if user_id is not None:
+            updates.append(f"user_id = ${param_idx}")
+            params.append(UUID(user_id))
+            param_idx += 1
+
+        if invite_token is not None:
+            updates.append(f"invite_token = ${param_idx}")
+            params.append(invite_token)
+            param_idx += 1
+
         if not updates:
             return await self.get_by_id(player_id)
 
@@ -94,10 +119,22 @@ class PlayersRepository:
             UPDATE players
             SET {', '.join(updates)}, updated_at = NOW()
             WHERE id = $1
-            RETURNING id, display_name, notes, created_at, updated_at
+            RETURNING id, display_name, notes, user_id, invite_token, created_at, updated_at
         """
 
         row = await self.conn.fetchrow(query, *params)
+        return dict(row) if row else None
+
+    async def get_by_invite_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Get a player by invite token."""
+        row = await self.conn.fetchrow(
+            """
+            SELECT id, owner_user_id, display_name, notes, user_id, invite_token, created_at, updated_at
+            FROM players
+            WHERE invite_token = $1
+            """,
+            token,
+        )
         return dict(row) if row else None
 
     async def delete(self, player_id: UUID) -> bool:
@@ -169,26 +206,28 @@ class GroupPlayersRepository:
         initial_rating: float,
         membership_type: str = "PERMANENT",
         skill_level: Optional[str] = None,
+        role: str = "PLAYER",
     ) -> Dict[str, Any]:
         """Add a player to a group with optional skill level for subs."""
         row = await self.conn.fetchrow(
             """
-            INSERT INTO group_players (group_id, player_id, rating, membership_type, skill_level)
-            VALUES ($1, $2, $3, $4::membership_type, $5)
+            INSERT INTO group_players (group_id, player_id, rating, membership_type, skill_level, role)
+            VALUES ($1, $2, $3, $4::membership_type, $5, $6)
             ON CONFLICT (group_id, player_id) DO NOTHING
-            RETURNING id, group_id, player_id, membership_type, skill_level, rating, games_played, wins, losses, ties, created_at
+            RETURNING id, group_id, player_id, membership_type, skill_level, role, rating, games_played, wins, losses, ties, created_at
             """,
             group_id,
             player_id,
             initial_rating,
             membership_type,
             skill_level,
+            role,
         )
         if row is None:
             # Already exists, fetch it
             row = await self.conn.fetchrow(
                 """
-                SELECT id, group_id, player_id, membership_type, skill_level, rating, games_played, wins, losses, ties, created_at
+                SELECT id, group_id, player_id, membership_type, skill_level, role, rating, games_played, wins, losses, ties, created_at
                 FROM group_players
                 WHERE group_id = $1 AND player_id = $2
                 """,
@@ -225,21 +264,24 @@ class GroupPlayersRepository:
             initial_rating = player_data.get("initial_rating", 1000)
             skill_level = player_data.get("skill_level")  # None for permanent players
 
+            role = player_data.get("role", "PLAYER")
+
             if player_id in existing_player_ids:
                 skipped.append(str(player_id))
                 continue
 
             row = await self.conn.fetchrow(
                 """
-                INSERT INTO group_players (group_id, player_id, rating, membership_type, skill_level)
-                VALUES ($1, $2, $3, $4::membership_type, $5)
-                RETURNING id, group_id, player_id, membership_type, skill_level, rating, games_played, wins, losses, ties, created_at
+                INSERT INTO group_players (group_id, player_id, rating, membership_type, skill_level, role)
+                VALUES ($1, $2, $3, $4::membership_type, $5, $6)
+                RETURNING id, group_id, player_id, membership_type, skill_level, role, rating, games_played, wins, losses, ties, created_at
                 """,
                 group_id,
                 player_id,
                 initial_rating,
                 membership_type,
                 skill_level,
+                role,
             )
             added.append(dict(row))
             existing_player_ids.add(player_id)
@@ -251,8 +293,9 @@ class GroupPlayersRepository:
         group_player_id: UUID,
         membership_type: Optional[str] = None,
         skill_level: Optional[str] = None,
+        role: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Update a group player's membership type and/or skill level."""
+        """Update a group player's membership type, skill level, and role."""
         # Build dynamic update
         updates = []
         params = [group_player_id]
@@ -269,6 +312,11 @@ class GroupPlayersRepository:
             params.append(skill_level if skill_level != "__CLEAR__" else None)
             param_idx += 1
         
+        if role is not None:
+            updates.append(f"role = ${param_idx}")
+            params.append(role)
+            param_idx += 1
+        
         if not updates:
             return await self.get_by_id(group_player_id)
         
@@ -277,7 +325,7 @@ class GroupPlayersRepository:
             UPDATE group_players
             SET {', '.join(updates)}
             WHERE id = $1
-            RETURNING id, group_id, player_id, membership_type, skill_level, rating, games_played, wins, losses, ties, created_at, updated_at
+            RETURNING id, group_id, player_id, membership_type, skill_level, role, rating, games_played, wins, losses, ties, created_at, updated_at
         """
         row = await self.conn.fetchrow(query, *params)
         return dict(row) if row else None
@@ -286,9 +334,9 @@ class GroupPlayersRepository:
         """Get a group player by ID."""
         row = await self.conn.fetchrow(
             """
-            SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.rating, 
+            SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating, 
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name, gp.created_at, gp.updated_at
+                   p.display_name, p.user_id, gp.created_at, gp.updated_at
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
             WHERE gp.id = $1
@@ -301,9 +349,9 @@ class GroupPlayersRepository:
         """List all players in a group."""
         rows = await self.conn.fetch(
             """
-            SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.rating,
+            SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating,
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name,
+                   p.display_name, p.user_id,
                    CASE WHEN gp.games_played > 0 
                         THEN ROUND((gp.wins + 0.5 * gp.ties)::NUMERIC / gp.games_played, 3)
                         ELSE 0 
@@ -321,9 +369,9 @@ class GroupPlayersRepository:
         """Get multiple group players by IDs."""
         rows = await self.conn.fetch(
             """
-            SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.rating,
+            SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating,
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name
+                   p.display_name, p.user_id
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
             WHERE gp.id = ANY($1)

@@ -42,7 +42,7 @@ class GroupService:
         return self._to_response(group)
 
     async def list_groups(self, user_id: str) -> List[GroupListItem]:
-        """List all groups for a user."""
+        """List all groups owned by a user."""
         groups = await self.groups_repo.list_by_owner(user_id)
         return [
             GroupListItem(
@@ -51,6 +51,22 @@ class GroupService:
                 sport=g["sport"],
                 playerCount=g["player_count"],
                 created_at=g["created_at"],
+                is_archived=g.get("is_archived", False),
+            )
+            for g in groups
+        ]
+
+    async def list_member_groups(self, user_id: str) -> List[GroupListItem]:
+        """List all groups where user is a member."""
+        groups = await self.groups_repo.list_member_groups(user_id)
+        return [
+            GroupListItem(
+                id=g["id"],
+                name=g["name"],
+                sport=g["sport"],
+                playerCount=g["player_count"],
+                created_at=g["created_at"],
+                is_archived=g.get("is_archived", False),
             )
             for g in groups
         ]
@@ -341,6 +357,19 @@ class GroupService:
             ]
         }
 
+    async def archive_group(self, user_id: str, group_id: UUID) -> GroupResponse:
+        """Archive a group."""
+        group = await self.groups_repo.get_by_id(group_id)
+        
+        if not group:
+            raise NotFoundError("Group", str(group_id))
+            
+        if str(group["owner_user_id"]) != user_id:
+            raise ForbiddenError("You don't own this group")
+            
+        archived = await self.groups_repo.archive(group_id)
+        return self._to_response(archived)
+
     def _to_response(self, group: Dict[str, Any]) -> GroupResponse:
         """Convert a group dict to a response."""
         settings = GroupSettings(**group["settings"])
@@ -351,6 +380,7 @@ class GroupService:
             settings=settings,
             created_at=group["created_at"],
             updated_at=group.get("updated_at"),
+            is_archived=group.get("is_archived", False),
         )
 
 

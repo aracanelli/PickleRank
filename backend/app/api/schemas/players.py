@@ -13,12 +13,20 @@ class MembershipType(str, Enum):
     SUB = "SUB"
 
 
+
 class SkillLevel(str, Enum):
     """Skill level for sub players (affects starting rating)."""
 
     ADVANCED = "ADVANCED"      # +100 from base rating
     INTERMEDIATE = "INTERMEDIATE"  # Base rating (default)
     BEGINNER = "BEGINNER"      # -100 from base rating
+
+
+class GroupRole(str, Enum):
+    """Role of a player in a group."""
+    
+    ORGANIZER = "ORGANIZER"
+    PLAYER = "PLAYER"
 
 
 class PlayerCreate(BaseModel):
@@ -47,6 +55,8 @@ class PlayerResponse(BaseModel):
     id: UUID
     display_name: str = Field(alias="displayName")
     notes: Optional[str] = None
+    user_id: Optional[UUID] = Field(None, alias="userId")
+    invite_token: Optional[str] = Field(None, alias="inviteToken")
     created_at: datetime
 
     class Config:
@@ -91,6 +101,7 @@ class AddPlayerToGroupRequest(BaseModel):
         default=None, alias="skillLevel",
         description="Skill level for subs (affects starting rating). Only used for SUB members."
     )
+    role: GroupRole = Field(default=GroupRole.PLAYER)
 
     class Config:
         populate_by_name = True
@@ -141,6 +152,7 @@ class UpdateGroupPlayerRequest(BaseModel):
 
     membership_type: Optional[MembershipType] = Field(None, alias="membershipType")
     skill_level: Optional[SkillLevel] = Field(None, alias="skillLevel")
+    role: Optional[GroupRole] = None
 
     class Config:
         populate_by_name = True
@@ -155,6 +167,8 @@ class GroupPlayerResponse(BaseModel):
     display_name: str = Field(alias="displayName")
     membership_type: MembershipType = Field(alias="membershipType")
     skill_level: Optional[SkillLevel] = Field(None, alias="skillLevel")
+    role: GroupRole = Field(default=GroupRole.PLAYER)
+    user_id: Optional[UUID] = Field(None, alias="userId")
     rating: float
     games_played: int = Field(alias="gamesPlayed")
     wins: int

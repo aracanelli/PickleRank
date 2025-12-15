@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { 
+  ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
+  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle 
+} from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
@@ -9,6 +13,10 @@ import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+const currentUserId = computed(() => authStore.userId)
 
 const router = useRouter()
 const route = useRoute()
@@ -200,26 +208,33 @@ function closeImportModal() {
       <!-- Header -->
       <div class="page-header">
         <div>
-          <router-link to="/groups" class="back-link">← Back to Groups</router-link>
+          <router-link to="/groups" class="back-link">
+            <ArrowLeft :size="16" /> Back to Groups
+          </router-link>
           <h1>{{ group.name }}</h1>
-          <p class="subtitle">{{ group.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up Mode' : 'Serious ELO' }} • {{ players.length }} players</p>
+          <p class="subtitle">
+            <template v-if="group.settings.ratingSystem === 'CATCH_UP'">Catch-Up Mode</template>
+            <template v-else-if="group.settings.ratingSystem === 'RACS_ELO'">Rac's ELO</template>
+            <template v-else>Serious ELO</template>
+             • {{ players.length }} players
+          </p>
         </div>
         <!-- Desktop header actions -->
         <div class="header-actions desktop-only">
           <BaseButton variant="secondary" @click="router.push(`/groups/${groupId}/settings`)">
-            ⚙️ Settings
+            <Settings :size="16" /> Settings
           </BaseButton>
           <BaseButton @click="router.push(`/groups/${groupId}/events/new`)">
-            + New Event
+            <Plus :size="16" /> New Event
           </BaseButton>
         </div>
         <!-- Mobile header actions (icon buttons) -->
         <div class="header-actions mobile-only">
           <button class="mobile-icon-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
-            ⚙️
+            <Settings :size="20" />
           </button>
           <button class="mobile-icon-btn primary" @click="router.push(`/groups/${groupId}/events/new`)" title="New Event">
-            ➕
+            <Plus :size="20" />
           </button>
         </div>
       </div>
@@ -228,25 +243,25 @@ function closeImportModal() {
       <div class="quick-actions">
         <BaseCard clickable @click="router.push(`/groups/${groupId}/rankings`)">
           <div class="quick-action">
-            <span class="qa-icon">🏆</span>
+            <div class="qa-icon"><Trophy :size="32" /></div>
             <span class="qa-label">Rankings</span>
           </div>
         </BaseCard>
         <BaseCard clickable @click="router.push(`/groups/${groupId}/history`)">
           <div class="quick-action">
-            <span class="qa-icon">📊</span>
+            <div class="qa-icon"><ChartBar :size="32" /></div>
             <span class="qa-label">History</span>
           </div>
         </BaseCard>
         <BaseCard clickable @click="showImportModal = true">
           <div class="quick-action">
-            <span class="qa-icon">📥</span>
+            <div class="qa-icon"><Upload :size="32" /></div>
             <span class="qa-label">Import History</span>
           </div>
         </BaseCard>
         <BaseCard clickable @click="router.push(`/groups/${groupId}/events/new`)">
           <div class="quick-action">
-            <span class="qa-icon">🎯</span>
+            <div class="qa-icon"><Target :size="32" /></div>
             <span class="qa-label">New Event</span>
           </div>
         </BaseCard>
@@ -271,7 +286,7 @@ function closeImportModal() {
 
         <EmptyState
           v-if="permanentPlayers.length === 0"
-          icon="👥"
+          :icon="Users"
           title="No permanent players yet"
           description="Add permanent players to your group to start creating events."
         >
@@ -289,7 +304,11 @@ function closeImportModal() {
                 {{ player.displayName[0] }}
               </div>
               <div class="player-details">
-                <span class="player-name">{{ player.displayName }}</span>
+                <div class="player-name-row">
+                  <span class="player-name">{{ player.displayName }}</span>
+                  <span v-if="player.userId === currentUserId" class="me-indicator">(Me)</span>
+                  <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">Organizer</span>
+                </div>
                 <span class="player-stats">
                   {{ player.gamesPlayed }} games • {{ (player.winRate * 100).toFixed(0) }}% win rate
                 </span>
@@ -299,10 +318,10 @@ function closeImportModal() {
               <div class="rating-row">
                 <span class="rating-value">{{ formatRating(player.rating) }}</span>
                 <span v-if="player.ratingDelta && player.ratingDelta > 0" class="rating-delta positive">
-                  ▲ +{{ player.ratingDelta.toFixed(1) }}
+                  <TrendingUp :size="12" /> +{{ player.ratingDelta.toFixed(1) }}
                 </span>
                 <span v-else-if="player.ratingDelta && player.ratingDelta < 0" class="rating-delta negative">
-                  ▼ {{ player.ratingDelta.toFixed(1) }}
+                  <TrendingDown :size="12" /> {{ player.ratingDelta.toFixed(1) }}
                 </span>
               </div>
               <span class="rating-label">Rating</span>
@@ -322,14 +341,14 @@ function closeImportModal() {
           </div>
           <div class="section-actions">
             <BaseButton size="sm" @click="router.push(`/groups/${groupId}/events/new`)">
-              + New Event
+              <Plus :size="16" /> New Event
             </BaseButton>
           </div>
         </div>
 
         <EmptyState
           v-if="!isLoadingEvents && pendingEvents.length === 0"
-          icon="📅"
+          :icon="Calendar"
           title="No pending events"
           description="Create a new event to start organizing games."
         >
@@ -380,7 +399,7 @@ function closeImportModal() {
         <div class="import-instructions">
           <p>Import historical game data from a CSV file. Download the template to see the required format.</p>
           <BaseButton variant="secondary" size="sm" @click="downloadTemplate">
-            📥 Download Template
+            <Download :size="16" /> Download Template
           </BaseButton>
         </div>
 
@@ -390,7 +409,10 @@ function closeImportModal() {
         </div>
 
         <div v-if="importResult" class="import-success">
-          <h4>✅ Import Successful!</h4>
+          <div class="success-header">
+            <CheckCircle :size="24" class="success-icon" />
+            <h4>Import Successful!</h4>
+          </div>
           <p>{{ importResult.eventsCreated }} events created</p>
           <p>{{ importResult.gamesImported }} games imported</p>
         </div>
@@ -423,19 +445,19 @@ function closeImportModal() {
     <!-- Mobile Bottom Navigation Bar -->
     <nav class="mobile-bottom-nav" v-if="group">
       <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
-        <span class="bottom-nav-icon">🏆</span>
+        <Trophy :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">Rankings</span>
       </button>
       <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
-        <span class="bottom-nav-icon">📊</span>
+        <ChartBar :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">History</span>
       </button>
       <button class="bottom-nav-item" @click="showImportModal = true">
-        <span class="bottom-nav-icon">📥</span>
+        <Upload :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">Import</span>
       </button>
       <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/events/new`)">
-        <span class="bottom-nav-icon">🎯</span>
+        <Target :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">New Event</span>
       </button>
     </nav>
@@ -451,7 +473,9 @@ function closeImportModal() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
   margin-bottom: var(--spacing-sm);
@@ -1125,6 +1149,29 @@ function closeImportModal() {
   .event-actions button {
     flex: 1;
   }
+}
+.role-badge {
+  font-size: 0.625rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  margin-left: var(--spacing-xs);
+}
+
+.role-badge.organizer {
+  background: rgba(124, 58, 237, 0.15);
+  color: #7c3aed;
+}
+
+.me-indicator {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  margin-left: var(--spacing-xs);
+  font-weight: normal;
 }
 </style>
 

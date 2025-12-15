@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineProps<{
-  icon?: string
+  icon?: any
   title: string
   description?: string
 }>()
@@ -8,7 +8,10 @@ defineProps<{
 
 <template>
   <div class="empty-state">
-    <div v-if="icon" class="icon">{{ icon }}</div>
+    <div v-if="icon" class="icon">
+      <component :is="icon" v-if="typeof icon !== 'string'" />
+      <span v-else>{{ icon }}</span>
+    </div>
     <h3 class="title">{{ title }}</h3>
     <p v-if="description" class="description">{{ description }}</p>
     <div v-if="$slots.action" class="action">

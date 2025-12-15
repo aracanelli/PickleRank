@@ -81,6 +81,7 @@ class GroupResponse(BaseModel):
     settings: GroupSettings
     created_at: datetime
     updated_at: Optional[datetime] = None
+    is_archived: bool = Field(default=False, alias="isArchived")
 
     class Config:
         from_attributes = True
@@ -94,6 +95,7 @@ class GroupListItem(BaseModel):
     sport: str
     player_count: int = Field(alias="playerCount")
     created_at: datetime
+    is_archived: bool = Field(default=False, alias="isArchived")
 
     class Config:
         from_attributes = True

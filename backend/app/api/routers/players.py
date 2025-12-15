@@ -93,6 +93,32 @@ async def update_player(
     return await service.update_player(user.user_id, player_id, data)
 
 
+@router.post("/players/{player_id}/invite", response_model=str)
+@limiter.limit(DEFAULT_RATE)
+async def generate_invite(
+    request: Request,
+    player_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Generate an invite token for a player."""
+    service = PlayerService(db)
+    return await service.generate_invite(user.user_id, player_id)
+
+
+@router.post("/players/link", response_model=PlayerResponse)
+@limiter.limit(DEFAULT_RATE)
+async def link_player(
+    request: Request,
+    token: str = Query(..., min_length=1),
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Link current user to a player via invite token."""
+    service = PlayerService(db)
+    return await service.link_player(user.user_id, token)
+
+
 @router.post(
     "/groups/{group_id}/players", response_model=GroupPlayerResponse, status_code=201
 )

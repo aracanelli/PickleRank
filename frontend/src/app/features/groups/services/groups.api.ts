@@ -8,7 +8,8 @@ import type {
   MembershipType,
   SkillLevel,
   BulkAddPlayersToGroupRequest,
-  BulkAddPlayersToGroupResponse
+  BulkAddPlayersToGroupResponse,
+  GroupRole
 } from '@/app/core/models/dto'
 
 export interface CreateGroupRequest {
@@ -37,6 +38,10 @@ export const groupsApi = {
     return api.get('/api/groups')
   },
 
+  async listMemberGroups(): Promise<GroupListResponse> {
+    return api.get('/api/groups/member')
+  },
+
   async get(groupId: string): Promise<GroupDto> {
     return api.get(`/api/groups/${groupId}`)
   },
@@ -57,8 +62,19 @@ export const groupsApi = {
     return api.get(`/api/groups/${groupId}/players`)
   },
 
-  async addPlayer(groupId: string, playerId: string, membershipType: MembershipType = 'PERMANENT', skillLevel?: SkillLevel): Promise<GroupPlayerDto> {
-    return api.post(`/api/groups/${groupId}/players`, { playerId, membershipType, skillLevel })
+  async addPlayer(
+    groupId: string,
+    playerId: string,
+    membershipType: MembershipType = 'PERMANENT',
+    skillLevel?: SkillLevel,
+    role: GroupRole = 'PLAYER'
+  ): Promise<GroupPlayerDto> {
+    return api.post(`/api/groups/${groupId}/players`, {
+      playerId,
+      membershipType,
+      skillLevel,
+      role
+    })
   },
 
   async bulkAddPlayers(groupId: string, data: BulkAddPlayersToGroupRequest): Promise<BulkAddPlayersToGroupResponse> {
@@ -71,6 +87,7 @@ export const groupsApi = {
     params: {
       membershipType?: MembershipType
       skillLevel?: SkillLevel
+      role?: GroupRole
     }
   ): Promise<GroupPlayerDto> {
     return api.patch(`/api/groups/${groupId}/players/${groupPlayerId}`, params)
@@ -86,6 +103,10 @@ export const groupsApi = {
     topPlayers: Array<{ displayName: string, rating: number, wins: number, losses: number }>
   }> {
     return api.post(`/api/groups/${groupId}/recalculate-ratings`)
+  },
+
+  async archive(groupId: string): Promise<GroupDto> {
+    return api.post(`/api/groups/${groupId}/archive`)
   }
 }
 

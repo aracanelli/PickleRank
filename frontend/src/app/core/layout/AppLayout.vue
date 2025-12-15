@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { signOut, getClerk, getSessions, switchSession } from '@/app/core/auth/clerk'
+import { ClipboardList, Users, LogOut, ChevronDown, Activity, Check } from 'lucide-vue-next'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -55,8 +56,8 @@ watch(() => authStore.isAuthenticated, () => {
 }, { immediate: true })
 
 const navItems = [
-  { name: 'Groups', path: '/groups', icon: '📋' },
-  { name: 'Players', path: '/players', icon: '👥' },
+  { name: 'Groups', path: '/groups', icon: ClipboardList },
+  { name: 'Players', path: '/players', icon: Users },
 ]
 </script>
 
@@ -66,7 +67,7 @@ const navItems = [
     <header class="header">
       <div class="header-content container">
         <router-link to="/" class="logo">
-          <span class="logo-icon">🏓</span>
+          <span class="logo-icon"><Activity /></span>
           <span class="logo-text">PickleRank</span>
         </router-link>
 
@@ -79,7 +80,7 @@ const navItems = [
             class="nav-link"
             :class="{ active: route.path.startsWith(item.path) }"
           >
-            <span class="nav-icon">{{ item.icon }}</span>
+            <component :is="item.icon" class="nav-icon" />
             {{ item.name }}
           </router-link>
         </nav>
@@ -93,7 +94,7 @@ const navItems = [
                   {{ authStore.userInitials }}
                 </span>
                 <span class="user-name">{{ authStore.userName }}</span>
-                <span class="chevron" :class="{ open: isMenuOpen }">▼</span>
+                <ChevronDown class="chevron" :class="{ open: isMenuOpen }" />
               </button>
               <div v-if="isMenuOpen" class="dropdown" @click.stop>
                 <div class="dropdown-header">
@@ -117,13 +118,13 @@ const navItems = [
                     <span class="account-name">
                       {{ session.user?.firstName || session.user?.emailAddresses?.[0]?.emailAddress?.split('@')[0] || 'User' }}
                     </span>
-                    <span v-if="session.id === authStore.session?.id" class="active-indicator">✓</span>
+                    <Check v-if="session.id === authStore.session?.id" class="active-indicator" />
                   </button>
                 </template>
                 
                 <div class="dropdown-divider"></div>
                 <button @click="handleSignOut" class="dropdown-item signout-item">
-                  <span class="dropdown-icon">🚪</span>
+                  <LogOut class="dropdown-icon" />
                   Sign Out
                 </button>
               </div>
@@ -164,11 +165,11 @@ const navItems = [
         class="nav-link"
         @click="isMenuOpen = false"
       >
-        <span class="nav-icon">{{ item.icon }}</span>
+        <component :is="item.icon" class="nav-icon" />
         {{ item.name }}
       </router-link>
       <button @click="handleSignOut" class="nav-link signout">
-        <span class="nav-icon">🚪</span>
+        <LogOut class="nav-icon" />
         Sign Out
       </button>
     </nav>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowLeft, ChartBar, ChevronRight, ChevronLeft, Edit2, AlertTriangle } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
@@ -151,9 +152,9 @@ async function saveMatchEdit() {
     <div class="page-header">
       <div>
         <router-link :to="`/groups/${groupId}`" class="back-link">
-          ← Back to {{ group?.name || 'Group' }}
+          <ArrowLeft :size="16" /> Back to {{ group?.name || 'Group' }}
         </router-link>
-        <h1>📊 Match History</h1>
+        <h1><ChartBar :size="32" class="page-title-icon" /> Match History</h1>
         <p class="subtitle">All completed games in this group</p>
       </div>
     </div>
@@ -164,7 +165,7 @@ async function saveMatchEdit() {
 
     <EmptyState
       v-else-if="matches.length === 0"
-      icon="📊"
+      :icon="ChartBar"
       title="No match history yet"
       description="Complete some events to see match history here."
     />
@@ -176,7 +177,7 @@ async function saveMatchEdit() {
           <div class="sidebar-header">
             <h3>Timeline</h3>
             <button class="toggle-sidebar-btn" @click="toggleSidebar">
-              {{ sidebarCollapsed ? '▶' : '◀' }}
+              <component :is="sidebarCollapsed ? ChevronRight : ChevronLeft" :size="16" />
             </button>
           </div>
           <div class="timeline-list">
@@ -216,7 +217,7 @@ async function saveMatchEdit() {
                   {{ getResultLabel(match.result) }}
                 </span>
                 <button class="edit-btn" @click="openEditMatch(match)" title="Edit Score">
-                  Edit
+                  <Edit2 :size="14" /> Edit
                 </button>
               </div>
 
@@ -304,7 +305,7 @@ async function saveMatchEdit() {
           </div>
         </div>
         <p class="edit-warning">
-          ⚠️ Updating this score will recalculate ratings for the entire group from this event onwards. This may take a moment.
+          <AlertTriangle :size="16" class="warning-icon" /> Updating this score will recalculate ratings for the entire group from this event onwards. This may take a moment.
         </p>
       </div>
       <template #footer>
@@ -321,13 +322,18 @@ async function saveMatchEdit() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
   margin-bottom: var(--spacing-sm);
 }
 
 .page-header h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   font-size: 2rem;
   margin-bottom: var(--spacing-xs);
 }

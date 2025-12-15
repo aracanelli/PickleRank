@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import type { GroupListItemDto } from '@/app/core/models/dto'
+import { ClipboardList, Users, Calendar, ArrowRight, Plus } from 'lucide-vue-next'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
@@ -12,6 +13,7 @@ import Modal from '@/app/core/ui/components/Modal.vue'
 
 const router = useRouter()
 const groups = ref<GroupListItemDto[]>([])
+const memberGroups = ref<GroupListItemDto[]>([])
 const isLoading = ref(true)
 const error = ref('')
 const showCreateModal = ref(false)
@@ -26,8 +28,15 @@ async function loadGroups() {
   isLoading.value = true
   error.value = ''
   try {
-    const response = await groupsApi.list()
-    groups.value = response.groups
+    const [ownedResponse, memberResponse] = await Promise.all([
+      groupsApi.list(),
+      groupsApi.listMemberGroups()
+    ])
+    groups.value = ownedResponse.groups
+    
+    // Filter out groups where I am the organizer from "Groups You Play In"
+    const ownedIds = new Set(ownedResponse.groups.map(g => g.id))
+    memberGroups.value = memberResponse.groups.filter(g => !ownedIds.has(g.id))
   } catch (e: any) {
     error.value = e.message || 'Failed to load groups'
   } finally {
@@ -75,7 +84,7 @@ function formatDate(dateStr: string): string {
         <p class="subtitle">Manage your pickleball leagues and teams</p>
       </div>
       <BaseButton @click="showCreateModal = true">
-        + New Group
+        <Plus :size="20" /> New Group
       </BaseButton>
     </div>
 
@@ -86,8 +95,8 @@ function formatDate(dateStr: string): string {
     </div>
 
     <EmptyState
-      v-else-if="groups.length === 0"
-      icon="📋"
+      v-else-if="groups.length === 0 && memberGroups.length === 0"
+      :icon="ClipboardList"
       title="No groups yet"
       description="Create your first group to start organizing pickleball events and tracking rankings."
     >
@@ -96,31 +105,72 @@ function formatDate(dateStr: string): string {
       </template>
     </EmptyState>
 
-    <div v-else class="groups-grid">
-      <BaseCard
-        v-for="group in groups"
-        :key="group.id"
-        clickable
-        @click="router.push(`/groups/${group.id}`)"
-      >
-        <div class="group-card-content">
-          <div class="group-icon">📋</div>
-          <div class="group-info">
-            <h3>{{ group.name }}</h3>
-            <div class="group-meta">
-              <span class="meta-item">
-                <span class="meta-icon">👥</span>
-                {{ group.playerCount }} players
-              </span>
-              <span class="meta-item">
-                <span class="meta-icon">📅</span>
-                {{ formatDate(group.createdAt) }}
-              </span>
+    <div v-else class="groups-container">
+      <!-- Organized Groups -->
+      <section v-if="groups.length > 0" class="groups-section">
+        <h2 class="section-title">Organized by You</h2>
+        <div class="groups-grid">
+          <BaseCard
+            v-for="group in groups"
+            :key="group.id"
+            clickable
+            @click="router.push(`/groups/${group.id}`)"
+          >
+            <div class="group-card-content">
+              <div class="group-icon">
+                <ClipboardList :size="32" />
+              </div>
+              <div class="group-info">
+                <h3>{{ group.name }}</h3>
+                <div class="group-meta">
+                  <span class="meta-item">
+                    <Users :size="16" class="meta-icon" />
+                    {{ group.playerCount }} players
+                  </span>
+                  <span class="meta-item">
+                    <Calendar :size="16" class="meta-icon" />
+                    {{ formatDate(group.createdAt) }}
+                  </span>
+                </div>
+              </div>
+              <ArrowRight class="group-arrow" />
             </div>
-          </div>
-          <div class="group-arrow">→</div>
+          </BaseCard>
         </div>
-      </BaseCard>
+      </section>
+
+      <!-- Member Groups -->
+      <section v-if="memberGroups.length > 0" class="groups-section">
+        <h2 class="section-title">Groups You Play In</h2>
+        <div class="groups-grid">
+          <BaseCard
+            v-for="group in memberGroups"
+            :key="group.id"
+            clickable
+            @click="router.push(`/groups/${group.id}`)"
+          >
+            <div class="group-card-content">
+              <div class="group-icon member">
+                <Users :size="32" />
+              </div>
+              <div class="group-info">
+                <h3>{{ group.name }}</h3>
+                <div class="group-meta">
+                  <span class="meta-item">
+                    <Users :size="16" class="meta-icon" />
+                    {{ group.playerCount }} players
+                  </span>
+                  <span class="meta-item">
+                    <Calendar :size="16" class="meta-icon" />
+                    {{ formatDate(group.createdAt) }}
+                  </span>
+                </div>
+              </div>
+              <ArrowRight class="group-arrow" />
+            </div>
+          </BaseCard>
+        </div>
+      </section>
     </div>
 
     <!-- Create Group Modal -->
@@ -155,6 +205,24 @@ function formatDate(dateStr: string): string {
 
 .subtitle {
   color: var(--color-text-secondary);
+}
+
+.groups-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.groups-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .groups-grid {

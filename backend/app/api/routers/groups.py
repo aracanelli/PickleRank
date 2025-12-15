@@ -45,6 +45,19 @@ async def list_groups(
     return GroupListResponse(groups=groups)
 
 
+@router.get("/groups/member", response_model=GroupListResponse)
+@limiter.limit(DEFAULT_RATE)
+async def list_member_groups(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """List all groups where the current user is a member (via linked player)."""
+    service = GroupService(db)
+    groups = await service.list_member_groups(user.user_id)
+    return GroupListResponse(groups=groups)
+
+
 @router.get("/groups/{group_id}", response_model=GroupResponse)
 @limiter.limit(DEFAULT_RATE)
 async def get_group(
@@ -102,6 +115,19 @@ async def recalculate_ratings(
     """
     service = GroupService(db)
     return await service.recalculate_ratings(user.user_id, group_id)
+
+
+@router.post("/groups/{group_id}/archive", response_model=GroupResponse)
+@limiter.limit(DEFAULT_RATE)
+async def archive_group(
+    request: Request,
+    group_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Archive a group."""
+    service = GroupService(db)
+    return await service.archive_group(user.user_id, group_id)
 
 
 

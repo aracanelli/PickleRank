@@ -13,6 +13,7 @@ from app.api.schemas.players import (
     BulkPlayerCreate,
     BulkPlayerCreateResponse,
     GroupPlayerResponse,
+    GroupRole,
     MembershipType,
     PlayerCreate,
     PlayerResponse,
@@ -47,12 +48,7 @@ class PlayerService:
             notes=data.notes,
         )
 
-        return PlayerResponse(
-            id=player["id"],
-            displayName=player["display_name"],
-            notes=player["notes"],
-            created_at=player["created_at"],
-        )
+        return self._to_player_response(player)
 
     async def bulk_create_players(
         self, user_id: str, data: BulkPlayerCreate
@@ -74,12 +70,7 @@ class PlayerService:
 
         return BulkPlayerCreateResponse(
             created=[
-                PlayerResponse(
-                    id=p["id"],
-                    displayName=p["display_name"],
-                    notes=p["notes"],
-                    created_at=p["created_at"],
-                )
+                self._to_player_response(p)
                 for p in created_players
             ],
             skipped=skipped_names,
@@ -92,12 +83,7 @@ class PlayerService:
         """List all global players for a user."""
         players = await self.players_repo.list_by_owner(user_id, search)
         return [
-            PlayerResponse(
-                id=p["id"],
-                displayName=p["display_name"],
-                notes=p["notes"],
-                created_at=p["created_at"],
-            )
+            self._to_player_response(p)
             for p in players
         ]
 
@@ -111,12 +97,7 @@ class PlayerService:
         if str(player["owner_user_id"]) != user_id:
             raise ForbiddenError("You don't own this player")
 
-        return PlayerResponse(
-            id=player["id"],
-            displayName=player["display_name"],
-            notes=player["notes"],
-            created_at=player["created_at"],
-        )
+        return self._to_player_response(player)
 
     async def update_player(
         self, user_id: str, player_id: UUID, data: PlayerUpdate
@@ -138,12 +119,7 @@ class PlayerService:
             notes=data.notes,
         )
 
-        return PlayerResponse(
-            id=updated["id"],
-            displayName=updated["display_name"],
-            notes=updated["notes"],
-            created_at=updated["created_at"],
-        )
+        return self._to_player_response(updated)
 
     async def add_player_to_group(
         self,
@@ -152,6 +128,7 @@ class PlayerService:
         player_id: UUID,
         membership_type: MembershipType = MembershipType.PERMANENT,
         skill_level: Optional[SkillLevel] = None,
+        role: GroupRole = GroupRole.PLAYER,
     ) -> GroupPlayerResponse:
         """Add a player to a group."""
         # Verify group ownership
@@ -185,7 +162,13 @@ class PlayerService:
                 initial_rating = base_rating + int(100 * offset_multiplier)
             elif skill_level == SkillLevel.BEGINNER:
                 initial_rating = base_rating - int(100 * offset_multiplier)
+            elif skill_level == SkillLevel.BEGINNER:
+                initial_rating = base_rating - int(100 * offset_multiplier)
             # INTERMEDIATE stays at base_rating
+
+        # If the player is linked to the group owner, make them an organizer automatically
+        if player.get("user_id") and str(player["user_id"]) == str(group["owner_user_id"]):
+            role = GroupRole.ORGANIZER
 
         # Add to group
         group_player = await self.group_players_repo.add_player_to_group(
@@ -194,6 +177,7 @@ class PlayerService:
             initial_rating=initial_rating,
             membership_type=membership_type.value,
             skill_level=skill_level.value if skill_level else None,
+            role=role.value,
         )
 
         # Get full info
@@ -217,7 +201,9 @@ class PlayerService:
         if str(group["owner_user_id"]) != user_id:
             raise ForbiddenError("You don't own this group")
 
-        # Verify all players are owned by this user
+        # Prepare player data for bulk add with skill-based ratings
+        # First build a map of player_id -> player_data for quick lookups
+        players_map = {}
         player_ids = [p.player_id for p in data.players]
         for player_id in player_ids:
             player = await self.players_repo.get_by_id(player_id)
@@ -225,11 +211,11 @@ class PlayerService:
                 raise NotFoundError("Player", str(player_id))
             if str(player["owner_user_id"]) != user_id:
                 raise ForbiddenError(f"You don't own player {player_id}")
+            players_map[player_id] = player
 
         # Get base rating from group settings
         base_rating = group["settings"].get("initialRating", 1000)
 
-        # Prepare player data for bulk add with skill-based ratings
         players_data = []
         for p in data.players:
             # Calculate starting rating based on skill level for subs
@@ -242,11 +228,18 @@ class PlayerService:
                     initial_rating = base_rating - int(100 * offset_multiplier)
                 # INTERMEDIATE stays at base_rating
             
+            # Check for organizer role
+            role = GroupRole.PLAYER
+            player_details = players_map.get(p.player_id)
+            if player_details and player_details.get("user_id") and str(player_details["user_id"]) == str(group["owner_user_id"]):
+                role = GroupRole.ORGANIZER
+            
             players_data.append({
                 "player_id": p.player_id, 
                 "membership_type": p.membership_type.value,
                 "initial_rating": initial_rating,
                 "skill_level": p.skill_level.value if p.skill_level else None,
+                "role": role.value,
             })
 
         # Bulk add
@@ -295,11 +288,13 @@ class PlayerService:
         # Update membership type and/or skill level
         new_membership_type = data.membership_type.value if data.membership_type else None
         new_skill_level = data.skill_level.value if data.skill_level else None
+        new_role = data.role.value if data.role else None
         
         await self.group_players_repo.update_group_player(
             group_player_id=group_player_id,
             membership_type=new_membership_type,
             skill_level=new_skill_level,
+            role=new_role,
         )
 
         # Get full info
@@ -383,6 +378,11 @@ class PlayerService:
         if skill_level is not None and isinstance(skill_level, str):
             skill_level = SkillLevel(skill_level)
 
+        # Handle role
+        role = gp.get("role", "PLAYER")
+        if isinstance(role, str):
+            role = GroupRole(role)
+
         return GroupPlayerResponse(
             id=gp["id"],
             playerId=gp["player_id"],
@@ -390,6 +390,8 @@ class PlayerService:
             displayName=gp["display_name"],
             membershipType=membership_type,
             skillLevel=skill_level,
+            role=role,
+            userId=gp.get("user_id"),
             rating=float(gp["rating"]),
             gamesPlayed=gp["games_played"],
             wins=gp["wins"],
@@ -398,6 +400,49 @@ class PlayerService:
             winRate=float(win_rate),
             ratingDelta=rating_delta,
         )
+
+    def _to_player_response(self, player: dict) -> PlayerResponse:
+        """Convert a player dict to a response."""
+        return PlayerResponse(
+            id=player["id"],
+            displayName=player["display_name"],
+            notes=player["notes"],
+            userId=player.get("user_id"),
+            inviteToken=player.get("invite_token"),
+            created_at=player["created_at"],
+        )
+
+    async def generate_invite(self, user_id: str, player_id: UUID) -> str:
+        """Generate an invite token for a player."""
+        # Verify ownership
+        await self.get_player(user_id, player_id)
+        
+        import secrets
+        token = secrets.token_urlsafe(16)
+        
+        # Save to player
+        await self.players_repo.update(player_id, invite_token=token)
+        
+        return token
+
+    async def link_player(self, user_id: str, invite_token: str) -> PlayerResponse:
+        """Link current user to a player via invite token."""
+        # Find player by token
+        player = await self.players_repo.get_by_invite_token(invite_token)
+        if not player:
+            raise NotFoundError("Invite token", invite_token)
+            
+        # Check if already linked
+        if player["user_id"]:
+             if str(player["user_id"]) == user_id:
+                 # Already linked to this user, harmless
+                 return self._to_player_response(player)
+             else:
+                 raise ConflictError("Player already linked to a user")
+             
+        updated = await self.players_repo.update(player["id"], user_id=user_id, invite_token=None)
+        
+        return self._to_player_response(updated)
 
 
 

@@ -68,6 +68,7 @@ async def verify_clerk_token(token: str) -> Dict[str, Any]:
                 "verify_aud": bool(settings.clerk_audience),
                 "verify_exp": True,
             },
+            leeway=60,  # Allow 60s clock skew
         )
 
         return payload

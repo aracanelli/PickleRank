@@ -37,11 +37,14 @@ export interface GroupListResponse {
 
 // Player DTOs
 export type MembershipType = 'PERMANENT' | 'SUB'
+export type GroupRole = 'ORGANIZER' | 'PLAYER'
 
 export interface PlayerDto {
   id: string
   displayName: string
   notes?: string
+  userId?: string
+  inviteToken?: string
   createdAt: string
 }
 
@@ -56,6 +59,8 @@ export interface GroupPlayerDto {
   displayName: string
   membershipType: MembershipType
   skillLevel?: SkillLevel
+  role: GroupRole
+  userId?: string
   rating: number
   gamesPlayed: number
   wins: number

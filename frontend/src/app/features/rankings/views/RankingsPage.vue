@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowLeft, Trophy, Medal } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
@@ -63,12 +64,12 @@ const filteredRankings = computed(() => {
   })
 })
 
-function getRankBadge(rank: number): string {
+function getRankClass(rank: number): string {
   switch (rank) {
-    case 1: return '🥇'
-    case 2: return '🥈'
-    case 3: return '🥉'
-    default: return `#${rank}`
+    case 1: return 'text-yellow-500' // Gold
+    case 2: return 'text-slate-400'  // Silver
+    case 3: return 'text-amber-700'  // Bronze
+    default: return ''
   }
 }
 
@@ -82,9 +83,9 @@ function isSub(playerId: string): boolean {
     <div class="page-header">
       <div>
         <router-link :to="`/groups/${groupId}`" class="back-link">
-          ← Back to {{ group?.name || 'Group' }}
+          <ArrowLeft :size="16" /> Back to {{ group?.name || 'Group' }}
         </router-link>
-        <h1>🏆 Rankings</h1>
+        <h1><Trophy :size="32" class="page-title-icon" /> Rankings</h1>
         <p class="subtitle">Current standings based on {{ group?.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up' : 'Serious ELO' }} ratings</p>
       </div>
     </div>
@@ -113,7 +114,7 @@ function isSub(playerId: string): boolean {
 
     <EmptyState
       v-else-if="filteredRankings.length === 0"
-      icon="🏆"
+      :icon="Trophy"
       title="No rankings yet"
       :description="filterType === 'permanent' ? 'No permanent players have rankings yet.' : 'Complete some events to see player rankings here.'"
     />
@@ -136,7 +137,8 @@ function isSub(playerId: string): boolean {
             <tr v-for="(entry, index) in filteredRankings" :key="entry.playerId" class="ranking-row">
               <td class="rank-col">
                 <span class="rank-badge" :class="{ top3: index < 3 }">
-                  {{ getRankBadge(index + 1) }}
+                  <Medal v-if="index < 3" :class="getRankClass(index + 1)" :size="24" />
+                  <span v-else>#{{ index + 1 }}</span>
                 </span>
               </td>
               <td class="player-col">
@@ -177,7 +179,8 @@ function isSub(playerId: string): boolean {
         >
           <div class="mobile-rank-header">
             <span class="mobile-rank-badge" :class="{ top3: index < 3 }">
-              {{ getRankBadge(index + 1) }}
+              <Medal v-if="index < 3" :class="getRankClass(index + 1)" :size="24" />
+              <span v-else>#{{ index + 1 }}</span>
             </span>
             <div class="mobile-player-info">
               <div class="player-avatar" :class="{ sub: isSub(entry.playerId) }">
@@ -222,13 +225,18 @@ function isSub(playerId: string): boolean {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
   margin-bottom: var(--spacing-sm);
 }
 
 .page-header h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   font-size: 2rem;
   margin-bottom: var(--spacing-xs);
 }
@@ -236,6 +244,10 @@ function isSub(playerId: string): boolean {
 .subtitle {
   color: var(--color-text-secondary);
 }
+
+.text-yellow-500 { color: #eab308; }
+.text-slate-400 { color: #94a3b8; }
+.text-amber-700 { color: #b45309; }
 
 /* Filter Tabs */
 .filter-tabs {

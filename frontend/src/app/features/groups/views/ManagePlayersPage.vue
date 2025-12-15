@@ -3,10 +3,13 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import { playersApi } from '@/app/features/players/services/players.api'
-import type { GroupDto, GroupPlayerDto, PlayerDto, MembershipType, SkillLevel, BulkAddPlayerItem } from '@/app/core/models/dto'
+import type { GroupDto, GroupPlayerDto, PlayerDto, MembershipType, SkillLevel, BulkAddPlayerItem, GroupRole } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
+import BaseInput from '@/app/core/ui/components/BaseInput.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
+import Modal from '@/app/core/ui/components/Modal.vue'
+import { Shield, Shuffle, UserPlus, Link, Copy, Check } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,6 +27,12 @@ const successMessage = ref('')
 const selectedPlayers = ref<Map<string, MembershipType>>(new Map())
 // Skill level for subs: map of playerId -> skillLevel
 const subSkillLevels = ref<Map<string, SkillLevel>>(new Map())
+
+// Invite state
+const showInviteModal = ref(false)
+const inviteLink = ref('')
+const invitingPlayerName = ref('')
+const copySuccess = ref(false)
 
 // Track updates in progress
 const updatingPlayerId = ref<string | null>(null)
@@ -181,6 +190,44 @@ async function removePlayer(player: GroupPlayerDto) {
     updatingPlayerId.value = null
   }
 }
+
+async function updateRole(player: GroupPlayerDto) {
+  const newRole: GroupRole = player.role === 'ORGANIZER' ? 'PLAYER' : 'ORGANIZER'
+  
+  updatingPlayerId.value = player.id
+  try {
+    await groupsApi.updateGroupPlayer(groupId.value, player.id, { role: newRole })
+    await loadData()
+    successMessage.value = `Changed ${player.displayName} to ${newRole === 'ORGANIZER' ? 'Organizer' : 'Player'}`
+  } catch (e: any) {
+    error.value = e.message || 'Failed to update role'
+  } finally {
+    updatingPlayerId.value = null
+  }
+}
+
+async function invitePlayer(player: GroupPlayerDto) {
+  try {
+     const token = await playersApi.generateInvite(player.playerId)
+     const baseUrl = window.location.origin
+     inviteLink.value = `${baseUrl}/link-player?token=${token}`
+     invitingPlayerName.value = player.displayName
+     showInviteModal.value = true
+     copySuccess.value = false
+  } catch (e: any) {
+     error.value = e.message || 'Failed to generate invite'
+  }
+}
+
+async function copyLink() {
+  try {
+    await navigator.clipboard.writeText(inviteLink.value)
+    copySuccess.value = true
+    setTimeout(() => { copySuccess.value = false }, 2000)
+  } catch (e) {
+    console.error('Failed to copy', e)
+  }
+}
 </script>
 
 <template>
@@ -227,6 +274,25 @@ async function removePlayer(player: GroupPlayerDto) {
               </div>
               <div class="player-actions">
                 <button 
+                    v-if="!player.userId"
+                    class="action-btn invite"
+                    @click="invitePlayer(player)"
+                    title="Invite to Link"
+                >
+                    <Link :size="14" />
+                </button>
+                <div v-else class="linked-indicator" title="Linked to User"><UserPlus :size="14" /></div>
+
+                <button 
+                    class="action-btn role"
+                    :class="{ organizer: player.role === 'ORGANIZER' }"
+                    @click="updateRole(player)"
+                    :title="player.role === 'ORGANIZER' ? 'Demote to Player' : 'Promote to Organizer'"
+                >
+                  <Shield :size="14" />
+                </button>
+
+                <button 
                   class="action-btn switch"
                   :disabled="updatingPlayerId === player.id"
                   @click="toggleMembershipType(player)"
@@ -269,6 +335,25 @@ async function removePlayer(player: GroupPlayerDto) {
                 </div>
               </div>
               <div class="player-actions">
+                <button 
+                    v-if="!player.userId"
+                    class="action-btn invite"
+                    @click="invitePlayer(player)"
+                    title="Invite to Link"
+                >
+                    <Link :size="14" />
+                </button>
+                <div v-else class="linked-indicator" title="Linked to User"><UserPlus :size="14" /></div>
+
+                <button 
+                    class="action-btn role"
+                    :class="{ organizer: player.role === 'ORGANIZER' }"
+                    @click="updateRole(player)"
+                    :title="player.role === 'ORGANIZER' ? 'Demote to Player' : 'Promote to Organizer'"
+                >
+                  <Shield :size="14" />
+                </button>
+
                 <select
                   class="skill-select"
                   :disabled="updatingPlayerId === player.id"
@@ -380,6 +465,26 @@ async function removePlayer(player: GroupPlayerDto) {
         </BaseCard>
       </section>
     </template>
+
+    <!-- Invite Modal -->
+    <Modal :open="showInviteModal" title="Invite Player to Link" @close="showInviteModal = false">
+      <div class="invite-content">
+        <p>Send this link to <strong>{{ invitingPlayerName }}</strong> to link their account to this player profile.</p>
+        
+        <div class="invite-link-box">
+          <input type="text" readonly :value="inviteLink" class="link-input" />
+          <BaseButton size="sm" @click="copyLink">
+            <template v-if="copySuccess"><Check :size="16" /> Copied</template>
+            <template v-else><Copy :size="16" /> Copy</template>
+          </BaseButton>
+        </div>
+        
+        <p class="invite-note">This link allows the user to claim this player profile and see it in their dashboard.</p>
+      </div>
+      <template #footer>
+        <BaseButton @click="showInviteModal = false">Close</BaseButton>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -709,14 +814,50 @@ async function removePlayer(player: GroupPlayerDto) {
     padding-top: var(--spacing-sm);
     border-top: 1px solid var(--color-border);
   }
+}
+.linked-indicator {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: var(--radius-sm);
+}
 
-  .type-buttons {
-    width: 100%;
-    justify-content: flex-end;
-    margin-top: var(--spacing-sm);
-    padding-top: var(--spacing-sm);
-    border-top: 1px solid var(--color-border);
-  }
+.action-btn.role.organizer {
+  color: #7c3aed;
+  border-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.invite-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.invite-link-box {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.link-input {
+  flex: 1;
+  padding: var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.invite-note {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
 }
 </style>
 
