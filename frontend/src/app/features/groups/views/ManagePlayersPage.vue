@@ -6,10 +6,9 @@ import { playersApi } from '@/app/features/players/services/players.api'
 import type { GroupDto, GroupPlayerDto, PlayerDto, MembershipType, SkillLevel, BulkAddPlayerItem, GroupRole } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
-import BaseInput from '@/app/core/ui/components/BaseInput.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
-import { Shield, Shuffle, UserPlus, Link, Copy, Check } from 'lucide-vue-next'
+import { Shield, UserPlus, Link, Copy, Check } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
