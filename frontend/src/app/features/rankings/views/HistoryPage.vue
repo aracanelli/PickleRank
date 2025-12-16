@@ -47,8 +47,12 @@ const isOrganizer = computed(() => {
 onMounted(async () => {
   await Promise.all([loadGroup(), loadPlayers(), loadEvents()])
   
-  // Auto-filter by current user's linked player
-  if (currentUserId.value) {
+  // Check for playerId query param first
+  const queryPlayerId = route.query.playerId as string | undefined
+  if (queryPlayerId) {
+    filterPlayerId.value = queryPlayerId
+  } else if (currentUserId.value) {
+    // Auto-filter by current user's linked player if no query param
     const myPlayer = players.value.find(p => p.userId === currentUserId.value)
     if (myPlayer) {
       filterPlayerId.value = myPlayer.playerId
@@ -153,6 +157,39 @@ function clearFilters() {
   filterPlayerId.value = ''
 }
 
+// Alphabetically sorted players for filter dropdown
+const sortedPlayers = computed(() => {
+  return [...players.value].sort((a, b) => 
+    a.displayName.localeCompare(b.displayName)
+  )
+})
+
+// Get filtered player's display name
+const filteredPlayerName = computed(() => {
+  if (!filterPlayerId.value) return null
+  const player = players.value.find(p => p.playerId === filterPlayerId.value)
+  return player?.displayName || null
+})
+
+// Determine if filtered player won or lost a match
+function getMatchOutcome(match: MatchHistoryEntryDto): 'win' | 'loss' | 'tie' | null {
+  if (!filteredPlayerName.value) return null
+  
+  const playerName = filteredPlayerName.value
+  const isOnTeam1 = match.team1.includes(playerName)
+  const isOnTeam2 = match.team2.includes(playerName)
+  
+  if (!isOnTeam1 && !isOnTeam2) return null
+  
+  if (match.result === 'TIE') return 'tie'
+  
+  if (isOnTeam1) {
+    return match.result === 'TEAM1_WIN' ? 'win' : 'loss'
+  } else {
+    return match.result === 'TEAM2_WIN' ? 'win' : 'loss'
+  }
+}
+
 // History Editing
 const showEditModal = ref(false)
 const editingMatch = ref<MatchHistoryEntryDto | null>(null)
@@ -222,7 +259,7 @@ async function saveMatchEdit() {
           <label for="player-filter">Player</label>
           <select id="player-filter" v-model="filterPlayerId" class="filter-select">
             <option value="">All Players</option>
-            <option v-for="player in players" :key="player.playerId" :value="player.playerId">
+            <option v-for="player in sortedPlayers" :key="player.playerId" :value="player.playerId">
               {{ player.displayName }}
             </option>
           </select>
@@ -273,7 +310,14 @@ async function saveMatchEdit() {
                 </div>
 
                 <div class="match-teams">
-                  <div class="team" :class="{ winner: match.result === 'TEAM1_WIN' }">
+                  <div 
+                    class="team" 
+                    :class="{
+                      winner: match.result === 'TEAM1_WIN' && !filterPlayerId,
+                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && match.team1.includes(filteredPlayerName || ''),
+                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && match.team1.includes(filteredPlayerName || '')
+                    }"
+                  >
                     <div class="team-info">
                       <div class="team-names">
                         {{ match.team1.join(' & ') }}
@@ -285,7 +329,14 @@ async function saveMatchEdit() {
 
                   <span class="vs">vs</span>
 
-                  <div class="team" :class="{ winner: match.result === 'TEAM2_WIN' }">
+                  <div 
+                    class="team" 
+                    :class="{
+                      winner: match.result === 'TEAM2_WIN' && !filterPlayerId,
+                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && match.team2.includes(filteredPlayerName || ''),
+                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && match.team2.includes(filteredPlayerName || '')
+                    }"
+                  >
                     <div class="team-info">
                       <div class="team-names">
                         {{ match.team2.join(' & ') }}
@@ -538,6 +589,16 @@ async function saveMatchEdit() {
 
 .team.winner {
   border-color: var(--color-success);
+}
+
+.team.player-win {
+  border-color: var(--color-success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.team.player-loss {
+  border-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .team-info {

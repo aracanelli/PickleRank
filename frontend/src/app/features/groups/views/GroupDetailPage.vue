@@ -212,6 +212,10 @@ function closeImportModal() {
   importResult.value = null
   error.value = '' // Clear error when closing modal
 }
+
+function viewPlayerHistory(player: GroupPlayerDto) {
+  router.push(`/groups/${groupId.value}/history?playerId=${player.playerId}`)
+}
 </script>
 
 <template>
@@ -312,7 +316,7 @@ function closeImportModal() {
         </EmptyState>
 
         <div v-else class="players-list">
-          <div v-for="player in permanentPlayers" :key="player.id" class="player-item">
+          <div v-for="player in permanentPlayers" :key="player.id" class="player-item clickable" @click="viewPlayerHistory(player)">
             <div class="player-info">
               <div class="player-avatar">
                 {{ player.displayName[0] }}
@@ -606,6 +610,16 @@ function closeImportModal() {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+}
+
+.player-item.clickable {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.player-item.clickable:hover {
+  border-color: var(--color-primary);
+  background: var(--color-bg-hover);
 }
 
 .player-info {
