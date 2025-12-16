@@ -14,6 +14,11 @@ const router = createRouter({
       component: () => import('@/app/features/auth/views/LoginPage.vue')
     },
     {
+      path: '/signup',
+      name: 'signup',
+      component: () => import('@/app/features/auth/views/SignUpPage.vue')
+    },
+    {
       path: '/groups',
       name: 'groups',
       component: () => import('@/app/features/groups/views/GroupsPage.vue'),
@@ -110,8 +115,8 @@ router.beforeEach(async (to, _from) => {
     }
   }
 
-  // If user is authenticated and trying to go to login, redirect to groups
-  if (to.name === 'login' && authStore.isAuthenticated) {
+  // If user is authenticated and trying to go to login or signup, redirect to groups
+  if ((to.name === 'login' || to.name === 'signup') && authStore.isAuthenticated) {
     const redirect = to.query.redirect as string
     return redirect || '/groups'
   }

@@ -103,7 +103,7 @@ async function doInitClerk(): Promise<ClerkInstance | null> {
     // Load Clerk - this restores any existing session from cookies
     await clerkInstance.load({
       signInUrl: '/login',
-      signUpUrl: '/login'
+      signUpUrl: '/signup'
     })
 
     clerkLoaded = true
