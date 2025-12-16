@@ -168,7 +168,7 @@ class GroupPlayerResponse(BaseModel):
     membership_type: MembershipType = Field(alias="membershipType")
     skill_level: Optional[SkillLevel] = Field(None, alias="skillLevel")
     role: GroupRole = Field(default=GroupRole.PLAYER)
-    user_id: Optional[UUID] = Field(None, alias="userId")
+    user_id: Optional[str] = Field(None, alias="userId")
     rating: float
     games_played: int = Field(alias="gamesPlayed")
     wins: int

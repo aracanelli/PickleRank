@@ -36,13 +36,14 @@ async def get_match_history(
     from_date: Optional[datetime] = Query(None, alias="from"),
     to_date: Optional[datetime] = Query(None, alias="to"),
     player_id: Optional[UUID] = Query(None, alias="playerId"),
+    event_id: Optional[UUID] = Query(None, alias="eventId"),
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
     """Get match history."""
     service = RankingService(db)
     matches = await service.get_match_history(
-        user.user_id, group_id, from_date, to_date, player_id
+        user.user_id, group_id, from_date, to_date, player_id, event_id
     )
     return MatchHistoryResponse(matches=matches)
 

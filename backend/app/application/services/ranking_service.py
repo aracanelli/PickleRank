@@ -66,6 +66,7 @@ class RankingService:
         from_date: Optional[datetime] = None,
         to_date: Optional[datetime] = None,
         player_id: Optional[UUID] = None,
+        event_id: Optional[UUID] = None,
     ) -> List[MatchHistoryEntry]:
         """Get match history for a group."""
         # Verify group ownership or membership
@@ -119,6 +120,11 @@ class RankingService:
         if to_date:
             query += f" AND e.starts_at <= ${param_idx}"
             params.append(to_date)
+            param_idx += 1
+
+        if event_id:
+            query += f" AND e.id = ${param_idx}"
+            params.append(event_id)
             param_idx += 1
 
         if player_id:

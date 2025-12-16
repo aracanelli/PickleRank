@@ -336,9 +336,10 @@ class GroupPlayersRepository:
             """
             SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating, 
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name, p.user_id, gp.created_at, gp.updated_at
+                   p.display_name, u.clerk_user_id as user_id, gp.created_at, gp.updated_at
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
+            LEFT JOIN users u ON u.id = p.user_id
             WHERE gp.id = $1
             """,
             group_player_id,
@@ -351,13 +352,14 @@ class GroupPlayersRepository:
             """
             SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating,
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name, p.user_id,
+                   p.display_name, u.clerk_user_id as user_id,
                    CASE WHEN gp.games_played > 0 
                         THEN ROUND((gp.wins + 0.5 * gp.ties)::NUMERIC / gp.games_played, 3)
                         ELSE 0 
                    END AS win_rate
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
+            LEFT JOIN users u ON u.id = p.user_id
             WHERE gp.group_id = $1
             ORDER BY gp.rating DESC
             """,
@@ -371,9 +373,10 @@ class GroupPlayersRepository:
             """
             SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating,
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name, p.user_id
+                   p.display_name, u.clerk_user_id as user_id
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
+            LEFT JOIN users u ON u.id = p.user_id
             WHERE gp.id = ANY($1)
             """,
             group_player_ids,

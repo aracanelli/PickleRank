@@ -353,11 +353,7 @@ function closeImportModal() {
               {{ pendingEvents.length }}
             </span>
           </div>
-          <div class="section-actions">
-            <BaseButton size="sm" @click="router.push(`/groups/${groupId}/events/new`)">
-              <Plus :size="16" /> New Event
-            </BaseButton>
-          </div>
+  
         </div>
 
         <EmptyState

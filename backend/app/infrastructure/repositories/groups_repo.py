@@ -19,22 +19,24 @@ class GroupsRepository:
             """
             INSERT INTO groups (owner_user_id, name, sport, settings_json)
             VALUES ($1, $2, $3, $4)
-            RETURNING id, owner_user_id, name, sport, settings_json, created_at, updated_at
+            RETURNING id
             """,
             UUID(owner_user_id),
             name,
             sport,
             json.dumps(settings),
         )
-        return self._row_to_dict(row)
+        # Fetch via get_by_id to include clerk_user_id from JOIN
+        return await self.get_by_id(row["id"])
 
     async def get_by_id(self, group_id: UUID) -> Optional[Dict[str, Any]]:
         """Get a group by ID."""
         row = await self.conn.fetchrow(
             """
-            SELECT id, owner_user_id, name, sport, settings_json, created_at, updated_at, is_archived
-            FROM groups
-            WHERE id = $1
+            SELECT g.id, g.owner_user_id, u.clerk_user_id, g.name, g.sport, g.settings_json, g.created_at, g.updated_at, g.is_archived
+            FROM groups g
+            JOIN users u ON u.id = g.owner_user_id
+            WHERE g.id = $1
             """,
             group_id,
         )
@@ -78,32 +80,32 @@ class GroupsRepository:
 
     async def archive(self, group_id: UUID) -> Optional[Dict[str, Any]]:
         """Archive a group."""
-        row = await self.conn.fetchrow(
+        await self.conn.execute(
             """
             UPDATE groups
             SET is_archived = TRUE, updated_at = NOW()
             WHERE id = $1
-            RETURNING id, owner_user_id, name, sport, settings_json, created_at, updated_at, is_archived
             """,
             group_id,
         )
-        return self._row_to_dict(row) if row else None
+        # Fetch via get_by_id to include clerk_user_id from JOIN
+        return await self.get_by_id(group_id)
 
     async def update_settings(
         self, group_id: UUID, settings: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Update group settings."""
-        row = await self.conn.fetchrow(
+        await self.conn.execute(
             """
             UPDATE groups
             SET settings_json = $2, updated_at = NOW()
             WHERE id = $1
-            RETURNING id, owner_user_id, name, sport, settings_json, created_at, updated_at
             """,
             group_id,
             json.dumps(settings),
         )
-        return self._row_to_dict(row) if row else None
+        # Fetch via get_by_id to include clerk_user_id from JOIN
+        return await self.get_by_id(group_id)
 
     async def delete(self, group_id: UUID) -> bool:
         """Delete a group."""
