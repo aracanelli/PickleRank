@@ -173,6 +173,27 @@ async function archiveGroup() {
     isArchiving.value = false
   }
 }
+
+const isDuplicating = ref(false)
+
+async function duplicateGroup() {
+  if (!confirm('Create a copy of this group with all players but no history?')) {
+    return
+  }
+
+  isDuplicating.value = true
+  error.value = ''
+  try {
+    const newGroup = await groupsApi.duplicate(groupId.value)
+    success.value = `Created "${newGroup.name}"! Redirecting...`
+    setTimeout(() => {
+      router.push(`/groups/${newGroup.id}`)
+    }, 1500)
+  } catch (e: any) {
+    error.value = e.message || 'Failed to duplicate group'
+    isDuplicating.value = false
+  }
+}
 </script>
 
 <template>
@@ -324,44 +345,56 @@ async function archiveGroup() {
           </div>
         </BaseCard>
 
-        <!-- Danger Zone -->
-        <BaseCard title="Danger Zone" class="danger-zone">
-          <div class="danger-item">
-            <div class="danger-info">
-              <strong>Recalculate All Ratings</strong>
-              <span class="hint">Reset all player ratings and recalculate from completed events.</span>
-            </div>
-            <BaseButton 
-              variant="secondary" 
-              type="button" 
-              @click="recalculateRatings" 
-              :loading="isRecalculating"
-            >
-              🔄 Recalculate
-            </BaseButton>
-          </div>
-
-          <div class="danger-item">
-            <div class="danger-info">
-              <strong>Archive Group</strong>
-              <span class="hint">Hide this group from your dashboard. Only you can archive it.</span>
-            </div>
-            <BaseButton 
-              variant="danger" 
-              type="button" 
-              @click="archiveGroup" 
-              :loading="isArchiving"
-            >
-              📦 Archive
-            </BaseButton>
-          </div>
-        </BaseCard>
-
         <div class="form-actions">
           <BaseButton variant="secondary" type="button" @click="router.back()">Cancel</BaseButton>
           <BaseButton type="submit" :loading="isSaving">Save Settings</BaseButton>
         </div>
       </form>
+
+      <!-- Danger Zone - Outside form to ensure button clicks work -->
+      <BaseCard title="Danger Zone" class="danger-zone">
+        <div class="danger-item">
+          <div class="danger-info">
+            <strong>Recalculate All Ratings</strong>
+            <span class="hint">Reset all player ratings and recalculate from completed events.</span>
+          </div>
+          <BaseButton 
+            variant="secondary" 
+            @click="recalculateRatings" 
+            :loading="isRecalculating"
+          >
+            🔄 Recalculate
+          </BaseButton>
+        </div>
+
+        <div class="danger-item">
+          <div class="danger-info">
+            <strong>Duplicate Group</strong>
+            <span class="hint">Create a copy with same players and settings, but no history.</span>
+          </div>
+          <BaseButton 
+            variant="secondary" 
+            @click="duplicateGroup" 
+            :loading="isDuplicating"
+          >
+            📋 Duplicate
+          </BaseButton>
+        </div>
+
+        <div class="danger-item">
+          <div class="danger-info">
+            <strong>Archive Group</strong>
+            <span class="hint">Hide this group from your dashboard. Only you can archive it.</span>
+          </div>
+          <BaseButton 
+            variant="danger" 
+            @click="archiveGroup" 
+            :loading="isArchiving"
+          >
+            📦 Archive
+          </BaseButton>
+        </div>
+      </BaseCard>
     </template>
   </div>
 </template>
@@ -566,21 +599,41 @@ form > * {
   border-color: rgba(239, 68, 68, 0.3);
 }
 
+.danger-zone :deep(.card-body) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
 .danger-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
+  position: relative;
+  z-index: 1;
+}
+
+.danger-item + .danger-item {
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
 }
 
 .danger-info {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
+  flex: 1;
 }
 
 .danger-info strong {
   color: var(--color-text-primary);
+}
+
+.danger-item :deep(.btn) {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 </style>
 

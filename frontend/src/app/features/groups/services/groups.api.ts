@@ -107,6 +107,10 @@ export const groupsApi = {
 
   async archive(groupId: string): Promise<GroupDto> {
     return api.post(`/api/groups/${groupId}/archive`)
+  },
+
+  async duplicate(groupId: string): Promise<GroupDto> {
+    return api.post(`/api/groups/${groupId}/duplicate`)
   }
 }
 

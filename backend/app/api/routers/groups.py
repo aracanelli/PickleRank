@@ -130,5 +130,19 @@ async def archive_group(
     return await service.archive_group(user.user_id, group_id)
 
 
-
-
+@router.post("/groups/{group_id}/duplicate", response_model=GroupResponse)
+@limiter.limit(DEFAULT_RATE)
+async def duplicate_group(
+    request: Request,
+    group_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """
+    Duplicate a group with players and settings, but without history.
+    
+    Creates a new group with the same settings and players (with reset ratings),
+    but no events, games, or rating history.
+    """
+    service = GroupService(db)
+    return await service.duplicate_group(user.user_id, group_id)

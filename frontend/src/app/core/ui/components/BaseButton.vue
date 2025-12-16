@@ -4,6 +4,7 @@ defineProps<{
   size?: 'sm' | 'md' | 'lg'
   loading?: boolean
   disabled?: boolean
+  type?: 'button' | 'submit' | 'reset'
 }>()
 </script>
 
@@ -16,6 +17,7 @@ defineProps<{
       { loading, disabled }
     ]"
     :disabled="disabled || loading"
+    :type="type || 'button'"
   >
     <span v-if="loading" class="spinner"></span>
     <slot />

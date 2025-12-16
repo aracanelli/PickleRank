@@ -29,7 +29,7 @@ from app.api.schemas.events import (
 from app.api.schemas.event_updates import EventUpdate
 from app.domain.matchmaking.constraints import ConstraintChecker, ConstraintConfig, Player
 from app.domain.matchmaking.generator import ScheduleGenerator
-from app.domain.ratings.base import GameForRating, GameResult as DomainGameResult, PlayerRating
+from app.domain.ratings.base import GameForRating, GameResult as DomainGameResult, PlayerRating, RatingDelta
 from app.domain.ratings.factory import create_rating_system
 from app.exceptions import BadRequestError, ForbiddenError, MatchmakingError, NotFoundError
 from app.infrastructure.repositories.events_repo import EventsRepository
@@ -491,116 +491,132 @@ class EventService:
         group = await self.groups_repo.get_by_id(event["group_id"])
         settings = group["settings"]
 
-        # Get all games with player details
+        # Get all games with player details, ordered by round/court
         games = await self.games_repo.list_by_event_with_players(event_id)
 
         # Get current ratings for all participants
         participants = await self.events_repo.get_participants(event_id)
         participant_ids = {p["group_player_id"] for p in participants}
         current_ratings = {p["group_player_id"]: float(p["rating"]) for p in participants}
+        
+        # Store starting ratings for delta calculation
+        starting_ratings = current_ratings.copy()
+        
+        # Player info for response
+        player_info = {p["group_player_id"]: p["display_name"] for p in participants}
 
-        # Build games for rating calculation
-        games_for_rating: List[GameForRating] = []
-        for game in games:
-            if game["result"] == "UNSET":
-                continue
-
-            games_for_rating.append(
-                GameForRating(
-                    team1=(
-                        PlayerRating(
-                            player_id=game["team1_p1"],
-                            rating=float(game["t1p1_rating"]),
-                            display_name=game["t1p1_name"],
-                        ),
-                        PlayerRating(
-                            player_id=game["team1_p2"],
-                            rating=float(game["t1p2_rating"]),
-                            display_name=game["t1p2_name"],
-                        ),
-                    ),
-                    team2=(
-                        PlayerRating(
-                            player_id=game["team2_p1"],
-                            rating=float(game["t2p1_rating"]),
-                            display_name=game["t2p1_name"],
-                        ),
-                        PlayerRating(
-                            player_id=game["team2_p2"],
-                            rating=float(game["t2p2_rating"]),
-                            display_name=game["t2p2_name"],
-                        ),
-                    ),
-                    result=DomainGameResult(game["result"]),
-                    score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
-                    score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
-                )
-            )
-
-        # Calculate rating deltas
+        # Debug: Log the rating system settings being used
+        print(f"[DEBUG complete_event] Event ID: {event_id}")
+        print(f"[DEBUG complete_event] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
+        print(f"[DEBUG complete_event] K-Factor: {settings.get('kFactor', 32)}")
+        print(f"[DEBUG complete_event] ELO Const: {settings.get('eloConst')}")
+        
         rating_system = create_rating_system(
             settings.get("ratingSystem", "SERIOUS_ELO"),
             k_factor=settings.get("kFactor", 32),
             elo_const=settings.get("eloConst"),  # None uses default for each system
         )
 
-        deltas = rating_system.calculate_deltas(games_for_rating, current_ratings)
+        # Track stats per player
+        player_stats = {p_id: {"wins": 0, "losses": 0, "ties": 0, "games": 0} for p_id in participant_ids}
 
-        # Apply rating updates - only for event participants
+        # Group games by round_index for round-by-round processing
+        # Games in the same round happen simultaneously, so they use the same starting ratings
+        games_by_round = defaultdict(list)
+        for game in games:
+            if game["result"] != "UNSET":
+                games_by_round[game["round_index"]].append(game)
+        
+        # Process each round in order
+        for round_index in sorted(games_by_round.keys()):
+            round_games = games_by_round[round_index]
+            
+            # Build all games in this round for rating calculation using CURRENT ratings
+            games_for_rating = []
+            for game in round_games:
+                t1p1_rating = current_ratings.get(game["team1_p1"], float(game["t1p1_rating"]))
+                t1p2_rating = current_ratings.get(game["team1_p2"], float(game["t1p2_rating"]))
+                t2p1_rating = current_ratings.get(game["team2_p1"], float(game["t2p1_rating"]))
+                t2p2_rating = current_ratings.get(game["team2_p2"], float(game["t2p2_rating"]))
+
+                games_for_rating.append(GameForRating(
+                    team1=(
+                        PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
+                        PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
+                    ),
+                    team2=(
+                        PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
+                        PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
+                    ),
+                    result=DomainGameResult(game["result"]),
+                    score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
+                    score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
+                ))
+
+            # Calculate deltas for all games in this round together
+            deltas = rating_system.calculate_deltas(games_for_rating, current_ratings)
+
+            # Update current_ratings dictionary with new ratings for next round
+            for player_id, delta in deltas.items():
+                current_ratings[player_id] = delta.rating_after
+
+            # Track wins/losses/ties for all players in this round's games
+            for game in round_games:
+                for player_id, team in [
+                    (game["team1_p1"], 1), (game["team1_p2"], 1),
+                    (game["team2_p1"], 2), (game["team2_p2"], 2)
+                ]:
+                    if player_id in player_stats:
+                        player_stats[player_id]["games"] += 1
+                        if game["result"] == "TIE":
+                            player_stats[player_id]["ties"] += 1
+                        elif game["result"] == "TEAM1_WIN":
+                            if team == 1:
+                                player_stats[player_id]["wins"] += 1
+                            else:
+                                player_stats[player_id]["losses"] += 1
+                        else:  # TEAM2_WIN
+                            if team == 2:
+                                player_stats[player_id]["wins"] += 1
+                            else:
+                                player_stats[player_id]["losses"] += 1
+
+        # Apply final rating updates to database
         rating_updates = []
-        for player_id, delta in deltas.items():
-            # Only process players who were event participants
-            if player_id not in participant_ids:
-                continue
+        final_deltas = {}
+        for player_id in participant_ids:
+            rating_before = starting_ratings.get(player_id, 1000)
+            rating_after = current_ratings.get(player_id, rating_before)
+            delta = rating_after - rating_before
+            stats = player_stats.get(player_id, {"wins": 0, "losses": 0, "ties": 0, "games": 0})
+            
+            # Only update if player participated in at least one game
+            if stats["games"] > 0:
+                await self.group_players_repo.update_rating(
+                    group_player_id=player_id,
+                    rating=rating_after,
+                    games_delta=stats["games"],
+                    wins_delta=stats["wins"],
+                    losses_delta=stats["losses"],
+                    ties_delta=stats["ties"],
+                )
 
-            # Count wins/losses/ties for this player
-            # Only count games where the player was actually present
-            wins = losses = ties = games_played = 0
-            for game in games:
-                if game["result"] == "UNSET":
-                    continue
+                rating_updates.append({
+                    "event_id": event_id,
+                    "group_player_id": player_id,
+                    "rating_before": rating_before,
+                    "rating_after": rating_after,
+                    "delta": delta,
+                    "system": settings.get("ratingSystem", "SERIOUS_ELO"),
+                })
 
-                # Check if player was in this game
-                player_team = None
-                if player_id in [game["team1_p1"], game["team1_p2"]]:
-                    player_team = 1
-                elif player_id in [game["team2_p1"], game["team2_p2"]]:
-                    player_team = 2
-
-                # Only count games where the player was present
-                if player_team:
-                    games_played += 1
-                    if game["result"] == "TIE":
-                        ties += 1
-                    elif game["result"] == "TEAM1_WIN":
-                        if player_team == 1:
-                            wins += 1
-                        else:
-                            losses += 1
-                    else:  # TEAM2_WIN
-                        if player_team == 2:
-                            wins += 1
-                        else:
-                            losses += 1
-
-            # Update player rating
-            await self.group_players_repo.update_rating(
-                group_player_id=player_id,
-                rating=delta.rating_after,
-                games_delta=games_played,
-                wins_delta=wins,
-                losses_delta=losses,
-                ties_delta=ties,
-            )
-
-            rating_updates.append({
-                "event_id": event_id,
-                "group_player_id": player_id,
-                "rating_before": delta.rating_before,
-                "rating_after": delta.rating_after,
-                "delta": delta.delta,
-                "system": settings.get("ratingSystem", "SERIOUS_ELO"),
-            })
+                final_deltas[player_id] = RatingDelta(
+                    player_id=player_id,
+                    rating_before=rating_before,
+                    rating_after=rating_after,
+                    delta=delta,
+                    display_name=player_info.get(player_id, "Unknown"),
+                )
 
         # Save rating updates audit trail
         await self.rating_updates_repo.create_many(rating_updates)
@@ -618,7 +634,7 @@ class EventService:
                     ratingAfter=d.rating_after,
                     delta=d.delta,
                 )
-                for d in deltas.values()
+                for d in final_deltas.values()
             ],
         )
 
@@ -680,6 +696,14 @@ class EventService:
             raise NotFoundError("Group", str(group_id))
         if not await self._is_owner_or_organizer(user_id, group):
             raise ForbiddenError("Only owners and organizers can import history")
+
+        # Debug: Log the group settings being used for import
+        settings = group["settings"]
+        print(f"[DEBUG import_history] Group ID: {group_id}")
+        print(f"[DEBUG import_history] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
+        print(f"[DEBUG import_history] K-Factor: {settings.get('kFactor', 32)}")
+        print(f"[DEBUG import_history] ELO Const: {settings.get('eloConst')}")
+        print(f"[DEBUG import_history] Full settings: {settings}")
 
         # Read and parse CSV
         contents = await file.read()
