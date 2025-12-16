@@ -34,6 +34,8 @@ class EventsRepository:
             courts,
             rounds,
         )
+        return dict(row) if row else None
+
     async def update(self, event_id: UUID, values: Dict[str, Any]) -> None:
         """Update event fields."""
         if not values:

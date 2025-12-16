@@ -37,8 +37,18 @@ async def create_event(
     db: Connection = Depends(get_db),
 ):
     """Create a new event."""
-    service = EventService(db)
-    return await service.create_event(user.user_id, group_id, data)
+    import traceback
+    from app.logging_config import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        logger.info(f"Creating event for group {group_id}, user {user.user_id}")
+        service = EventService(db)
+        return await service.create_event(user.user_id, group_id, data)
+    except Exception as e:
+        logger.error(f"Error creating event: {e}")
+        logger.error(traceback.format_exc())
+        raise
 
 
 @router.get("/groups/{group_id}/events", response_model=EventListResponse)

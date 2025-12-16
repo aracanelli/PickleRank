@@ -53,16 +53,27 @@ class EventService:
         self.group_players_repo = GroupPlayersRepository(conn)
         self.rating_updates_repo = RatingUpdatesRepository(conn)
 
+    async def _is_owner_or_organizer(self, user_id: str, group: dict) -> bool:
+        """Check if the user is the group owner or has ORGANIZER role."""
+        # Check if user is the owner
+        if str(group.get("owner_user_id", "")) == user_id:
+            return True
+        # Check if user is an organizer
+        group_id = group.get("id") or group.get("group_id")
+        if group_id:
+            return await self.group_players_repo.is_organizer(user_id, group_id)
+        return False
+
     async def create_event(
         self, user_id: str, group_id: UUID, data: EventCreate
     ) -> EventResponse:
         """Create a new event."""
-        # Verify group ownership
+        # Verify group ownership or organizer role
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can create events")
 
         # Validate participant count
         required_players = data.courts * 4
@@ -106,12 +117,12 @@ class EventService:
         self, user_id: str, group_id: UUID, status: Optional[EventStatus] = None
     ) -> List[EventListItem]:
         """List events in a group."""
-        # Verify group ownership
+        # Verify group ownership or organizer role
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can list events")
 
         events = await self.events_repo.list_by_group(
             group_id, status.value if status else None
@@ -134,8 +145,10 @@ class EventService:
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
-        if str(event["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        # Fetch group to check ownership or organizer role
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can view this event")
 
         participant_count = await self.events_repo.get_participant_count(event_id)
         games = await self._get_games_with_players(event_id)
@@ -170,10 +183,10 @@ class EventService:
         if not event:
             raise NotFoundError("Event", str(event_id))
 
-        # Verify ownership
+        # Verify ownership or organizer role
         group = await self.groups_repo.get_by_id(event["group_id"])
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can update events")
 
         # Update fields
         updates = {}
@@ -221,8 +234,10 @@ class EventService:
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
-        if str(event["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        # Fetch group to check ownership or organizer role
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can generate schedules")
 
         if event["status"] == "COMPLETED":
             raise BadRequestError("Cannot regenerate a completed event")
@@ -345,8 +360,10 @@ class EventService:
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
-        if str(event["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        # Fetch group to check ownership or organizer role
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can swap players")
 
         if event["status"] == "COMPLETED":
             raise BadRequestError("Cannot swap players in a completed event")
@@ -419,10 +436,10 @@ class EventService:
         if not game:
             raise NotFoundError("Game", str(game_id))
 
-        # Verify ownership through group
+        # Verify ownership or organizer role through group
         group = await self.groups_repo.get_by_id(game["group_id"])
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can update scores")
 
         # Check event status
         event = await self.events_repo.get_by_id(game["event_id"])
@@ -459,8 +476,10 @@ class EventService:
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
-        if str(event["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        # Fetch group to check ownership or organizer role
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can complete events")
 
         if event["status"] == "COMPLETED":
             raise BadRequestError("Event is already completed")
@@ -608,8 +627,10 @@ class EventService:
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
-        if str(event["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this event's group")
+        # Fetch group to check ownership or organizer role
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can delete events")
         
         if event["status"] == "COMPLETED":
             raise BadRequestError("Cannot delete a completed event")
@@ -653,12 +674,12 @@ class EventService:
         """Import historical game data from CSV file."""
         logger.info(f"Starting history import for group {group_id}")
         
-        # Verify group ownership
+        # Verify group ownership or organizer role
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can import history")
 
         # Read and parse CSV
         contents = await file.read()

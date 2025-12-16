@@ -452,6 +452,21 @@ class GroupPlayersRepository:
         )
         return val is not None
 
+    async def is_organizer(self, user_id: str, group_id: UUID) -> bool:
+        """Check if a user is an organizer in a group (has ORGANIZER role)."""
+        val = await self.conn.fetchval(
+            """
+            SELECT 1 
+            FROM group_players gp
+            JOIN players p ON p.id = gp.player_id
+            WHERE gp.group_id = $1 AND p.user_id = $2 AND gp.role = 'ORGANIZER'
+            LIMIT 1
+            """,
+            group_id,
+            UUID(user_id)
+        )
+        return val is not None
+
 
 
 

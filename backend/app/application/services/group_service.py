@@ -27,6 +27,14 @@ class GroupService:
         self.groups_repo = GroupsRepository(conn)
         self.group_players_repo = GroupPlayersRepository(conn)
 
+    async def _is_owner_or_organizer(self, user_id: str, group: dict) -> bool:
+        """Check if the user is the group owner or has ORGANIZER role."""
+        # Check if user is the owner
+        if str(group["owner_user_id"]) == user_id:
+            return True
+        # Check if user is an organizer
+        return await self.group_players_repo.is_organizer(user_id, group["id"])
+
     async def create_group(self, user_id: str, data: GroupCreate) -> GroupResponse:
         """Create a new group."""
         # Prepare settings
@@ -101,8 +109,8 @@ class GroupService:
         if not group:
             raise NotFoundError("Group", str(group_id))
 
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can update group settings")
 
         # Merge settings
         current_settings = group["settings"]
@@ -127,8 +135,8 @@ class GroupService:
         if not group:
             raise NotFoundError("Group", str(group_id))
 
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can update the group")
 
         # Update name
         await self.conn.execute(
@@ -160,8 +168,8 @@ class GroupService:
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can recalculate ratings")
         
         settings = group["settings"]
         base_rating = settings.get("initialRating", 1000)
@@ -372,8 +380,8 @@ class GroupService:
         if not group:
             raise NotFoundError("Group", str(group_id))
             
-        if str(group["owner_user_id"]) != user_id:
-            raise ForbiddenError("You don't own this group")
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can archive a group")
             
         archived = await self.groups_repo.archive(group_id)
         return self._to_response(archived)
