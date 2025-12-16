@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted, computed, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { eventsApi } from '../services/events.api'
 import type { EventDto, GameDto, RatingUpdateDto, GameResult } from '@/app/core/models/dto'
@@ -7,6 +7,9 @@ import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
+import ShareableSchedule from '../components/ShareableSchedule.vue'
+import html2canvas from 'html2canvas'
+import { Download } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -29,6 +32,11 @@ const pendingSaves = ref<Map<string, number>>(new Map()) // game id -> timeout i
 const showCompletedModal = ref(false)
 const ratingUpdates = ref<RatingUpdateDto[]>([])
 const showPreview = ref(false)
+
+// Export functionality
+const showExportModal = ref(false)
+const isExporting = ref(false)
+const shareableRef = ref<HTMLElement | null>(null)
 
 // Name editing
 const isEditingName = ref(false)
@@ -350,6 +358,79 @@ function getResultBadge(result: string): string {
     default: return 'No Score'
   }
 }
+
+// Export as image functionality
+async function openExportModal() {
+  showExportModal.value = true
+  await nextTick()
+}
+
+async function exportAsImage() {
+  if (!shareableRef.value) return
+  
+  isExporting.value = true
+  try {
+    // Get the wrapper and its parent container
+    const wrapper = shareableRef.value
+    const container = wrapper.parentElement
+    
+    // Store original styles
+    const originalTransform = wrapper.style.transform
+    const originalWidth = wrapper.style.width
+    const originalContainerMaxHeight = container?.style.maxHeight || ''
+    const originalContainerOverflow = container?.style.overflow || ''
+    
+    // Temporarily remove constraints for full-size capture
+    wrapper.style.transform = 'none'
+    wrapper.style.width = 'auto'
+    if (container) {
+      container.style.maxHeight = 'none'
+      container.style.overflow = 'visible'
+    }
+    
+    // Wait for layout to update
+    await nextTick()
+    
+    // Get the actual ShareableSchedule component inside
+    const scheduleEl = wrapper.firstElementChild as HTMLElement
+    
+    const canvas = await html2canvas(scheduleEl || wrapper, {
+      backgroundColor: null,
+      scale: 2, // Higher resolution for crisp export
+      useCORS: true,
+      logging: false,
+      width: (scheduleEl || wrapper).scrollWidth,
+      height: (scheduleEl || wrapper).scrollHeight
+    })
+    
+    // Restore original styles
+    wrapper.style.transform = originalTransform
+    wrapper.style.width = originalWidth
+    if (container) {
+      container.style.maxHeight = originalContainerMaxHeight
+      container.style.overflow = originalContainerOverflow
+    }
+    
+    // Convert to blob and download
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${event.value?.name || 'schedule'}-games.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showExportModal.value = false
+    }, 'image/png')
+  } catch (e) {
+    console.error('Failed to export image:', e)
+    error.value = 'Failed to export image'
+  } finally {
+    isExporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -419,38 +500,44 @@ function getResultBadge(result: string): string {
             <span>• Generated in {{ event.generationMeta.durationMs }}ms</span>
           </div>
 
-          <div class="preview-table-container">
-            <table class="preview-table">
-              <thead>
-                <tr>
-                  <th>Round</th>
-                  <th v-for="court in event.courts" :key="court">Court {{ court }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(roundGames, roundIdx) in gamesByRound" :key="roundIdx">
-                  <td class="round-cell">{{ roundIdx + 1 }}</td>
-                  <td v-for="game in roundGames" :key="game.id" class="game-cell">
-                    <div class="compact-game">
-                      <div class="compact-team">
-                        <span class="compact-players">{{ game.team1.map(p => p.displayName).join(' & ') }}</span>
-                        <span class="compact-elo">({{ Math.round(game.team1Elo || 0) }})</span>
-                      </div>
-                      <span class="compact-vs">vs</span>
-                      <div class="compact-team">
-                        <span class="compact-players">{{ game.team2.map(p => p.displayName).join(' & ') }}</span>
-                        <span class="compact-elo">({{ Math.round(game.team2Elo || 0) }})</span>
-                      </div>
+          <!-- Mobile-friendly card layout (shows all rounds) -->
+          <div class="preview-rounds">
+            <div 
+              v-for="(roundGames, roundIdx) in gamesByRound" 
+              :key="roundIdx" 
+              class="preview-round-section"
+            >
+              <h3 class="round-section-header">Round {{ roundIdx + 1 }}</h3>
+              <div class="preview-games-grid">
+                <div 
+                  v-for="game in roundGames" 
+                  :key="game.id" 
+                  class="preview-game-card"
+                >
+                  <div class="preview-court-label">Court {{ game.courtIndex + 1 }}</div>
+                  <div class="preview-matchup">
+                    <div class="preview-team">
+                      <span class="preview-players">{{ game.team1.map(p => p.displayName).join(' & ') }}</span>
+                      <span class="preview-elo">ELO: {{ Math.round(game.team1Elo || 0) }}</span>
                     </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                    <div class="preview-vs">VS</div>
+                    <div class="preview-team">
+                      <span class="preview-players">{{ game.team2.map(p => p.displayName).join(' & ') }}</span>
+                      <span class="preview-elo">ELO: {{ Math.round(game.team2Elo || 0) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="preview-actions">
             <BaseButton variant="secondary" :loading="isGenerating" @click="regeneratePreview">
               🔄 Regenerate
+            </BaseButton>
+            <BaseButton variant="secondary" @click="openExportModal">
+              <Download :size="16" />
+              Save Image
             </BaseButton>
             <BaseButton @click="acceptPreview">
               ✓ Continue to Score Entry
@@ -595,6 +682,34 @@ function getResultBadge(result: string): string {
         </div>
       </div>
 
+    </Modal>
+
+    <!-- Export Modal -->
+    <Modal :open="showExportModal" title="📷 Export Schedule" @close="showExportModal = false">
+      <div class="export-content">
+        <p class="export-hint">Preview your schedule image below. Click "Download" to save it.</p>
+        
+        <!-- Shareable Schedule Container -->
+        <div class="export-preview-container">
+          <div ref="shareableRef" class="shareable-wrapper">
+            <ShareableSchedule 
+              v-if="event" 
+              :event="event" 
+              :gamesByRound="gamesByRound" 
+            />
+          </div>
+        </div>
+        
+        <div class="export-actions">
+          <BaseButton variant="secondary" @click="showExportModal = false">
+            Cancel
+          </BaseButton>
+          <BaseButton :loading="isExporting" @click="exportAsImage">
+            <Download :size="16" />
+            Download Image
+          </BaseButton>
+        </div>
+      </div>
     </Modal>
   </div>
 </template>
@@ -891,75 +1006,87 @@ function getResultBadge(result: string): string {
   font-size: 0.875rem;
 }
 
-/* Compact Preview Table */
-.preview-table-container {
-  overflow-x: auto;
+/* Mobile-friendly Preview Cards */
+.preview-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
   margin-bottom: var(--spacing-xl);
 }
 
-.preview-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.preview-table th,
-.preview-table td {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.preview-table th {
+.preview-round-section {
   background: var(--color-bg-secondary);
-  font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
 }
 
-.round-cell {
-  font-weight: 600;
+.round-section-header {
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--color-primary);
-  text-align: center;
-  width: 60px;
-  background: var(--color-bg-secondary);
-}
-
-.game-cell {
-  min-width: 180px;
-}
-
-.compact-game {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.compact-team {
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 2px solid var(--color-primary);
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
 }
 
-.compact-players {
-  font-weight: 500;
+.preview-games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.preview-game-card {
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+}
+
+.preview-court-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: var(--spacing-sm);
+}
+
+.preview-matchup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.preview-team {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.preview-players {
+  font-weight: 600;
+  font-size: 0.9rem;
   color: var(--color-text-primary);
 }
 
-.compact-elo {
+.preview-elo {
   font-size: 0.75rem;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
 }
 
-.compact-vs {
-  font-size: 0.7rem;
+.preview-vs {
+  font-size: 0.75rem;
+  font-weight: 700;
   color: var(--color-text-muted);
-  font-weight: 600;
-  padding-left: var(--spacing-md);
+  text-align: center;
+  padding: var(--spacing-xs) 0;
 }
 
 /* Team ELO in score entry */
@@ -976,6 +1103,13 @@ function getResultBadge(result: string): string {
   gap: var(--spacing-md);
   padding-top: var(--spacing-lg);
   border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.preview-actions .base-button {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
 }
 
 .generate-prompt {
@@ -1040,6 +1174,47 @@ function getResultBadge(result: string): string {
   font-family: var(--font-mono);
 }
 
+/* Export Modal */
+.export-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.export-hint {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.export-preview-container {
+  max-height: 400px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+}
+
+.shareable-wrapper {
+  transform-origin: top left;
+  transform: scale(0.5);
+  width: 200%;
+}
+
+.export-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.export-actions .base-button {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;
@@ -1048,6 +1223,19 @@ function getResultBadge(result: string): string {
 
   .games-grid {
     grid-template-columns: 1fr;
+  }
+
+  .preview-games-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .preview-actions .base-button {
+    justify-content: center;
   }
 }
 </style>
