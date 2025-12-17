@@ -71,6 +71,7 @@ class EventResponse(BaseModel):
     """Event response."""
 
     id: UUID
+    group_id: UUID = Field(alias="groupId")
     name: Optional[str] = None
     status: EventStatus
     starts_at: Optional[datetime] = Field(None, alias="startsAt")
@@ -88,6 +89,7 @@ class EventListItem(BaseModel):
     """Event list item."""
 
     id: UUID
+    group_id: UUID = Field(alias="groupId")
     name: Optional[str] = None
     status: EventStatus
     starts_at: Optional[datetime] = Field(None, alias="startsAt")

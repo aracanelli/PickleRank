@@ -28,6 +28,7 @@ const editingScoreTeam2 = ref<string>('')
 const savingGameIds = ref<Set<string>>(new Set())
 const savedGameIds = ref<Set<string>>(new Set()) // Track recently saved for checkmark animation
 const pendingSaves = ref<Map<string, number>>(new Map()) // game id -> timeout id for debounce
+const queuedSaves = ref<Map<string, { score1?: number, score2?: number }>>(new Map()) // game id -> next scores to save
 
 const showCompletedModal = ref(false)
 const ratingUpdates = ref<RatingUpdateDto[]>([])
@@ -84,8 +85,22 @@ async function saveName() {
 const DEBOUNCE_DELAY = 500
 
 // Cleanup pending timeouts on unmount
+// Cleanup pending timeouts and save immediately on unmount
 onUnmounted(() => {
-  pendingSaves.value.forEach((timeoutId) => clearTimeout(timeoutId))
+  pendingSaves.value.forEach((timeoutId, gameId) => {
+    clearTimeout(timeoutId)
+    // We can't use performSave directly easily because we don't have the scores handy 
+    // in this simplified map. But we do have them in event.games if we search...
+    // Actually, `debouncedSave` only sets the timeout. The scores are in the input refs if we are editing.
+    // BUT onUnmounted happens when leaving. Editing might be active.
+    if (editingGameId.value === gameId) {
+       // If we are currently editing this game, save it now.
+       const game = event.value?.games.find(g => g.id === gameId)
+       const s1 = parseFloat(editingScoreTeam1.value)
+       const s2 = parseFloat(editingScoreTeam2.value)
+       if (game) performSave(gameId, isNaN(s1) ? undefined : s1, isNaN(s2) ? undefined : s2)
+    }
+  })
   pendingSaves.value.clear()
 })
 
@@ -109,6 +124,12 @@ async function loadEvent() {
 }
 
 async function generateSchedule(newSeed = false) {
+  if (event.value?.games && event.value.games.length > 0) {
+    if (!confirm('Are you sure you want to regenerate? This will delete the current schedule and any entered scores.')) {
+      return
+    }
+  }
+
   isGenerating.value = true
   error.value = ''
   try {
@@ -139,7 +160,15 @@ const gamesByRound = computed(() => {
   return rounds
 })
 
-function startEditing(game: GameDto) {
+const hasEnteredScores = computed(() => {
+  return event.value?.games.some(g => g.scoreTeam1 != null || g.scoreTeam2 != null) ?? false
+})
+
+const allScoresEntered = computed(() => {
+  return event.value?.games.every(g => g.scoreTeam1 != null && g.scoreTeam2 != null) ?? false
+})
+
+function startEditing(game: GameDto, teamIndex: 1 | 2 = 1) {
   // Cancel any pending save for previous game
   if (editingGameId.value && editingGameId.value !== game.id) {
     flushPendingSave(editingGameId.value)
@@ -148,6 +177,16 @@ function startEditing(game: GameDto) {
   editingGameId.value = game.id
   editingScoreTeam1.value = game.scoreTeam1?.toString() || ''
   editingScoreTeam2.value = game.scoreTeam2?.toString() || ''
+  
+  // Focus the correct input
+  nextTick(() => {
+    const selector = `.game-input-${game.id}.team-${teamIndex}`
+    const input = document.querySelector(selector) as HTMLInputElement
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
 }
 
 function cancelEditing() {
@@ -174,38 +213,61 @@ function flushPendingSave(gameId: string) {
 }
 
 // Perform the actual save to the server
+// Perform the actual save to the server
 async function performSave(gameId: string, score1?: number, score2?: number) {
   if (!event.value) return
   
-  // Already saving this game? Skip
-  if (savingGameIds.value.has(gameId)) return
+  // If already saving, queue this update to run after the current one finishes
+  if (savingGameIds.value.has(gameId)) {
+    queuedSaves.value.set(gameId, { score1, score2 })
+    return
+  }
   
   savingGameIds.value.add(gameId)
+  
   try {
     const updated = await eventsApi.updateScore(gameId, {
       scoreTeam1: score1,
       scoreTeam2: score2
     })
     
-    // Update local state with server response
-    const idx = event.value.games.findIndex(g => g.id === updated.id)
-    if (idx !== -1) {
-      event.value.games[idx] = updated
+    // Update local state with server response ONLY if no newer save is queued
+    // If a save is queued, we want to keep the optimistic state (or current state) 
+    // until that queued save completes, to avoid flickering back to an old state.
+    if (!queuedSaves.value.has(gameId)) {
+        const idx = event.value.games.findIndex(g => g.id === updated.id)
+        if (idx !== -1) {
+          event.value.games[idx] = updated
+        }
+        if (event.value.status === 'GENERATED') {
+          event.value.status = 'IN_PROGRESS'
+        }
+        
+        // Show brief success indicator
+        savedGameIds.value.add(gameId)
+        setTimeout(() => savedGameIds.value.delete(gameId), 1500)
     }
-    if (event.value.status === 'GENERATED') {
-      event.value.status = 'IN_PROGRESS'
-    }
-    
-    // Show brief success indicator
-    savedGameIds.value.add(gameId)
-    setTimeout(() => savedGameIds.value.delete(gameId), 1500)
     
   } catch (e: any) {
-    error.value = e.message || 'Failed to save score'
-    // Reload to reset state on error
-    await loadEvent()
+    // If we have a queued save, looking at this error might be premature, 
+    // but usually we want to know. 
+    // However, if we're going to retry immediately with new data, maybe suppress?
+    // Use safe approach: show error unless we are about to overwrite it.
+    if (!queuedSaves.value.has(gameId)) {
+        error.value = e.message || 'Failed to save score'
+        // Reload to reset state on error
+        await loadEvent()
+    }
   } finally {
     savingGameIds.value.delete(gameId)
+    
+    // Determine if we need to process a queued save
+    if (queuedSaves.value.has(gameId)) {
+        const next = queuedSaves.value.get(gameId)
+        queuedSaves.value.delete(gameId)
+        // Process next save
+        performSave(gameId, next?.score1, next?.score2)
+    }
   }
 }
 
@@ -251,7 +313,8 @@ function getResultFromScores(score1?: number, score2?: number): GameResult {
 }
 
 // Save immediately (on Enter or explicit save)
-async function saveScoreNow(game: GameDto) {
+// Save immediately (on Enter or explicit save)
+async function saveScoreNow(game: GameDto, shouldClose = true) {
   if (!event.value) return
   
   // Cancel any pending debounced save
@@ -273,10 +336,24 @@ async function saveScoreNow(game: GameDto) {
     }
   }
   
-  editingGameId.value = null
+  if (shouldClose) {
+    editingGameId.value = null
+  }
   
   // Perform save
   await performSave(game.id, score1, score2)
+}
+
+function handleScoreBlur(game: GameDto, evt: FocusEvent) {
+  // Check if we are moving focus to the other input of the same game
+  const relatedTarget = evt.relatedTarget as HTMLElement
+  if (relatedTarget && relatedTarget.classList.contains(`game-input-${game.id}`)) {
+    // Just save, don't close
+    saveScoreNow(game, false)
+  } else {
+    // Save and close
+    saveScoreNow(game, true)
+  }
 }
 
 function handleScoreKeyup(game: GameDto, evt: KeyboardEvent) {
@@ -301,48 +378,13 @@ async function completeEvent() {
     const result = await eventsApi.complete(eventId.value)
     event.value = { ...event.value!, status: result.status }
     ratingUpdates.value = result.ratingUpdates
-    event.value = { ...event.value!, status: result.status }
-    ratingUpdates.value = result.ratingUpdates
     
     // Redirect to group page
-    router.push(`/groups/${eventId.value.split('/')[0]}`) 
-    // Wait, eventId is just event UUID. We need groupId. 
-    // Route param might not have groupId if we navigated from /events/:id directly, 
-    // but the URL structure is usually /groups/:groupId/events/:eventId
-    // Let's check router or event.groupId. 
-    // event.value.groupId is NOT in EventDto normally? 
-    // API response has group_id? No, EventDto has id, name, status.
-    // But we are in a page that usually has groupId in route?
-    // Route is /events/:eventId based on router.ts probably?
-    // Actually the back link says /groups, but we don't have groupId ref?
-    // Ah, eventsApi.get used eventId.
-    // Let's use router.go(-1) or verify if we have groupId.
-    // Wait, I can't know groupId?
-    // App uses /groups/:groupId in back link? "router-link to=/groups".
-    // That link implies we might not know the exact group ID?
-    // Wait, in previous view_file line 579: "router-link to=/groups".
-    // Does the route have groupId?
-    // const eventId = computed(() => route.params.eventId as string)
-    // No groupId param in the script.
-    // BUT loadEvent returns EventDto. 
-    // Let's check EventDto definition.
-    // If not, I'll redirect to /groups.
-    // Or I check `eventsApi.get` response from backend - it returns `group_id`.
-    // My frontend EventDto might miss it?
-    // Let's assume /groups is safe or use router.push('/groups') to list.
-    // The User requested: "bring me back to my group home page".
-    // If I don't have groupId, I can't go to group home.
-    // Backend GetEvent returns group_id. 
-    // I should add groupId to EventDto interface if missing, or just cast it.
-    // casting: (event.value as any).group_id
-    // But backend is snake_case? Pydantic model response has alias?
-    // GroupId is usually camelCase in JSON if modeled that way.
-    // Let's look at `EventResponse` in backend `events.py` (which I couldn't read).
-    // `EventResponse` inherits `EventBase`? 
-    // Let's assume I can cast `(result as any).group_id` or similar.
-    // Actually, I'll update the plan to check for groupId.
-    // safely: router.push('/groups/' + (event.value as any).group_id)
-    router.push(`/groups/${(event.value as any).group_id || ''}`)
+    if (event.value?.groupId) {
+      router.push(`/groups/${event.value.groupId}`)
+    } else {
+      router.push('/groups')
+    }
   } catch (e: any) {
     error.value = e.message || 'Failed to complete event'
   } finally {
@@ -441,7 +483,7 @@ async function exportAsImage() {
       <!-- Header -->
       <div class="page-header">
         <div>
-          <router-link to="/groups" class="back-link">← Back to Groups</router-link>
+          <router-link :to="`/groups/${event.groupId}`" class="back-link">← Back to Group</router-link>
           <div v-if="isEditingName" class="name-edit-wrapper">
              <input 
                v-model="tempEventName"
@@ -464,21 +506,47 @@ async function exportAsImage() {
           </div>
         </div>
         <div class="header-actions">
-          <BaseButton
-            v-if="event.status !== 'COMPLETED'"
-            variant="secondary"
-            :loading="isGenerating"
-            @click="generateSchedule(true)"
-          >
-            🔄 Regenerate
-          </BaseButton>
-          <BaseButton
-            v-if="event.status !== 'COMPLETED' && event.status !== 'DRAFT'"
-            :loading="isCompleting"
-            @click="completeEvent"
-          >
-            ✓ Complete Event
-          </BaseButton>
+          <!-- Preview Actions (only shown during preview) -->
+          <template v-if="showPreview">
+            <BaseButton
+              variant="secondary"
+              :loading="isGenerating"
+              @click="generateSchedule(true)"
+            >
+              🔄 Regenerate
+            </BaseButton>
+            <BaseButton
+              variant="secondary"
+              @click="openExportModal"
+            >
+              <Download :size="16" />
+              Save Image
+            </BaseButton>
+            <BaseButton @click="acceptPreview">
+              ✓ Continue to Score Entry
+            </BaseButton>
+          </template>
+
+          <!-- Normal Actions (hidden during preview) -->
+          <template v-else>
+            <BaseButton
+              v-if="event.status !== 'COMPLETED' && !hasEnteredScores"
+              variant="secondary"
+              :loading="isGenerating"
+              @click="generateSchedule(true)"
+            >
+              🔄 Regenerate
+            </BaseButton>
+            <BaseButton
+              v-if="event.status !== 'COMPLETED' && event.status !== 'DRAFT'"
+              :loading="isCompleting"
+              :disabled="!allScoresEntered"
+              @click="completeEvent"
+              :title="!allScoresEntered ? 'Enter all scores to complete' : ''"
+            >
+              ✓ Complete Event
+            </BaseButton>
+          </template>
         </div>
       </div>
 
@@ -601,15 +669,16 @@ async function exportAsImage() {
                   <input
                     type="number"
                     v-model="editingScoreTeam1"
-                    class="inline-score-input"
+                    class="inline-score-input team-1"
+                    :class="`game-input-${game.id}`"
                     placeholder="0"
-                    min="0"
                     @keyup="handleScoreKeyup(game, $event)"
                     @input="handleScoreInput(game)"
+                    @blur="handleScoreBlur(game, $event)"
                     autofocus
                   />
                 </div>
-                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game)">
+                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game, 1)">
                   {{ game.scoreTeam1 ?? '-' }}
                 </div>
               </div>
@@ -627,14 +696,16 @@ async function exportAsImage() {
                   <input
                     type="number"
                     v-model="editingScoreTeam2"
-                    class="inline-score-input"
+                    class="inline-score-input team-2"
+                    :class="`game-input-${game.id}`"
                     placeholder="0"
                     min="0"
                     @keyup="handleScoreKeyup(game, $event)"
                     @input="handleScoreInput(game)"
+                    @blur="handleScoreBlur(game, $event)"
                   />
                 </div>
-                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game)">
+                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game, 2)">
                   {{ game.scoreTeam2 ?? '-' }}
                 </div>
               </div>
@@ -761,6 +832,17 @@ async function exportAsImage() {
   color: var(--color-text-primary);
   width: 100%;
   max-width: 400px;
+}
+
+/* Hide spin buttons for score inputs */
+.inline-score-input::-webkit-outer-spin-button,
+.inline-score-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.inline-score-input {
+  -moz-appearance: textfield;
 }
 
 .event-meta {

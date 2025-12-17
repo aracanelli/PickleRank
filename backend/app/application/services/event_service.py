@@ -103,6 +103,7 @@ class EventService:
 
         return EventResponse(
             id=event["id"],
+            group_id=event["group_id"],
             name=event["name"],
             status=EventStatus(event["status"]),
             startsAt=event["starts_at"],
@@ -131,6 +132,7 @@ class EventService:
         return [
             EventListItem(
                 id=e["id"],
+                group_id=e["group_id"],
                 name=e["name"],
                 status=EventStatus(e["status"]),
                 startsAt=e["starts_at"],
@@ -167,6 +169,7 @@ class EventService:
 
         return EventResponse(
             id=event["id"],
+            group_id=event["group_id"],
             name=event["name"],
             status=EventStatus(event["status"]),
             startsAt=event["starts_at"],
@@ -217,6 +220,7 @@ class EventService:
 
         return EventResponse(
             id=event["id"],
+            group_id=event["group_id"],
             name=event["name"],
             status=EventStatus(event["status"]),
             startsAt=event["starts_at"],

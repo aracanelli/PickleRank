@@ -126,6 +126,7 @@ export interface GenerationMeta {
 
 export interface EventDto {
   id: string
+  groupId: string
   name?: string
   status: EventStatus
   startsAt?: string

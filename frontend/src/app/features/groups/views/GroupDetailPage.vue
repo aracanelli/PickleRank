@@ -316,7 +316,13 @@ function viewPlayerHistory(player: GroupPlayerDto) {
         </EmptyState>
 
         <div v-else class="players-list">
-          <div v-for="player in permanentPlayers" :key="player.id" class="player-item clickable" @click="viewPlayerHistory(player)">
+          <div 
+            v-for="(player, index) in permanentPlayers" 
+            :key="player.id" 
+            class="player-item clickable" 
+            @click="viewPlayerHistory(player)"
+            :style="{ animationDelay: `${index * 50}ms` }"
+          >
             <div class="player-info">
               <div class="player-avatar">
                 {{ player.displayName[0] }}
@@ -600,6 +606,20 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+  /* Ensure container doesn't cut off shadows if we add them */
+  padding: 4px; 
+  margin: -4px;
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .player-item {
@@ -610,6 +630,10 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  
+  /* Staggered Animation Base */
+  animation: slideUpFade 0.4s ease-out forwards;
+  opacity: 0; /* Start hidden */
 }
 
 .player-item.clickable {
@@ -639,6 +663,9 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   color: white;
   border-radius: var(--radius-full);
   font-weight: 600;
+  /* Prevent shrinking */
+  flex-shrink: 0; 
+  min-width: 40px;
 }
 
 .player-avatar.sub {
@@ -1172,6 +1199,116 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 
   .event-actions button {
     flex: 1;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.85); /* Fallback */
+    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 16px; /* Increased padding slightly */
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 100;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
+  }
+
+  /* Dark mode support for glass if variables allow, otherwise simple override */
+  @media (prefers-color-scheme: dark) {
+    .mobile-bottom-nav {
+      background: rgba(30, 30, 30, 0.8);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .bottom-nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-secondary);
+    padding: 4px 12px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .bottom-nav-item.active, /* Add active class logic if route matches */
+  .bottom-nav-item:active {
+    color: var(--color-primary);
+    transform: scale(0.95);
+    background: rgba(var(--color-primary-rgb), 0.1);
+  }
+
+  /* Improve player list item layout on mobile */
+  .player-item {
+    padding: 12px; /* Slightly tighter padding */
+    gap: 12px;
+  }
+
+  /* Ensure avatar stays consistent size */
+  .player-avatar {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    font-size: 0.875rem;
+  }
+
+  /* Allow name to take available space but handle overflow */
+  .player-info {
+    min-width: 0; /* Enable truncation in flex child */
+    gap: 10px;
+  }
+
+  .player-details {
+    min-width: 0; /* Enable truncation */
+  }
+
+  .player-name-row {
+    flex-wrap: nowrap; /* Prevent wrapping on very small screens if possible */
+  }
+
+  .player-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Clean up stats for mobile */
+  .player-stats {
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+  
+  /* Fix rating block alignment and spacing */
+  .player-rating {
+    padding: 0;
+    padding-left: 8px; /* Reduce padding */
+    align-items: flex-end; /* Align to right */
+    min-width: auto;
+  }
+
+  .rating-value {
+    font-size: 1rem; /* Slightly smaller on mobile to prevent shifts */
+    line-height: 1.2;
+  }
+
+  .rating-label {
+    font-size: 0.6rem;
+  }
+  
+  /* Fix icon sizes */
+  .rating-delta svg {
+    width: 12px;
+    height: 12px;
+    min-width: 12px; /* Prevent shrink */
   }
 }
 .role-badge {

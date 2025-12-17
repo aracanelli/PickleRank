@@ -2,13 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { playersApi } from '../services/players.api'
 import type { PlayerDto } from '@/app/core/models/dto'
-import { Users, Search, Plus, FileText, CheckCircle, AlertTriangle, Link, UserPlus, Copy, Check } from 'lucide-vue-next'
+import { Users, Search, Plus, FileText, Link, UserPlus, Copy, Check } from 'lucide-vue-next'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
+import BulkPlayerCreateModal from '../components/BulkPlayerCreateModal.vue'
 
 const players = ref<PlayerDto[]>([])
 const isLoading = ref(true)
@@ -23,9 +24,6 @@ const isCreating = ref(false)
 
 // Bulk create
 const showBulkModal = ref(false)
-const bulkNames = ref('')
-const isBulkCreating = ref(false)
-const bulkResult = ref<{ created: number; skipped: string[] } | null>(null)
 
 // Invite logic
 const showInviteModal = ref(false)
@@ -70,46 +68,6 @@ async function createPlayer() {
   }
 }
 
-async function bulkCreatePlayers() {
-  const names = bulkNames.value
-    .split('\n')
-    .map(name => name.trim())
-    .filter(name => name.length > 0)
-
-  if (names.length === 0) return
-
-  isBulkCreating.value = true
-  bulkResult.value = null
-  error.value = ''
-
-  try {
-    const response = await playersApi.bulkCreate({ names })
-    bulkResult.value = {
-      created: response.created.length,
-      skipped: response.skipped
-    }
-    
-    // If all were created successfully, close modal after delay
-    if (response.skipped.length === 0) {
-      setTimeout(() => {
-        closeBulkModal()
-      }, 1500)
-    }
-    
-    await loadPlayers()
-  } catch (e: any) {
-    error.value = e.message || 'Failed to create players'
-  } finally {
-    isBulkCreating.value = false
-  }
-}
-
-function closeBulkModal() {
-  showBulkModal.value = false
-  bulkNames.value = ''
-  bulkResult.value = null
-}
-
 async function generateInvite(player: PlayerDto) {
   try {
      const token = await playersApi.generateInvite(player.id)
@@ -147,13 +105,7 @@ function handleSearch() {
   searchTimeout = setTimeout(() => loadPlayers(), 300)
 }
 
-// Count names in bulk input
-function getBulkNameCount(): number {
-  return bulkNames.value
-    .split('\n')
-    .map(name => name.trim())
-    .filter(name => name.length > 0).length
-}
+
 </script>
 
 <template>
@@ -262,55 +214,10 @@ function getBulkNameCount(): number {
     </Modal>
 
     <!-- Bulk Create Modal -->
-    <Modal :open="showBulkModal" title="Bulk Add Players" @close="closeBulkModal">
-      <div class="bulk-instructions">
-        <p>Enter player names, one per line. Duplicate names will be skipped.</p>
-      </div>
-      
-      <div class="form-group">
-        <label class="label">
-          Player Names 
-          <span v-if="getBulkNameCount() > 0" class="name-count">({{ getBulkNameCount() }} players)</span>
-        </label>
-        <textarea
-          v-model="bulkNames"
-          class="textarea bulk-textarea"
-          placeholder="John Smith
-Jane Doe
-Mike Johnson
-Sarah Williams"
-          rows="10"
-          :disabled="isBulkCreating"
-        ></textarea>
-      </div>
-
-      <!-- Results -->
-      <div v-if="bulkResult" class="bulk-result">
-        <div v-if="bulkResult.created > 0" class="result-success">
-          <CheckCircle :size="16" /> Successfully created {{ bulkResult.created }} player{{ bulkResult.created !== 1 ? 's' : '' }}
-        </div>
-        <div v-if="bulkResult.skipped.length > 0" class="result-skipped">
-          <span class="result-label"><AlertTriangle :size="16" /> Skipped (already exist):</span>
-          <ul>
-            <li v-for="name in bulkResult.skipped" :key="name">{{ name }}</li>
-          </ul>
-        </div>
-      </div>
-
-      <template #footer>
-        <BaseButton variant="secondary" @click="closeBulkModal">
-          {{ bulkResult ? 'Done' : 'Cancel' }}
-        </BaseButton>
-        <BaseButton 
-          v-if="!bulkResult || bulkResult.skipped.length > 0"
-          :loading="isBulkCreating" 
-          :disabled="getBulkNameCount() === 0"
-          @click="bulkCreatePlayers"
-        >
-          Add {{ getBulkNameCount() }} Player{{ getBulkNameCount() !== 1 ? 's' : '' }}
-        </BaseButton>
-      </template>
-    </Modal>
+    <BulkPlayerCreateModal 
+      v-model:open="showBulkModal"
+      @success="loadPlayers"
+    />
 
     <!-- Invite Modal -->
     <Modal :open="showInviteModal" title="Link Player to User" @close="showInviteModal = false">

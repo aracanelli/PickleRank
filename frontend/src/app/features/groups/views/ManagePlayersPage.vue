@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import { playersApi } from '@/app/features/players/services/players.api'
 import type { GroupDto, GroupPlayerDto, PlayerDto, MembershipType, SkillLevel, BulkAddPlayerItem, GroupRole } from '@/app/core/models/dto'
@@ -8,9 +8,9 @@ import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
-import { Shield, UserPlus, Link, Copy, Check } from 'lucide-vue-next'
+import BulkPlayerCreateModal from '@/app/features/players/components/BulkPlayerCreateModal.vue'
+import { Shield, UserPlus, Link, Copy, Check, FileText } from 'lucide-vue-next'
 
-const router = useRouter()
 const route = useRoute()
 const groupId = computed(() => route.params.groupId as string)
 
@@ -35,6 +35,9 @@ const copySuccess = ref(false)
 
 // Track updates in progress
 const updatingPlayerId = ref<string | null>(null)
+
+// Bulk Create
+const showBulkModal = ref(false)
 
 onMounted(async () => {
   await loadData()
@@ -227,6 +230,11 @@ async function copyLink() {
     console.error('Failed to copy', e)
   }
 }
+
+async function handleBulkSuccess() {
+  await loadData()
+  successMessage.value = 'Players created successfully! You can now add them to the group.'
+}
 </script>
 
 <template>
@@ -237,6 +245,9 @@ async function copyLink() {
         <h1>Manage Players</h1>
         <p v-if="group" class="subtitle">{{ group.name }}</p>
       </div>
+      <BaseButton variant="secondary" @click="showBulkModal = true">
+          <FileText :size="16" /> Bulk Add Players
+      </BaseButton>
     </div>
 
     <LoadingSpinner v-if="isLoading" text="Loading players..." />
@@ -456,9 +467,9 @@ async function copyLink() {
         <BaseCard class="all-added-card">
           <div class="all-added-content">
             <span class="all-added-icon">✅</span>
-            <p>All your players are in this group.</p>
-            <BaseButton variant="secondary" size="sm" @click="router.push('/players')">
-              Create More Players
+            <p>Don't see who you're looking for?</p>
+            <BaseButton variant="secondary" size="sm" @click="showBulkModal = true">
+              Bulk Add New Players
             </BaseButton>
           </div>
         </BaseCard>
@@ -484,12 +495,20 @@ async function copyLink() {
         <BaseButton @click="showInviteModal = false">Close</BaseButton>
       </template>
     </Modal>
+
+    <BulkPlayerCreateModal 
+      v-model:open="showBulkModal"
+      @success="handleBulkSuccess"
+    />
   </div>
 </template>
 
 <style scoped>
 .page-header {
   margin-bottom: var(--spacing-xl);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
 .back-link {

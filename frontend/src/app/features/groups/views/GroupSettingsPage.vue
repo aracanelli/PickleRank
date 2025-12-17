@@ -65,6 +65,10 @@ async function loadGroup() {
     error.value = e.message || 'Failed to load group'
   } finally {
     isLoading.value = false
+    // Allow watcher to run only after initial load is done
+    nextTick(() => {
+      isInitialLoad.value = false
+    })
   }
 }
 
@@ -85,8 +89,15 @@ async function renameGroup() {
 }
 
 // Auto-populate defaults when rating system changes
-import { watch } from 'vue'
-watch(ratingSystem, (newValue) => {
+
+// Auto-populate defaults when rating system changes
+import { watch, nextTick } from 'vue'
+
+const isInitialLoad = ref(true)
+
+watch(ratingSystem, async (newValue) => {
+  if (isInitialLoad.value) return
+  
   if (newValue === 'RACS_ELO') {
     // Rac's ELO uses k_const = 100 and elo_const = 0.3
     kFactor.value = 100
