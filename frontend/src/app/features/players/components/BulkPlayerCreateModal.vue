@@ -5,7 +5,7 @@ import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import { CheckCircle, AlertTriangle } from 'lucide-vue-next'
 
-const props = defineProps<{
+defineProps<{
   open: boolean
 }>()
 
