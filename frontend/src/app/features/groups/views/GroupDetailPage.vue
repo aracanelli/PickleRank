@@ -330,12 +330,12 @@ function viewPlayerHistory(player: GroupPlayerDto) {
               <div class="player-details">
                 <div class="player-name-row">
                   <span class="player-name">{{ player.displayName }}</span>
+                </div>
+                <div class="player-stats">
+                  <span>{{ (player.winRate * 100).toFixed(0) }}% win rate</span>
                   <span v-if="player.userId === currentUserId" class="me-indicator">(Me)</span>
                   <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">Organizer</span>
                 </div>
-                <span class="player-stats">
-                  {{ (player.winRate * 100).toFixed(0) }}% win rate
-                </span>
               </div>
             </div>
             <div class="player-rating">
@@ -728,6 +728,10 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 .player-stats {
   font-size: 0.75rem;
   color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 .player-rating {
