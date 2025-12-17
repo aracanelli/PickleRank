@@ -334,7 +334,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
                   <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">Organizer</span>
                 </div>
                 <span class="player-stats">
-                  {{ player.gamesPlayed }} games • {{ (player.winRate * 100).toFixed(0) }}% win rate
+                  {{ (player.winRate * 100).toFixed(0) }}% win rate
                 </span>
               </div>
             </div>
@@ -651,6 +651,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   align-items: center;
   gap: var(--spacing-md);
   flex: 1;
+  min-width: 0; /* Enable text truncation/wrapping in flex child */
 }
 
 .player-avatar {
