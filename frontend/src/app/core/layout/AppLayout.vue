@@ -63,9 +63,28 @@ function navigateToRankings() {
 function navigateToHistory() {
   if (groupId.value) router.push(`/groups/${groupId.value}/history`)
 }
-function navigateToStats() {
-  if (groupId.value && cachedPlayerId.value) {
+async function navigateToStats() {
+  if (!groupId.value) return
+  
+  // Try cached value first
+  if (cachedPlayerId.value) {
     router.push(`/groups/${groupId.value}/players/${cachedPlayerId.value}`)
+    return
+  }
+  
+  // If no cache, fetch players to find current user's player
+  try {
+    const { groupsApi } = await import('@/app/features/groups/services/groups.api')
+    const response = await groupsApi.getPlayers(groupId.value)
+    const myPlayer = response.players.find((p: any) => p.userId === authStore.userId)
+    if (myPlayer) {
+      // Cache for future use
+      sessionStorage.setItem(`myPlayerId_${groupId.value}`, myPlayer.id)
+      cachedPlayerId.value = myPlayer.id
+      router.push(`/groups/${groupId.value}/players/${myPlayer.id}`)
+    }
+  } catch (e) {
+    console.error('Failed to load player data for stats navigation', e)
   }
 }
 function navigateToDash() {
@@ -271,7 +290,7 @@ const navItems = [
       </button>
       <button 
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'stats', disabled: !cachedPlayerId }"
+        :class="{ active: activeNavItem === 'stats' }"
         @click="navigateToStats"
       >
         <Activity :size="20" />
