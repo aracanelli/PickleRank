@@ -102,17 +102,49 @@ async function exportAsImage() {
       height: (rankingEl || wrapper).scrollHeight
     })
     
-    canvas.toBlob((blob) => {
-      if (!blob) return
-      const url = URL.createObjectURL(blob)
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png')
+    })
+    
+    if (!blob) return
+    
+    const fileName = `${group.value?.name || 'group'}-rankings.png`
+    
+    // Check if Web Share API is available (best for mobile)
+    if (navigator.share && navigator.canShare) {
+      const file = new File([blob], fileName, { type: 'image/png' })
+      const shareData = { files: [file] }
+      
+      if (navigator.canShare(shareData)) {
+        try {
+          await navigator.share(shareData)
+          return
+        } catch (shareError) {
+          // User cancelled or share failed, fall through to other methods
+          if ((shareError as Error).name !== 'AbortError') {
+            console.log('Share failed, trying fallback...')
+          }
+        }
+      }
+    }
+    
+    // Check if iOS (for long-press save fallback)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    const url = URL.createObjectURL(blob)
+    
+    if (isIOS) {
+      // Open image in new window - user can long-press to save
+      window.open(url, '_blank')
+    } else {
+      // Standard download for desktop
       const a = document.createElement('a')
       a.href = url
-      a.download = `${group.value?.name || 'group'}-rankings.png`
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-    }, 'image/png')
+    }
   } catch (e) {
     console.error('Failed to export image:', e)
     error.value = 'Failed to export image'
