@@ -17,6 +17,10 @@ from app.api.schemas.groups import (
 from app.exceptions import ForbiddenError, NotFoundError
 from app.infrastructure.repositories.groups_repo import GroupsRepository
 from app.infrastructure.repositories.players_repo import GroupPlayersRepository
+from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
+from app.infrastructure.repositories.games_repo import GamesRepository
+from app.infrastructure.repositories.players_repo import GroupPlayersRepository
+from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
 
 
 class GroupService:
@@ -26,6 +30,8 @@ class GroupService:
         self.conn = conn
         self.groups_repo = GroupsRepository(conn)
         self.group_players_repo = GroupPlayersRepository(conn)
+        self.rating_updates_repo = RatingUpdatesRepository(conn)
+        self.games_repo = GamesRepository(conn)
 
     async def _is_owner_or_organizer(self, user_id: str, group: dict) -> bool:
         """Check if the user is the group owner or has ORGANIZER role."""
@@ -531,3 +537,284 @@ class GroupService:
 
 
 
+
+    async def get_player_stats(self, user_id: str, group_id: UUID, player_id: UUID) -> Dict[str, Any]:
+        """Get player stats and history."""
+        # Get group to verify access
+        group = await self.groups_repo.get_by_id(group_id)
+        if not group:
+            raise NotFoundError("Group", str(group_id))
+
+        # Check access (owner, organizer, or member)
+        is_owner = str(group["owner_user_id"]) == user_id
+        if not is_owner:
+            is_member = await self.group_players_repo.is_member(user_id, group_id)
+            if not is_member:
+                raise ForbiddenError("You don't have access to this group")
+
+        # Get group player by player_id
+        # Note: We need the group_player_id, so we need to look it up using group_id and player_id
+        # The repo has get_by_id (group_player_id) but we have player_id.
+        # Let's assume the router passes player_id (which is the global player id).
+        # We need to find the group_player entry.
+        
+        # We can implement a helper or just query it.
+        # Actually, let's look at list_by_group result or add a method.
+        # But wait, we can just use SQL here or add a repo method.
+        # Let's add a repo method get_by_group_and_player later if needed, but for now lets query or iterate?
+        # No, iterating is bad.
+        
+        # Let's assume the UI passes the PLAYER ID, so we need to find the group_player_id.
+        # Or does the UI pass group_player_id? The URL is /groups/:groupId/players/:playerId.
+        # Typically playerId refers to the global player ID or the group player ID.
+        # In this codebase, /groups/:id/players usually lists group players which have IDs.
+        # Let's verify what ID the frontend uses.
+        # In PlayersPage.vue, it uses player.id.
+        # list_by_group returns group_player.id as 'id', and player_id as 'player_id'.
+        # So the ID in the list is the GROUP_PLAYER_ID.
+        # OK, so the frontend will assume the ID is the GroupPlayerID.
+        
+        group_player = await self.group_players_repo.get_by_id(player_id)
+        if not group_player or str(group_player["group_id"]) != str(group_id):
+             # If passed ID is actually a raw player_id, we might want to handle that?
+             # For now assume it is group_player_id as that's what's in the list.
+             raise NotFoundError("Player", str(player_id))
+
+        # Get history
+        history = await self.rating_updates_repo.get_history_by_group_player(player_id)
+        
+        # Get all games to calculate advanced stats
+        games = await self.games_repo.list_by_player(player_id)
+        
+        advanced_stats = self._calculate_advanced_stats(player_id, history, games)
+        
+        return {
+            "player": group_player,
+            "history": history,
+            "advanced": advanced_stats
+        }
+
+    def _calculate_advanced_stats(self, player_id: UUID, history: List[Dict], games: List[Dict]) -> Dict:
+        """Calculate advanced player stats."""
+        from collections import defaultdict
+        
+        if not history and not games:
+            return None
+            
+        # 1. Highest / Lowest Rating
+        ratings = [float(h["rating"]) for h in history]
+        # Include current rating if history is empty but player exists? 
+        # Actually history contains all updates.
+        
+        if ratings:
+            highest_rating = max(ratings)
+            lowest_rating = min(ratings)
+        else:
+            highest_rating = 0
+            lowest_rating = 0
+            
+        # 2. Streaks
+        # Games are ordered by date, round_index
+        current_win_streak = 0
+        current_loss_streak = 0
+        longest_win_streak = 0
+        longest_loss_streak = 0
+        
+        # 3. Teammates and Opponents
+        teammate_stats = defaultdict(lambda: {"wins": 0, "games": 0, "name": ""})
+        opponent_stats = defaultdict(lambda: {"wins": 0, "losses": 0, "name": ""})
+        
+        for game in games:
+            # Determine my team and result
+            my_team = 0
+            if game["team1_p1"] == player_id or game["team1_p2"] == player_id:
+                my_team = 1
+            else:
+                my_team = 2
+                
+            # Skip if result is unset
+            if game["result"] == "UNSET":
+                continue
+                
+            is_win = False
+            if my_team == 1 and game["result"] == "TEAM1_WIN":
+                is_win = True
+            elif my_team == 2 and game["result"] == "TEAM2_WIN":
+                is_win = True
+            elif game["result"] == "TIE":
+                # Treat ties as breaking streaks? Or ignore?
+                # Usually ties break win/loss streaks
+                current_win_streak = 0
+                current_loss_streak = 0
+                continue
+                
+            # Update streaks
+            if is_win:
+                current_win_streak += 1
+                current_loss_streak = 0
+                longest_win_streak = max(longest_win_streak, current_win_streak)
+            else:
+                current_loss_streak += 1
+                current_win_streak = 0
+                longest_loss_streak = max(longest_loss_streak, current_loss_streak)
+                
+            # Teammate Stats
+            teammate_id = None
+            teammate_name = None
+            
+            if my_team == 1:
+                if game["team1_p1"] == player_id:
+                    teammate_id = game["team1_p2"]
+                    teammate_name = game["t1p2_name"]
+                else:
+                    teammate_id = game["team1_p1"]
+                    teammate_name = game["t1p1_name"]
+            else:
+                if game["team2_p1"] == player_id:
+                    teammate_id = game["team2_p2"]
+                    teammate_name = game["t2p2_name"]
+                else:
+                    teammate_id = game["team2_p1"]
+                    teammate_name = game["t2p1_name"]
+            
+            if teammate_id:
+                stats = teammate_stats[teammate_id]
+                stats["games"] += 1
+                stats["name"] = teammate_name
+                if is_win:
+                    stats["wins"] += 1
+                    
+            # Opponent Stats (Nemesis / Pigeon)
+            opponents = []
+            if my_team == 1:
+                opponents = [
+                    (game["team2_p1"], game["t2p1_name"]), 
+                    (game["team2_p2"], game["t2p2_name"])
+                ]
+            else:
+                opponents = [
+                    (game["team1_p1"], game["t1p1_name"]), 
+                    (game["team1_p2"], game["t1p2_name"])
+                ]
+                
+            for opp_id, opp_name in opponents:
+                stats = opponent_stats[opp_id]
+                stats["name"] = opp_name
+                if is_win:
+                    stats["wins"] += 1 # I beat them
+                else:
+                    stats["losses"] += 1 # They beat me
+        
+        # Format Teammates
+        def format_teammate(tid, stat):
+            return {
+                "playerId": tid,
+                "displayName": stat["name"],
+                "gamesPlayed": stat["games"],
+                "wins": stat["wins"],
+                "losses": stat["games"] - stat["wins"],
+                "winRate": stat["wins"] / stat["games"] if stat["games"] > 0 else 0
+            }
+
+        # Filter teammates (min 2 games to be significant)
+        all_teammates = [
+            format_teammate(tid, stat) 
+            for tid, stat in teammate_stats.items() 
+            if stat["games"] >= 2
+        ]
+
+        if not all_teammates:
+            best_teammates = []
+            worst_teammates = []
+        else:
+            # Best Teammates Logic:
+            # 1. Find absolute max win rate
+            max_wr = max(t["winRate"] for t in all_teammates)
+            # 2. Filter for those with max win rate
+            best_candidates = [t for t in all_teammates if t["winRate"] >= max_wr - 0.0001]
+            # 3. Among these, find absolute max games played
+            if best_candidates:
+                max_games_best = max(t["gamesPlayed"] for t in best_candidates)
+                # 4. Filter for those with max games played
+                best_candidates = [t for t in best_candidates if t["gamesPlayed"] == max_games_best]
+            
+            # Worst Teammates Logic:
+            # 1. Find absolute min win rate
+            min_wr = min(t["winRate"] for t in all_teammates)
+            # 2. Filter for those with min win rate
+            worst_candidates = [t for t in all_teammates if t["winRate"] <= min_wr + 0.0001]
+            # 3. Among these, find absolute max games played (proven worst)
+            if worst_candidates:
+                max_games_worst = max(t["gamesPlayed"] for t in worst_candidates)
+                # 4. Filter for those with max games played
+                worst_candidates = [t for t in worst_candidates if t["gamesPlayed"] == max_games_worst]
+            
+            # Remove Overlaps
+            # If a player appears in both lists, assign based on win rate threshold
+            best_ids = {t["playerId"] for t in best_candidates}
+            worst_ids = {t["playerId"] for t in worst_candidates}
+            common_ids = best_ids.intersection(worst_ids)
+            
+            final_best = []
+            for t in best_candidates:
+                if t["playerId"] in common_ids:
+                    if t["winRate"] >= 0.5:
+                        final_best.append(t)
+                else:
+                    final_best.append(t)
+
+            final_worst = []
+            for t in worst_candidates:
+                if t["playerId"] in common_ids:
+                    if t["winRate"] < 0.5:
+                        final_worst.append(t)
+                else:
+                    final_worst.append(t)
+            
+            best_teammates = final_best
+            worst_teammates = final_worst
+        
+        # Format Opponents
+        nemesis = None
+        pigeon = None
+        
+        # Nemesis: Opponent with highest win rate against me (min 3 games)
+        # Pigeon: Opponent I have highest win rate against (min 3 games)
+        
+        relevant_opponents = []
+        for oid, stat in opponent_stats.items():
+            total = stat["wins"] + stat["losses"]
+            if total >= 3:
+                win_rate_vs = stat["wins"] / total # My win rate vs them
+                relevant_opponents.append({
+                    "playerId": oid,
+                    "displayName": stat["name"],
+                    "gamesPlayed": total,
+                    "wins": stat["wins"],
+                    "losses": stat["losses"],
+                    "winRate": win_rate_vs
+                })
+        
+        if relevant_opponents:
+            # Pigeon = highest win rate for me
+            pigeon_data = max(relevant_opponents, key=lambda x: (x["winRate"], x["gamesPlayed"]))
+            if pigeon_data["winRate"] > 0.5: # Only if I actually win more
+                pigeon = pigeon_data
+                
+            # Nemesis = lowest win rate for me
+            nemesis_data = min(relevant_opponents, key=lambda x: (x["winRate"], x["gamesPlayed"] * -1))
+            if nemesis_data["winRate"] < 0.5: # Only if they actually beat me more
+                nemesis = nemesis_data
+
+        return {
+            "highestRating": highest_rating,
+            "lowestRating": lowest_rating,
+            "longestWinStreak": longest_win_streak,
+            "longestLossStreak": longest_loss_streak,
+            "currentWinStreak": current_win_streak,
+            "currentLossStreak": current_loss_streak,
+            "bestTeammates": best_teammates,
+            "worstTeammates": worst_teammates,
+            "nemesis": nemesis,
+            "pigeon": pigeon
+        }

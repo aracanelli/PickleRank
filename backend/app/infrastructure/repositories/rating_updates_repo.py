@@ -100,3 +100,17 @@ class RatingUpdatesRepository:
         return {row["group_player_id"]: float(row["rating_before"]) for row in rows}
 
 
+
+    async def get_history_by_group_player(self, group_player_id: UUID) -> List[Dict[str, Any]]:
+        """Get rating history for a group player."""
+        rows = await self.conn.fetch(
+            """
+            SELECT ru.rating_after as rating, ru.created_at, e.name as event_name, ru.event_id, ru.delta, ru.rating_before
+            FROM rating_updates ru
+            LEFT JOIN events e ON e.id = ru.event_id
+            WHERE ru.group_player_id = $1
+            ORDER BY ru.created_at ASC
+            """,
+            group_player_id,
+        )
+        return [dict(row) for row in rows]

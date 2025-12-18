@@ -8,13 +8,22 @@ export const rankingsApi = {
 
   async getHistory(
     groupId: string,
-    options?: { from?: string; to?: string; playerId?: string; eventId?: string }
+    options?: {
+      from?: string;
+      to?: string;
+      playerId?: string;
+      eventId?: string;
+      secondaryPlayerId?: string;
+      relationship?: 'teammate' | 'opponent';
+    }
   ): Promise<MatchHistoryResponse> {
     const params = new URLSearchParams()
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)
     if (options?.playerId) params.set('playerId', options.playerId)
     if (options?.eventId) params.set('eventId', options.eventId)
+    if (options?.secondaryPlayerId) params.set('secondaryPlayerId', options.secondaryPlayerId)
+    if (options?.relationship) params.set('relationship', options.relationship)
 
     const query = params.toString()
     return api.get(`/api/groups/${groupId}/history${query ? `?${query}` : ''}`)

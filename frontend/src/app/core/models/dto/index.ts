@@ -215,3 +215,41 @@ export interface MatchHistoryResponse {
 
 
 
+
+export interface RatingHistoryPoint {
+  rating: number
+  createdAt: string
+  eventId?: string
+  eventName?: string
+  delta: number
+}
+
+export interface TeammateStat {
+  playerId: string
+  displayName: string
+  gamesPlayed: number
+  wins: number
+  losses: number
+  winRate: number
+}
+
+export interface AdvancedStats {
+  highestRating: number
+  lowestRating: number
+  longestWinStreak: number
+  longestLossStreak: number
+  currentWinStreak: number
+  currentLossStreak: number
+
+  bestTeammates: TeammateStat[]
+  worstTeammates: TeammateStat[]
+
+  nemesis?: TeammateStat
+  pigeon?: TeammateStat
+}
+
+export interface PlayerStats {
+  player: GroupPlayerDto
+  history: RatingHistoryPoint[]
+  advanced?: AdvancedStats
+}

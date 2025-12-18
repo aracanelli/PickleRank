@@ -9,7 +9,8 @@ import type {
   SkillLevel,
   BulkAddPlayersToGroupRequest,
   BulkAddPlayersToGroupResponse,
-  GroupRole
+  GroupRole,
+  PlayerStats
 } from '@/app/core/models/dto'
 
 export interface CreateGroupRequest {
@@ -109,8 +110,17 @@ export const groupsApi = {
     return api.post(`/api/groups/${groupId}/archive`)
   },
 
+
   async duplicate(groupId: string): Promise<GroupDto> {
     return api.post(`/api/groups/${groupId}/duplicate`)
+  },
+
+  async getPlayerStats(groupId: string, playerId: string): Promise<PlayerStats> {
+    return api.get(`/api/groups/${groupId}/players/${playerId}/stats`)
+  },
+
+  async getEventRatingHistory(eventId: string): Promise<Record<string, Array<{ round: number, rating: number, delta?: number, type: string, label: string }>>> {
+    return api.get(`/api/events/${eventId}/rating-history`)
   }
 }
 

@@ -14,6 +14,7 @@ from app.api.schemas.groups import (
     GroupSettingsUpdate,
     GroupUpdate,
 )
+from app.api.schemas.players import PlayerStats
 from app.application.services.group_service import GroupService
 
 router = APIRouter()
@@ -69,6 +70,21 @@ async def get_group(
     """Get a specific group."""
     service = GroupService(db)
     return await service.get_group(user.user_id, group_id)
+
+
+
+@router.get("/groups/{group_id}/players/{player_id}/stats", response_model=PlayerStats)
+@limiter.limit(DEFAULT_RATE)
+async def get_player_stats(
+    request: Request,
+    group_id: UUID,
+    player_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Get player stats and history."""
+    service = GroupService(db)
+    return await service.get_player_stats(user.user_id, group_id, player_id)
 
 
 @router.patch("/groups/{group_id}/settings", response_model=GroupResponse)

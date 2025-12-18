@@ -102,6 +102,36 @@ class GamesRepository:
         )
         return [dict(row) for row in rows]
 
+    async def list_by_player(self, player_id: UUID) -> List[Dict[str, Any]]:
+        """List all games involving a specific player (by group_player_id)."""
+        rows = await self.conn.fetch(
+            """
+            SELECT g.id, g.event_id, g.round_index, g.court_index,
+                   g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
+                   g.score_team1, g.score_team2, g.result, g.swapped,
+                   g.team1_elo, g.team2_elo,
+                   p1.display_name as t1p1_name, gp1.rating as t1p1_rating,
+                   p2.display_name as t1p2_name, gp2.rating as t1p2_rating,
+                   p3.display_name as t2p1_name, gp3.rating as t2p1_rating,
+                   p4.display_name as t2p2_name, gp4.rating as t2p2_rating,
+                   e.starts_at as event_date
+            FROM games g
+            JOIN events e ON e.id = g.event_id
+            JOIN group_players gp1 ON gp1.id = g.team1_p1
+            JOIN group_players gp2 ON gp2.id = g.team1_p2
+            JOIN group_players gp3 ON gp3.id = g.team2_p1
+            JOIN group_players gp4 ON gp4.id = g.team2_p2
+            JOIN players p1 ON p1.id = gp1.player_id
+            JOIN players p2 ON p2.id = gp2.player_id
+            JOIN players p3 ON p3.id = gp3.player_id
+            JOIN players p4 ON p4.id = gp4.player_id
+            WHERE g.team1_p1 = $1 OR g.team1_p2 = $1 OR g.team2_p1 = $1 OR g.team2_p2 = $1
+            ORDER BY e.starts_at ASC, g.round_index ASC
+            """,
+            player_id,
+        )
+        return [dict(row) for row in rows]
+
     async def update_score(
         self, game_id: UUID, score_team1: Optional[float], score_team2: Optional[float]
     ) -> Dict[str, Any]:
@@ -174,7 +204,3 @@ class GamesRepository:
             event_id,
         )
         return [(row["p1"], row["p2"]) for row in rows]
-
-
-
-

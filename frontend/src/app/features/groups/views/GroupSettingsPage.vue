@@ -6,6 +6,7 @@ import type { GroupDto } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
+import { ArrowLeft } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -214,7 +215,7 @@ async function duplicateGroup() {
     <template v-else-if="group">
       <div class="page-header">
         <div>
-          <router-link :to="`/groups/${groupId}`" class="back-link">← Back to {{ group.name }}</router-link>
+          <router-link :to="`/groups/${groupId}`" class="back-link"><ArrowLeft :size="16" /> Back to Group</router-link>
           <h1>Group Settings</h1>
         </div>
       </div>
@@ -416,10 +417,25 @@ async function duplicateGroup() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
   margin-bottom: var(--spacing-sm);
+}
+
+.back-link:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .page-header h1 {

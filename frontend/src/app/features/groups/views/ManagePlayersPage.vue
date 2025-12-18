@@ -9,7 +9,7 @@ import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import BulkPlayerCreateModal from '@/app/features/players/components/BulkPlayerCreateModal.vue'
-import { Shield, UserPlus, Link, Copy, Check, FileText } from 'lucide-vue-next'
+import { Shield, UserPlus, Link, Copy, Check, FileText, ArrowLeft } from 'lucide-vue-next'
 
 const route = useRoute()
 const groupId = computed(() => route.params.groupId as string)
@@ -241,7 +241,7 @@ async function handleBulkSuccess() {
   <div class="manage-players container">
     <div class="page-header">
       <div>
-        <router-link :to="`/groups/${groupId}`" class="back-link">← Back to Group</router-link>
+        <router-link :to="`/groups/${groupId}`" class="back-link"><ArrowLeft :size="16" /> Back to Group</router-link>
         <h1>Manage Players</h1>
         <p v-if="group" class="subtitle">{{ group.name }}</p>
       </div>
@@ -512,14 +512,25 @@ async function handleBulkSuccess() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
   margin-bottom: var(--spacing-sm);
 }
 
 .back-link:hover {
-  color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .page-header h1 {

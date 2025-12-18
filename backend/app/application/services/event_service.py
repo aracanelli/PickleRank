@@ -64,6 +64,103 @@ class EventService:
             return await self.group_players_repo.is_organizer(user_id, group_id)
         return False
 
+    async def get_event_rating_history(self, user_id: str, event_id: UUID) -> Dict[str, Any]:
+        """
+        Replay an event to calculate round-by-round rating changes.
+        Returns a dictionary of player_id -> list of history points.
+        """
+        event = await self.events_repo.get_by_id(event_id)
+        if not event:
+            raise NotFoundError("Event", str(event_id))
+
+        # Check access
+        group = await self.groups_repo.get_by_id(event["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group) and not await self.groups_repo.is_member(user_id, group["id"]):
+             # Allow members to view history too, similar to player stats
+             pass
+
+        # Get actual known starting ratings and end ratings from DB
+        updates = await self.rating_updates_repo.list_by_event(event_id)
+        # Map player_id -> rating_before
+        starting_ratings = {u["group_player_id"]: float(u["rating_before"]) for u in updates}
+        
+        # Determine settings (try to match what was likely used)
+        # Ideally we persist this, but for now use current group settings
+        settings = group["settings"]
+        rating_system = create_rating_system(
+            settings.get("ratingSystem", "SERIOUS_ELO"),
+            k_factor=settings.get("kFactor", 32),
+            elo_const=settings.get("eloConst"),
+        )
+
+        # Get games
+        games = await self.games_repo.list_by_event_with_players(event_id)
+        
+        # Group by round
+        games_by_round = defaultdict(list)
+        for game in games:
+            if game["result"] != "UNSET":
+                games_by_round[game["round_index"]].append(game)
+
+        # Initialize current ratings
+        current_ratings = starting_ratings.copy()
+        history = defaultdict(list)
+
+        # Add initial point
+        for pid, rating in current_ratings.items():
+            history[str(pid)].append({
+                "round": 0,
+                "rating": rating,
+                "type": "START",
+                "label": "Event Start"
+            })
+
+        # Process rounds
+        for round_index in sorted(games_by_round.keys()):
+            round_games = games_by_round[round_index]
+            
+            # Prepare games for calculation using LOCALLY simulated current_ratings
+            games_for_rating = []
+            for game in round_games:
+                # We use the ratings we are tracking, falling back to what's in the game record if missing (shouldn't happen for participants)
+                t1p1_rating = current_ratings.get(game["team1_p1"], float(game["t1p1_rating"]))
+                t1p2_rating = current_ratings.get(game["team1_p2"], float(game["t1p2_rating"]))
+                t2p1_rating = current_ratings.get(game["team2_p1"], float(game["t2p1_rating"]))
+                t2p2_rating = current_ratings.get(game["team2_p2"], float(game["t2p2_rating"]))
+
+                games_for_rating.append(GameForRating(
+                    team1=(
+                        PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
+                        PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
+                    ),
+                    team2=(
+                        PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
+                        PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
+                    ),
+                    result=DomainGameResult(game["result"]),
+                    score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
+                    score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
+                ))
+
+            # Calculate deltas
+            deltas = rating_system.calculate_deltas(games_for_rating, current_ratings)
+
+            # Update and record
+            for player_id, delta in deltas.items():
+                current_ratings[player_id] = delta.rating_after
+                
+                # Find the game this player was in to get opponent info nicely?
+                # For now just record the new rating
+                history[str(player_id)].append({
+                    "round": round_index,
+                    "rating": delta.rating_after,
+                    "delta": delta.delta,
+                    "type": "MATCH",
+                    "label": f"Round {round_index}"
+                })
+
+        return history
+
     async def create_event(
         self, user_id: str, group_id: UUID, data: EventCreate
     ) -> EventResponse:

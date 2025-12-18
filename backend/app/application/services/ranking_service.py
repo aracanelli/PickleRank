@@ -67,6 +67,8 @@ class RankingService:
         to_date: Optional[datetime] = None,
         player_id: Optional[UUID] = None,
         event_id: Optional[UUID] = None,
+        secondary_player_id: Optional[UUID] = None,
+        relationship: Optional[str] = "teammate",
     ) -> List[MatchHistoryEntry]:
         """Get match history for a group."""
         # Verify group ownership or membership
@@ -137,9 +139,50 @@ class RankingService:
             )
             if gp_row:
                 gp_id = gp_row["id"]
-                query += f" AND (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx} OR g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx})"
-                params.append(gp_id)
-                param_idx += 1
+                
+                # Check for secondary player filter
+                if secondary_player_id:
+                     gp_row_sec = await self.conn.fetchrow(
+                        "SELECT id FROM group_players WHERE group_id = $1 AND player_id = $2",
+                        group_id,
+                        secondary_player_id,
+                    )
+                     if gp_row_sec:
+                         gp_id_sec = gp_row_sec["id"]
+                         
+                         if relationship == 'teammate':
+                             # Both on Team 1 OR Both on Team 2
+                             query += f""" AND (
+                                 ( (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx}) AND (g.team1_p1 = ${param_idx+1} OR g.team1_p2 = ${param_idx+1}) )
+                                 OR
+                                 ( (g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx}) AND (g.team2_p1 = ${param_idx+1} OR g.team2_p2 = ${param_idx+1}) )
+                             )"""
+                         else: # opponent
+                             # One on Team 1 AND One on Team 2
+                             # (P1 on T1 AND P2 on T2) OR (P1 on T2 AND P2 on T1)
+                             query += f""" AND (
+                                 ( (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx}) AND (g.team2_p1 = ${param_idx+1} OR g.team2_p2 = ${param_idx+1}) )
+                                 OR
+                                 ( (g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx}) AND (g.team1_p1 = ${param_idx+1} OR g.team1_p2 = ${param_idx+1}) )
+                             )"""
+                         
+                         params.append(gp_id)
+                         params.append(gp_id_sec)
+                         param_idx += 2
+                     else:
+                         # Secondary player not found in group, return empty or ignore? 
+                         # Let's ignore secondary filter if player not found, but standard is strict.
+                         # Better to fall back to just primary player to avoid errors, or match nothing.
+                         # Let's match nothing if secondary provided but not found.
+                         query += " AND 1=0" 
+                else:
+                    # Just primary player filter
+                    query += f" AND (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx} OR g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx})"
+                    params.append(gp_id)
+                    param_idx += 1
+            else:
+                 # Primary player not found
+                 query += " AND 1=0"
 
         query += " ORDER BY e.starts_at DESC, g.round_index, g.court_index"
 

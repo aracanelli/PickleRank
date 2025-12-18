@@ -459,13 +459,24 @@ onUnmounted(() => {
 }
 
 .back-link {
-  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
   font-size: 0.875rem;
-  transition: color var(--transition-fast);
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
 }
 
 .back-link:hover {
-  color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 /* Responsive */

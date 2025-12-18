@@ -29,6 +29,8 @@ const error = ref('')
 // Filter state
 const filterEventId = ref<string>('')
 const filterPlayerId = ref<string>('')
+const filterSecondaryPlayerId = ref<string>('')
+const filterRelationship = ref<'teammate' | 'opponent'>('teammate')
 
 // Check if current user is the group owner or has ORGANIZER role
 const isOrganizer = computed(() => {
@@ -63,7 +65,11 @@ onMounted(async () => {
 })
 
 // Watch for filter changes
-watch([filterEventId, filterPlayerId], () => {
+watch([filterEventId, filterPlayerId, filterSecondaryPlayerId, filterRelationship], () => {
+  // If primary player is cleared, clear secondary too
+  if (!filterPlayerId.value) {
+    filterSecondaryPlayerId.value = ''
+  }
   loadHistory()
 })
 
@@ -96,10 +102,23 @@ async function loadEvents() {
 async function loadHistory() {
   isLoading.value = true
   try {
-    const options: { playerId?: string; eventId?: string } = {}
+    const options: { 
+      playerId?: string; 
+      eventId?: string;
+      secondaryPlayerId?: string;
+      relationship?: 'teammate' | 'opponent';
+    } = {}
+    
     if (filterPlayerId.value) {
       options.playerId = filterPlayerId.value
+      
+      // Secondary filter only applies if primary is selected
+      if (filterSecondaryPlayerId.value) {
+        options.secondaryPlayerId = filterSecondaryPlayerId.value
+        options.relationship = filterRelationship.value
+      }
     }
+    
     if (filterEventId.value) {
       options.eventId = filterEventId.value
     }
@@ -155,6 +174,8 @@ const matchesByEvent = computed(() => {
 function clearFilters() {
   filterEventId.value = ''
   filterPlayerId.value = ''
+  filterSecondaryPlayerId.value = ''
+  filterRelationship.value = 'teammate'
 }
 
 // Alphabetically sorted players for filter dropdown
@@ -230,7 +251,7 @@ async function saveMatchEdit() {
     <div class="page-header">
       <div>
         <router-link :to="`/groups/${groupId}`" class="back-link">
-          <ArrowLeft :size="16" /> Back to {{ group?.name || 'Group' }}
+          <ArrowLeft :size="16" /> Back to Group
         </router-link>
         <h1><ChartBar :size="32" class="page-title-icon" /> Match History</h1>
         <p class="subtitle">All completed games in this group</p>
@@ -263,6 +284,42 @@ async function saveMatchEdit() {
               {{ player.displayName }}
             </option>
           </select>
+        </div>
+
+        <!-- Secondary Filter (Visible only when primary player is selected) -->
+        <div class="filter-group" v-if="filterPlayerId">
+          <label for="sec-player-filter">With / Against</label>
+          <select id="sec-player-filter" v-model="filterSecondaryPlayerId" class="filter-select">
+            <option value="">(Optional) Second Player</option>
+            <option 
+              v-for="player in sortedPlayers.filter(p => p.playerId !== filterPlayerId)" 
+              :key="player.playerId" 
+              :value="player.playerId"
+            >
+              {{ player.displayName }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Relationship Toggle (Visible only when secondary player is selected) -->
+        <div class="filter-group" v-if="filterPlayerId && filterSecondaryPlayerId">
+          <label>Relationship</label>
+          <div class="toggle-group">
+            <button 
+              class="toggle-btn" 
+              :class="{ active: filterRelationship === 'teammate' }"
+              @click="filterRelationship = 'teammate'"
+            >
+              Teammate
+            </button>
+            <button 
+              class="toggle-btn" 
+              :class="{ active: filterRelationship === 'opponent' }"
+              @click="filterRelationship = 'opponent'"
+            >
+              Opponent
+            </button>
+          </div>
         </div>
         
         <button 
@@ -388,9 +445,22 @@ async function saveMatchEdit() {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
-  margin-bottom: var(--spacing-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  margin-bottom: var(--spacing-md);
+}
+
+.back-link:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .page-header h1 {
@@ -417,7 +487,7 @@ async function saveMatchEdit() {
 /* Filter Bar */
 .filter-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end; /* Align to bottom so inputs and buttons line up */
   gap: var(--spacing-lg);
   padding: var(--spacing-md) var(--spacing-lg);
   background: var(--color-bg-card);
@@ -425,6 +495,374 @@ async function saveMatchEdit() {
   border-radius: var(--radius-md);
   margin-bottom: var(--spacing-xl);
   flex-wrap: wrap;
+}
+
+.filter-icon {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  min-width: 80px;
+  padding-bottom: 12px; /* Visual balance with labels */
+}
+
+.filter-controls {
+  display: flex;
+  align-items: flex-end; /* CRITICAL: Aligns buttons with inputs */
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 180px;
+}
+
+.filter-group label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toggle-group {
+  display: flex;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 4px; /* Slightly more padding for the "pill" look */
+  height: 42px; /* Match standard input height */
+  box-sizing: border-box;
+}
+
+.toggle-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--spacing-md);
+  font-size: 0.875rem; /* Match input text */
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  border: none; /* Reset */
+  background: transparent;
+}
+
+.toggle-btn:hover:not(.active) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.toggle-btn.active {
+  background: var(--color-bg-card); /* White/Card bg for active pill */
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.filter-select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  height: 42px; /* Explicit height to match toggle */
+  box-sizing: border-box;
+  transition: all var(--transition-fast);
+}
+
+.filter-select:hover {
+  border-color: var(--color-border-hover);
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+.clear-filters-btn {
+  padding: 0 var(--spacing-md); /* Use padding for width, height set by flex/box */
+  height: 42px; /* Match input height */
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.clear-filters-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+/* History Content */
+.history-content {
+  width: 100%;
+}
+
+.event-section {
+  margin-bottom: var(--spacing-2xl);
+}
+
+.event-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.event-header h2 {
+  font-size: 1.25rem;
+}
+
+.event-date {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.matches-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.match-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.match-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.round-court {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
+}
+
+.result-badge {
+  font-size: 0.75rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.result-badge.team1_win,
+.result-badge.team2_win {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--color-success);
+}
+
+.result-badge.tie {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--color-warning);
+}
+
+.match-teams {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.team {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+}
+
+.team.winner {
+  border-color: var(--color-success);
+}
+
+.team.player-win {
+  border-color: var(--color-success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.team.player-loss {
+  border-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.team-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.team-names {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.team-elo {
+  font-size: 0.625rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.team-score {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+}
+
+.vs {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+/* Edit Button */
+.edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-left: 8px;
+}
+
+.edit-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+.edit-form {
+  padding: 1rem 0;
+}
+
+.edit-teams {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.edit-team {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.edit-team-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edit-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.edit-vs {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.edit-warning {
+  font-size: 0.8rem;
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.1);
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+  .matches-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .match-teams {
+    flex-direction: column;
+  }
+
+  .team {
+    width: 100%;
+  }
+
+  /* Mobile Filter Styles */
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--spacing-md);
+  }
+
+  .filter-icon {
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: 0;
+  }
+
+  .filter-controls {
+    flex-direction: column;
+    align-items: stretch; /* Stack properly on mobile */
+    gap: var(--spacing-md);
+  }
+
+  .filter-group {
+    width: 100%;
+    min-width: 0; /* Allow shrinking */
+  }
+
+  .filter-select,
+  .toggle-group,
+  .clear-filters-btn {
+    width: 100%; /* Full width on mobile */
+  }
 }
 
 .filter-icon {
@@ -458,6 +896,36 @@ async function saveMatchEdit() {
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.toggle-group {
+  display: flex;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.toggle-btn:hover:not(.active) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.toggle-btn.active {
+  background: var(--color-primary);
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .filter-select {

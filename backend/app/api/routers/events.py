@@ -202,5 +202,14 @@ async def import_history(
     return await service.import_history(user.user_id, group_id, file)
 
 
-
-
+@router.get("/events/{event_id}/rating-history")
+@limiter.limit(DEFAULT_RATE)
+async def get_event_rating_history(
+    request: Request,
+    event_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Get round-by-round rating history for an event."""
+    service = EventService(db)
+    return await service.get_event_rating_history(user.user_id, event_id)

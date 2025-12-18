@@ -330,13 +330,18 @@ class GroupPlayersRepository:
         row = await self.conn.fetchrow(query, *params)
         return dict(row) if row else None
 
+
     async def get_by_id(self, group_player_id: UUID) -> Optional[Dict[str, Any]]:
         """Get a group player by ID."""
         row = await self.conn.fetchrow(
             """
             SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating, 
                    gp.games_played, gp.wins, gp.losses, gp.ties,
-                   p.display_name, u.clerk_user_id as user_id, gp.created_at, gp.updated_at
+                   p.display_name, u.clerk_user_id as user_id, gp.created_at, gp.updated_at,
+                   CASE WHEN gp.games_played > 0 
+                        THEN ROUND((gp.wins + 0.5 * gp.ties)::NUMERIC / gp.games_played, 3)
+                        ELSE 0 
+                   END AS win_rate
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
             LEFT JOIN users u ON u.id = p.user_id

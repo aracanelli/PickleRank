@@ -189,3 +189,61 @@ class GroupPlayerListResponse(BaseModel):
 
 
 
+
+class RatingHistoryPoint(BaseModel):
+    """Single point in rating history."""
+    
+    rating: float
+    created_at: datetime = Field(alias="createdAt")
+    event_id: Optional[UUID] = Field(None, alias="eventId")
+    event_name: Optional[str] = Field(None, alias="eventName")
+    delta: float
+
+    class Config:
+        populate_by_name = True
+
+
+class TeammateStat(BaseModel):
+    """Stats with a specific teammate."""
+    player_id: UUID = Field(alias="playerId")
+    display_name: str = Field(alias="displayName")
+    games_played: int = Field(alias="gamesPlayed")
+    wins: int
+    losses: int
+    win_rate: float = Field(alias="winRate")
+
+    class Config:
+        populate_by_name = True
+
+
+class AdvancedStats(BaseModel):
+    """Advanced calculated stats."""
+    
+    highest_rating: float = Field(alias="highestRating")
+    lowest_rating: float = Field(alias="lowestRating")
+    
+    longest_win_streak: int = Field(alias="longestWinStreak")
+    longest_loss_streak: int = Field(alias="longestLossStreak")
+    current_win_streak: int = Field(alias="currentWinStreak")
+    current_loss_streak: int = Field(alias="currentLossStreak")
+    
+    best_teammates: list[TeammateStat] = Field(default_factory=list, alias="bestTeammates")
+    worst_teammates: list[TeammateStat] = Field(default_factory=list, alias="worstTeammates")
+    
+    # Fun stats
+    nemesis: Optional[TeammateStat] = Field(None, description="Opponent who beats you the most")
+    pigeon: Optional[TeammateStat] = Field(None, description="Opponent you beat the most")
+
+    class Config:
+        populate_by_name = True
+
+
+class PlayerStats(BaseModel):
+    """Extended player stats with history."""
+    
+    player: GroupPlayerResponse
+    history: list[RatingHistoryPoint]
+    advanced: Optional[AdvancedStats] = None
+
+    class Config:
+        populate_by_name = True

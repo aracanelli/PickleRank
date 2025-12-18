@@ -83,7 +83,7 @@ function isSub(playerId: string): boolean {
     <div class="page-header">
       <div>
         <router-link :to="`/groups/${groupId}`" class="back-link">
-          <ArrowLeft :size="16" /> Back to {{ group?.name || 'Group' }}
+          <ArrowLeft :size="16" /> Back to Group
         </router-link>
         <h1><Trophy :size="32" class="page-title-icon" /> Rankings</h1>
         <p class="subtitle">Current standings based on {{ group?.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up' : 'Serious ELO' }} ratings</p>
@@ -228,9 +228,22 @@ function isSub(playerId: string): boolean {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
   margin-bottom: var(--spacing-sm);
+}
+
+.back-link:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .page-header h1 {

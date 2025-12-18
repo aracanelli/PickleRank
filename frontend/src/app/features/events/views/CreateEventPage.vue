@@ -8,6 +8,7 @@ import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
+import { ArrowLeft } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -150,7 +151,7 @@ async function createEvent() {
   <div class="create-event container">
     <div class="page-header">
       <div>
-        <router-link :to="`/groups/${groupId}`" class="back-link">← Back to Group</router-link>
+        <router-link :to="`/groups/${groupId}`" class="back-link"><ArrowLeft :size="16" /> Back to Group</router-link>
         <h1>Create New Event</h1>
       </div>
     </div>
@@ -310,10 +311,25 @@ async function createEvent() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
-  margin-bottom: var(--spacing-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  margin-bottom: var(--spacing-md);
+}
+
+.back-link:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .page-header h1 {

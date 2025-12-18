@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { 
   ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
-  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle 
+  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity
 } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -74,10 +74,16 @@ const isOrganizer = computed(() => {
   }
   
   // Otherwise check if user has a linked player with ORGANIZER role
+
   const myPlayer = players.value.find(
     p => p.userId && p.userId === currentUserId.value && p.role === 'ORGANIZER'
   )
   return !!myPlayer
+})
+
+const myPlayer = computed(() => {
+  if (!currentUserId.value) return null
+  return players.value.find(p => p.userId === currentUserId.value)
 })
 
 async function loadPendingEvents() {
@@ -213,21 +219,22 @@ function closeImportModal() {
   error.value = '' // Clear error when closing modal
 }
 
+
 function viewPlayerHistory(player: GroupPlayerDto) {
-  router.push(`/groups/${groupId.value}/history?playerId=${player.playerId}`)
+  router.push(`/groups/${groupId.value}/players/${player.id}`)
 }
 </script>
 
 <template>
   <div class="group-detail container">
-    <LoadingSpinner v-if="isLoading && !group" text="Loading group..." />
+    <LoadingSpinner v-if="isLoading || !authStore.isInitialized" text="Loading group..." />
 
     <template v-else-if="group">
       <!-- Header -->
       <div class="page-header">
         <div>
           <router-link to="/groups" class="back-link">
-            <ArrowLeft :size="16" /> Back to Groups
+            <ArrowLeft :size="16" /> Back to All Groups
           </router-link>
           <h1>{{ group.name }}</h1>
           <p class="subtitle">
@@ -265,10 +272,17 @@ function viewPlayerHistory(player: GroupPlayerDto) {
             <span class="qa-label">Rankings</span>
           </div>
         </BaseCard>
+
         <BaseCard clickable @click="router.push(`/groups/${groupId}/history`)">
           <div class="quick-action">
             <div class="qa-icon"><ChartBar :size="32" /></div>
             <span class="qa-label">History</span>
+          </div>
+        </BaseCard>
+        <BaseCard v-if="myPlayer" clickable @click="router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
+          <div class="quick-action">
+            <div class="qa-icon"><Activity :size="32" /></div>
+            <span class="qa-label">My Stats</span>
           </div>
         </BaseCard>
         <BaseCard v-if="isOrganizer" clickable @click="showImportModal = true">
@@ -463,7 +477,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
     </Modal>
 
     <!-- Mobile Bottom Navigation Bar -->
-    <nav class="mobile-bottom-nav" v-if="group">
+    <nav class="mobile-bottom-nav" v-if="group && !isLoading && authStore.isInitialized">
       <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
         <Trophy :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">Rankings</span>
@@ -471,6 +485,12 @@ function viewPlayerHistory(player: GroupPlayerDto) {
       <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
         <ChartBar :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">History</span>
+      </button>
+
+
+      <button v-if="myPlayer" class="bottom-nav-item" @click="router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
+        <Activity :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">My Stats</span>
       </button>
       <button v-if="isOrganizer" class="bottom-nav-item" @click="showImportModal = true">
         <Upload :size="20" class="bottom-nav-icon" />
@@ -496,13 +516,22 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  padding: 6px 12px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 0.875rem;
-  margin-bottom: var(--spacing-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  margin-bottom: var(--spacing-md);
 }
 
 .back-link:hover {
-  color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .page-header h1 {

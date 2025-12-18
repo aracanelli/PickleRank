@@ -43,6 +43,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/groups/:groupId/players/:playerId',
+      name: 'player-profile',
+      component: () => import('@/app/features/players/views/PlayerProfilePage.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/players',
       name: 'players',
       component: () => import('@/app/features/players/views/PlayersPage.vue'),
