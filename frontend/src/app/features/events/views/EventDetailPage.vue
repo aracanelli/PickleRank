@@ -35,7 +35,6 @@ const ratingUpdates = ref<RatingUpdateDto[]>([])
 const showPreview = ref(false)
 
 // Export functionality
-const showExportModal = ref(false)
 const isExporting = ref(false)
 const shareableRef = ref<HTMLElement | null>(null)
 
@@ -402,58 +401,23 @@ function getResultBadge(result: string): string {
 }
 
 // Export as image functionality
-async function openExportModal() {
-  showExportModal.value = true
-  await nextTick()
-}
-
 async function exportAsImage() {
   if (!shareableRef.value) return
   
   isExporting.value = true
   try {
-    // Get the wrapper and its parent container
     const wrapper = shareableRef.value
-    const container = wrapper.parentElement
-    
-    // Store original styles
-    const originalTransform = wrapper.style.transform
-    const originalWidth = wrapper.style.width
-    const originalContainerMaxHeight = container?.style.maxHeight || ''
-    const originalContainerOverflow = container?.style.overflow || ''
-    
-    // Temporarily remove constraints for full-size capture
-    wrapper.style.transform = 'none'
-    wrapper.style.width = 'auto'
-    if (container) {
-      container.style.maxHeight = 'none'
-      container.style.overflow = 'visible'
-    }
-    
-    // Wait for layout to update
-    await nextTick()
-    
-    // Get the actual ShareableSchedule component inside
     const scheduleEl = wrapper.firstElementChild as HTMLElement
     
     const canvas = await html2canvas(scheduleEl || wrapper, {
       backgroundColor: null,
-      scale: 2, // Higher resolution for crisp export
+      scale: 2,
       useCORS: true,
       logging: false,
       width: (scheduleEl || wrapper).scrollWidth,
       height: (scheduleEl || wrapper).scrollHeight
     })
     
-    // Restore original styles
-    wrapper.style.transform = originalTransform
-    wrapper.style.width = originalWidth
-    if (container) {
-      container.style.maxHeight = originalContainerMaxHeight
-      container.style.overflow = originalContainerOverflow
-    }
-    
-    // Convert to blob and download
     canvas.toBlob((blob) => {
       if (!blob) return
       const url = URL.createObjectURL(blob)
@@ -464,7 +428,6 @@ async function exportAsImage() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      showExportModal.value = false
     }, 'image/png')
   } catch (e) {
     console.error('Failed to export image:', e)
@@ -517,10 +480,11 @@ async function exportAsImage() {
             </BaseButton>
             <BaseButton
               variant="secondary"
-              @click="openExportModal"
+              :loading="isExporting"
+              @click="exportAsImage"
             >
               <Download :size="16" />
-              Save Image
+              Export Schedule
             </BaseButton>
             <BaseButton @click="acceptPreview">
               ✓ Continue to Score Entry
@@ -603,9 +567,9 @@ async function exportAsImage() {
             <BaseButton variant="secondary" :loading="isGenerating" @click="regeneratePreview">
               🔄 Regenerate
             </BaseButton>
-            <BaseButton variant="secondary" @click="openExportModal">
+            <BaseButton variant="secondary" :loading="isExporting" @click="exportAsImage">
               <Download :size="16" />
-              Save Image
+              Export Schedule
             </BaseButton>
             <BaseButton @click="acceptPreview">
               ✓ Continue to Score Entry
@@ -755,33 +719,16 @@ async function exportAsImage() {
 
     </Modal>
 
-    <!-- Export Modal -->
-    <Modal :open="showExportModal" title="📷 Export Schedule" @close="showExportModal = false">
-      <div class="export-content">
-        <p class="export-hint">Preview your schedule image below. Click "Download" to save it.</p>
-        
-        <!-- Shareable Schedule Container -->
-        <div class="export-preview-container">
-          <div ref="shareableRef" class="shareable-wrapper">
-            <ShareableSchedule 
-              v-if="event" 
-              :event="event" 
-              :gamesByRound="gamesByRound" 
-            />
-          </div>
-        </div>
-        
-        <div class="export-actions">
-          <BaseButton variant="secondary" @click="showExportModal = false">
-            Cancel
-          </BaseButton>
-          <BaseButton :loading="isExporting" @click="exportAsImage">
-            <Download :size="16" />
-            Download Image
-          </BaseButton>
-        </div>
+    <!-- Hidden container for export (off-screen) -->
+    <div class="export-hidden-container">
+      <div ref="shareableRef">
+        <ShareableSchedule 
+          v-if="event" 
+          :event="event" 
+          :gamesByRound="gamesByRound" 
+        />
       </div>
-    </Modal>
+    </div>
   </div>
 </template>
 
@@ -1334,6 +1281,14 @@ async function exportAsImage() {
   .preview-actions .base-button {
     justify-content: center;
   }
+}
+
+/* Hidden container for export - positioned off-screen but still renderable */
+.export-hidden-container {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  pointer-events: none;
 }
 </style>
 

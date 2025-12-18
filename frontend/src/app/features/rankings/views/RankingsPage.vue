@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ArrowLeft, Trophy, Medal } from 'lucide-vue-next'
+import { ArrowLeft, Trophy, Medal, Download } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import type { RankingEntryDto, GroupDto, GroupPlayerDto } from '@/app/core/models/dto'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
+import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
+import ShareableRankings from '../components/ShareableRankings.vue'
+import html2canvas from 'html2canvas'
 
 const route = useRoute()
 const groupId = computed(() => route.params.groupId as string)
@@ -20,6 +23,10 @@ const error = ref('')
 
 // Filter state: 'permanent' or 'all'
 const filterType = ref<'permanent' | 'all'>('permanent')
+
+// Export functionality
+const isExporting = ref(false)
+const shareableRef = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
   await loadData()
@@ -76,17 +83,65 @@ function getRankClass(rank: number): string {
 function isSub(playerId: string): boolean {
   return membershipMap.value.get(playerId) === 'SUB'
 }
+
+// Export as image functionality
+async function exportAsImage() {
+  if (!shareableRef.value) return
+  
+  isExporting.value = true
+  try {
+    const wrapper = shareableRef.value
+    const rankingEl = wrapper.firstElementChild as HTMLElement
+    
+    const canvas = await html2canvas(rankingEl || wrapper, {
+      backgroundColor: null,
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      width: (rankingEl || wrapper).scrollWidth,
+      height: (rankingEl || wrapper).scrollHeight
+    })
+    
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${group.value?.name || 'group'}-rankings.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }, 'image/png')
+  } catch (e) {
+    console.error('Failed to export image:', e)
+    error.value = 'Failed to export image'
+  } finally {
+    isExporting.value = false
+  }
+}
 </script>
 
 <template>
   <div class="rankings-page container">
     <div class="page-header">
-      <div>
+      <div class="header-left">
         <router-link :to="`/groups/${groupId}`" class="back-link">
           <ArrowLeft :size="16" /> Back to Group
         </router-link>
         <h1><Trophy :size="32" class="page-title-icon" /> Rankings</h1>
         <p class="subtitle">Current standings based on {{ group?.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up' : 'Serious ELO' }} ratings</p>
+      </div>
+      <div class="header-right">
+        <BaseButton 
+          v-if="!isLoading && filteredRankings.length > 0" 
+          variant="secondary" 
+          :loading="isExporting"
+          @click="exportAsImage"
+        >
+          <Download :size="16" />
+          Export Rankings
+        </BaseButton>
       </div>
     </div>
 
@@ -216,11 +271,26 @@ function isSub(playerId: string): boolean {
         </div>
       </div>
     </template>
+
+    <!-- Hidden container for export (off-screen) -->
+    <div class="export-hidden-container">
+      <div ref="shareableRef">
+        <ShareableRankings 
+          v-if="group" 
+          :rankings="filteredRankings" 
+          :group-name="group.name"
+          :rating-system="group.settings.ratingSystem"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: var(--spacing-lg);
 }
 
@@ -543,6 +613,25 @@ function isSub(playerId: string): boolean {
   .mobile-rankings {
     display: flex;
   }
+  
+  .page-header {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+  
+  .header-right {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+
+/* Hidden container for export - positioned off-screen but still renderable */
+.export-hidden-container {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  pointer-events: none;
 }
 </style>
 
