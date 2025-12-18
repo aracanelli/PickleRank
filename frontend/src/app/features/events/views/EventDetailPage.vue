@@ -814,7 +814,6 @@ async function exportAsImage() {
   color: var(--color-text-primary);
   border-color: var(--color-border-hover);
 }
-}
 
 .page-header h1 {
   font-size: 2rem;
