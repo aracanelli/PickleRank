@@ -81,9 +81,31 @@ const isOrganizer = computed(() => {
   return !!myPlayer
 })
 
+// Find current user's player for Stats button - use cached value for instant display
+const cachedPlayerId = ref<string | null>(null)
+const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
+
+// Initialize from cache immediately
+if (typeof sessionStorage !== 'undefined') {
+  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
+  if (cached) cachedPlayerId.value = cached
+}
+
 const myPlayer = computed(() => {
-  if (!currentUserId.value) return null
-  return players.value.find(p => p.userId === currentUserId.value)
+  // First try to find from loaded data
+  if (players.value.length > 0 && currentUserId.value) {
+    const player = players.value.find(p => p.userId === currentUserId.value)
+    if (player) {
+      // Cache for next navigation
+      sessionStorage.setItem(cacheKey.value, player.id)
+      return player
+    }
+  }
+  // Fall back to cached ID for instant display
+  if (cachedPlayerId.value) {
+    return { id: cachedPlayerId.value } as any
+  }
+  return null
 })
 
 async function loadPendingEvents() {
@@ -348,7 +370,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
                 <div class="player-stats">
                   <span>{{ (player.winRate * 100).toFixed(0) }}% win rate</span>
                   <span v-if="player.userId === currentUserId" class="me-indicator">(Me)</span>
-                  <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">Organizer</span>
+                  <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">ORG</span>
                 </div>
               </div>
             </div>
@@ -476,8 +498,8 @@ function viewPlayerHistory(player: GroupPlayerDto) {
       </template>
     </Modal>
 
-    <!-- Mobile Bottom Navigation Bar -->
-    <nav class="mobile-bottom-nav" v-if="group && !isLoading && authStore.isInitialized">
+    <!-- Mobile Bottom Navigation Bar - Always visible for seamless navigation -->
+    <nav class="mobile-bottom-nav">
       <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
         <Trophy :size="20" class="bottom-nav-icon" />
         <span class="bottom-nav-label">Rankings</span>
@@ -488,17 +510,14 @@ function viewPlayerHistory(player: GroupPlayerDto) {
       </button>
 
 
-      <button v-if="myPlayer" class="bottom-nav-item" @click="router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
+      <button class="bottom-nav-item" :class="{ disabled: !myPlayer }" @click="myPlayer && router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
         <Activity :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">My Stats</span>
+        <span class="bottom-nav-label">Stats</span>
       </button>
-      <button v-if="isOrganizer" class="bottom-nav-item" @click="showImportModal = true">
-        <Upload :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Import</span>
-      </button>
+      <!-- Import hidden on mobile per user request - desktop function only -->
       <button v-if="isOrganizer" class="bottom-nav-item" @click="router.push(`/groups/${groupId}/events/new`)">
         <Target :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">New Event</span>
+        <span class="bottom-nav-label">Event</span>
       </button>
     </nav>
   </div>
@@ -802,6 +821,29 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 
 .rating-delta.negative {
   color: var(--color-error, #ef4444);
+}
+
+/* Player stats inline indicators */
+.me-indicator {
+  font-weight: 600;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.role-badge {
+  font-size: 0.625rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.role-badge.organizer {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
 }
 
 .remove-btn {
@@ -1235,51 +1277,10 @@ function viewPlayerHistory(player: GroupPlayerDto) {
     flex: 1;
   }
 
-  .mobile-bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(255, 255, 255, 0.85); /* Fallback */
-    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
-    display: flex;
-    justify-content: space-around;
-    padding: 12px 16px; /* Increased padding slightly */
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-    z-index: 100;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
-  }
-
-  /* Dark mode support for glass if variables allow, otherwise simple override */
-  @media (prefers-color-scheme: dark) {
-    .mobile-bottom-nav {
-      background: rgba(30, 30, 30, 0.8);
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .bottom-nav-item {
-    background: none;
-    border: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    color: var(--color-text-secondary);
-    padding: 4px 12px;
-    border-radius: 12px;
-    transition: all 0.2s ease;
-  }
-
-  .bottom-nav-item.active, /* Add active class logic if route matches */
-  .bottom-nav-item:active {
-    color: var(--color-primary);
-    transform: scale(0.95);
-    background: rgba(var(--color-primary-rgb), 0.1);
-  }
+/* Per-page bottom nav hidden - using global nav from AppLayout */
+.mobile-bottom-nav {
+  display: none !important;
+}
 
   /* Improve player list item layout on mobile */
   .player-item {

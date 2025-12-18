@@ -634,7 +634,7 @@ async function exportAsImage() {
           </BaseCard>
         </div>
 
-        <!-- Round Tabs -->
+      <!-- Round Tabs -->
       <div class="round-tabs">
         <button
           v-for="(_, idx) in gamesByRound"
@@ -643,7 +643,8 @@ async function exportAsImage() {
           :class="{ active: selectedRound === idx }"
           @click="selectedRound = idx"
         >
-          Round {{ idx + 1 }}
+          <span class="round-full">Round {{ idx + 1 }}</span>
+          <span class="round-abbrev">R{{ idx + 1 }}</span>
         </button>
       </div>
 
@@ -908,6 +909,36 @@ async function exportAsImage() {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: white;
+}
+
+/* Round tab text variations - full on desktop, abbreviated on mobile */
+.round-tab .round-full {
+  display: inline;
+}
+
+.round-tab .round-abbrev {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .round-tab .round-full {
+    display: none;
+  }
+  
+  .round-tab .round-abbrev {
+    display: inline;
+  }
+  
+  .round-tabs {
+    gap: var(--spacing-xs);
+  }
+  
+  .round-tab {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 0.875rem;
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .games-grid {
@@ -1297,6 +1328,18 @@ async function exportAsImage() {
     gap: var(--spacing-md);
   }
 
+  .header-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+  
+  .header-actions button,
+  .header-actions .base-button {
+    width: 100%;
+    justify-content: center;
+  }
+
   .games-grid {
     grid-template-columns: 1fr;
   }
@@ -1308,10 +1351,23 @@ async function exportAsImage() {
   .preview-actions {
     flex-direction: column;
     align-items: stretch;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
   }
 
+  .preview-actions button,
   .preview-actions .base-button {
+    width: 100%;
     justify-content: center;
+  }
+  
+  .preview-header h2 {
+    font-size: 1.25rem;
+  }
+  
+  .gen-meta {
+    font-size: 0.75rem;
+    flex-wrap: wrap;
   }
 }
 

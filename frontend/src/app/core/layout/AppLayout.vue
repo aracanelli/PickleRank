@@ -1,14 +1,79 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { signOut, getClerk, getSessions, switchSession } from '@/app/core/auth/clerk'
-import { ClipboardList, Users, LogOut, ChevronDown, Activity, Check } from 'lucide-vue-next'
+import { ClipboardList, Users, LogOut, ChevronDown, Activity, Check, Trophy, ChartBar, LayoutDashboard, Target } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const isMenuOpen = ref(false)
 const showAccountSwitcher = ref(false)
+
+// Global bottom nav - extract groupId from any group-related route
+const groupId = computed(() => {
+  const params = route.params
+  if (params.groupId) return params.groupId as string
+  // For event pages, we'll need to get it from the route or cache
+  return null
+})
+
+// Check if current route should show bottom nav (group-related pages, not groups list)
+const showBottomNav = computed(() => {
+  if (!authStore.isAuthenticated) return false
+  if (!groupId.value) return false
+  // Don't show on /groups list page
+  if (route.path === '/groups') return false
+  return true
+})
+
+// Cache player ID - use a reactive ref that updates on route changes
+const cachedPlayerId = ref<string | null>(null)
+
+// Update cached player ID when route changes
+watch(() => groupId.value, (newGroupId) => {
+  if (typeof sessionStorage !== 'undefined' && newGroupId) {
+    cachedPlayerId.value = sessionStorage.getItem(`myPlayerId_${newGroupId}`)
+  } else {
+    cachedPlayerId.value = null
+  }
+}, { immediate: true })
+
+// Determine which nav item is active based on current route
+const activeNavItem = computed(() => {
+  const path = route.path
+  if (path.includes('/rankings')) return 'rankings'
+  if (path.includes('/history')) return 'history'
+  if (path.includes('/players/')) return 'stats'
+  // Check if on group detail page (exact match for /groups/:id pattern)
+  if (path.match(/^\/groups\/[^/]+$/)) return 'event'
+  return 'dash'
+})
+
+// Check if we're on the group detail page (show Event instead of Dash)
+const isOnGroupDetail = computed(() => {
+  return route.path.match(/^\/groups\/[^/]+$/)
+})
+
+// Navigation helpers
+function navigateToRankings() {
+  if (groupId.value) router.push(`/groups/${groupId.value}/rankings`)
+}
+function navigateToHistory() {
+  if (groupId.value) router.push(`/groups/${groupId.value}/history`)
+}
+function navigateToStats() {
+  if (groupId.value && cachedPlayerId.value) {
+    router.push(`/groups/${groupId.value}/players/${cachedPlayerId.value}`)
+  }
+}
+function navigateToDash() {
+  if (groupId.value) router.push(`/groups/${groupId.value}`)
+}
+function navigateToEvent() {
+  if (groupId.value) router.push(`/groups/${groupId.value}/events/new`)
+}
 
 // Close menus when clicking outside
 onMounted(() => {
@@ -185,6 +250,53 @@ const navItems = [
         <p>&copy; {{ new Date().getFullYear() }} PickleRank. Built for pickleball enthusiasts.</p>
       </div>
     </footer>
+
+    <!-- Global Mobile Bottom Navigation Bar -->
+    <nav class="global-bottom-nav" v-if="showBottomNav">
+      <button 
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'rankings' }"
+        @click="navigateToRankings"
+      >
+        <Trophy :size="20" />
+        <span>Rankings</span>
+      </button>
+      <button 
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'history' }"
+        @click="navigateToHistory"
+      >
+        <ChartBar :size="20" />
+        <span>History</span>
+      </button>
+      <button 
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'stats', disabled: !cachedPlayerId }"
+        @click="navigateToStats"
+      >
+        <Activity :size="20" />
+        <span>Stats</span>
+      </button>
+      <!-- Show Event on group detail, Dash on other pages -->
+      <button 
+        v-if="isOnGroupDetail"
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'event' }"
+        @click="navigateToEvent"
+      >
+        <Target :size="20" />
+        <span>Event</span>
+      </button>
+      <button 
+        v-else
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'dash' }"
+        @click="navigateToDash"
+      >
+        <LayoutDashboard :size="20" />
+        <span>Dash</span>
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -548,6 +660,77 @@ const navItems = [
 
   .menu-toggle {
     display: flex;
+  }
+
+  /* Global Mobile Bottom Navigation */
+  .main {
+    padding-bottom: 100px; /* Space for bottom nav */
+  }
+
+  .footer {
+    display: none; /* Hide footer on mobile when bottom nav is visible */
+  }
+}
+
+/* Global Bottom Navigation Bar - Desktop hidden */
+.global-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .global-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    background: rgba(30, 30, 35, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 9999;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
+  }
+
+  .global-nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    padding: 4px 12px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    min-width: 60px;
+    flex: 1;
+    cursor: pointer;
+  }
+
+  .global-nav-item span {
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  .global-nav-item.active {
+    color: var(--color-primary);
+  }
+
+  .global-nav-item:active:not(:disabled) {
+    transform: scale(0.95);
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .global-nav-item:disabled,
+  .global-nav-item.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: not-allowed;
   }
 }
 </style>

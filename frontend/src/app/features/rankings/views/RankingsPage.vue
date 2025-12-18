@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ArrowLeft, Trophy, Medal, Download } from 'lucide-vue-next'
+import { ArrowLeft, Trophy, Medal, Download, ChartBar, Activity, LayoutDashboard } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import type { RankingEntryDto, GroupDto, GroupPlayerDto } from '@/app/core/models/dto'
@@ -11,9 +11,41 @@ import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import ShareableRankings from '../components/ShareableRankings.vue'
 import html2canvas from 'html2canvas'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
+
 const groupId = computed(() => route.params.groupId as string)
+
+// Find current user's player for Stats button - use cached value for instant display
+const currentUserId = computed(() => authStore.userId)
+const cachedPlayerId = ref<string | null>(null)
+
+// Initialize from cache immediately
+const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
+if (typeof sessionStorage !== 'undefined') {
+  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
+  if (cached) cachedPlayerId.value = cached
+}
+
+const myPlayer = computed(() => {
+  // First try to find from loaded data
+  if (groupPlayers.value.length > 0 && currentUserId.value) {
+    const player = groupPlayers.value.find(p => p.userId === currentUserId.value)
+    if (player) {
+      // Cache for next navigation
+      sessionStorage.setItem(cacheKey.value, player.id)
+      return player
+    }
+  }
+  // Fall back to cached ID for instant display
+  if (cachedPlayerId.value) {
+    return { id: cachedPlayerId.value } as any
+  }
+  return null
+})
 
 const group = ref<GroupDto | null>(null)
 const rankings = ref<RankingEntryDto[]>([])
@@ -315,6 +347,26 @@ async function exportAsImage() {
         />
       </div>
     </div>
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav">
+      <button class="bottom-nav-item active">
+        <Trophy :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Rankings</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
+        <ChartBar :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">History</span>
+      </button>
+      <button class="bottom-nav-item" :class="{ disabled: !myPlayer }" @click="myPlayer && router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
+        <Activity :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Stats</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}`)">
+        <LayoutDashboard :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Dash</span>
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -664,6 +716,77 @@ async function exportAsImage() {
   left: -9999px;
   top: 0;
   pointer-events: none;
+}
+
+/* Per-page bottom nav hidden - using global nav from AppLayout */
+.mobile-bottom-nav {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .rankings-page {
+    padding-bottom: 100px;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.85);
+    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 100;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .mobile-bottom-nav {
+      background: rgba(30, 30, 30, 0.8);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .bottom-nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-secondary);
+    padding: 4px 12px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    min-width: 60px;
+    flex: 1;
+  }
+
+  .bottom-nav-item.active {
+    color: var(--color-primary);
+  }
+
+  .bottom-nav-item:active {
+    transform: scale(0.95);
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .bottom-nav-item.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .bottom-nav-label {
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
 }
 </style>
 

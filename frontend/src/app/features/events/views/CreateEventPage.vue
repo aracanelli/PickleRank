@@ -568,6 +568,74 @@ async function createEvent() {
     grid-template-columns: 1fr;
   }
 }
+
+/* Mobile improvements for player selection */
+@media (max-width: 768px) {
+  .players-header {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+  
+  .players-header h3 {
+    font-size: 1rem;
+  }
+  
+  .selection-actions {
+    width: 100%;
+    justify-content: space-between;
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--color-border);
+    margin-top: var(--spacing-xs);
+  }
+  
+  .players-grid {
+    gap: var(--spacing-xs);
+  }
+  
+  .player-chip {
+    /* Ensure consistent height and proper touch target */
+    min-height: 44px;
+    padding: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) var(--spacing-sm);
+  }
+  
+  .chip-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 0.875rem;
+  }
+  
+  .chip-name {
+    font-size: 0.8rem;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  .chip-rating {
+    font-size: 0.7rem;
+    min-width: 28px;
+    text-align: right;
+  }
+  
+  .group-title {
+    font-size: 0.875rem;
+  }
+  
+  .group-count {
+    font-size: 0.7rem;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+  
+  .form-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
 </style>
 
 

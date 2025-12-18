@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { 
-  ArrowLeft, Activity, Target, Flame, Skull
+  ArrowLeft, Activity, Target, Flame, Skull, Trophy, ChartBar, LayoutDashboard
 } from 'lucide-vue-next'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import type { PlayerStats } from '@/app/core/models/dto'
@@ -429,6 +429,26 @@ function formatRating(rating: number): string {
       </div>
 
     </template>
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav">
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
+        <Trophy :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Rankings</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
+        <ChartBar :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">History</span>
+      </button>
+      <button class="bottom-nav-item active">
+        <Activity :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Stats</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}`)">
+        <LayoutDashboard :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Dash</span>
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -731,5 +751,71 @@ function formatRating(rating: number): string {
     .simple-lists-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Per-page bottom nav hidden - using global nav from AppLayout */
+.mobile-bottom-nav {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .player-profile {
+    padding-bottom: 100px;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.85);
+    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 100;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .mobile-bottom-nav {
+      background: rgba(30, 30, 30, 0.8);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .bottom-nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-secondary);
+    padding: 4px 12px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    min-width: 60px;
+    flex: 1;
+  }
+
+  .bottom-nav-item.active {
+    color: var(--color-primary);
+  }
+
+  .bottom-nav-item:active {
+    transform: scale(0.95);
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .bottom-nav-label {
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
 }
 </style>

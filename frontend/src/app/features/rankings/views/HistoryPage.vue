@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter } from 'lucide-vue-next'
+import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter, Trophy, Activity, LayoutDashboard } from 'lucide-vue-next'
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
@@ -17,7 +17,35 @@ const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.userId)
 
 const route = useRoute()
+const router = useRouter()
 const groupId = computed(() => route.params.groupId as string)
+
+// Find current user's player for Stats button - use cached value for instant display
+const cachedPlayerId = ref<string | null>(null)
+const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
+
+// Initialize from cache immediately
+if (typeof sessionStorage !== 'undefined') {
+  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
+  if (cached) cachedPlayerId.value = cached
+}
+
+const myPlayer = computed(() => {
+  // First try to find from loaded data
+  if (players.value.length > 0 && currentUserId.value) {
+    const player = players.value.find(p => p.userId === currentUserId.value)
+    if (player) {
+      // Cache for next navigation
+      sessionStorage.setItem(cacheKey.value, player.id)
+      return player
+    }
+  }
+  // Fall back to cached ID for instant display
+  if (cachedPlayerId.value) {
+    return { id: cachedPlayerId.value } as any
+  }
+  return null
+})
 
 const group = ref<GroupDto | null>(null)
 const players = ref<GroupPlayerDto[]>([])
@@ -433,6 +461,26 @@ async function saveMatchEdit() {
         <BaseButton :loading="isSavingEdit" @click="saveMatchEdit">Save & Recalculate</BaseButton>
       </template>
     </Modal>
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav">
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
+        <Trophy :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Rankings</span>
+      </button>
+      <button class="bottom-nav-item active">
+        <ChartBar :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">History</span>
+      </button>
+      <button class="bottom-nav-item" :class="{ disabled: !myPlayer }" @click="myPlayer && router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
+        <Activity :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Stats</span>
+      </button>
+      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}`)">
+        <LayoutDashboard :size="20" class="bottom-nav-icon" />
+        <span class="bottom-nav-label">Dash</span>
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -1200,6 +1248,77 @@ async function saveMatchEdit() {
 
   .filter-group {
     width: 100%;
+  }
+}
+
+/* Per-page bottom nav hidden - using global nav from AppLayout */
+.mobile-bottom-nav {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .history-page {
+    padding-bottom: 100px;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.85);
+    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    justify-content: space-around;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 100;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .mobile-bottom-nav {
+      background: rgba(30, 30, 30, 0.8);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .bottom-nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-secondary);
+    padding: 4px 12px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    min-width: 60px;
+    flex: 1;
+  }
+
+  .bottom-nav-item.active {
+    color: var(--color-primary);
+  }
+
+  .bottom-nav-item:active {
+    transform: scale(0.95);
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .bottom-nav-item.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .bottom-nav-label {
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
   }
 }
 </style>
