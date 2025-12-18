@@ -10,6 +10,7 @@ from app.api.deps.db import get_db
 from app.api.deps.rate_limit import DEFAULT_RATE, limiter
 from app.api.schemas.rankings import MatchHistoryResponse, RankingsResponse
 from app.application.services.ranking_service import RankingService
+from app.infrastructure.cache import rankings_cache
 
 router = APIRouter()
 
@@ -23,9 +24,19 @@ async def get_rankings(
     db: Connection = Depends(get_db),
 ):
     """Get group rankings."""
+    # Check cache first
+    cache_key = f"rankings:{group_id}"
+    cached = await rankings_cache.get(cache_key)
+    if cached:
+        return cached
+    
     service = RankingService(db)
     rankings = await service.get_rankings(user.user_id, group_id)
-    return RankingsResponse(rankings=rankings)
+    response = RankingsResponse(rankings=rankings)
+    
+    # Cache the response
+    await rankings_cache.set(cache_key, response)
+    return response
 
 
 @router.get("/groups/{group_id}/history", response_model=MatchHistoryResponse)

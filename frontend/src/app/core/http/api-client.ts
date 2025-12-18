@@ -6,9 +6,62 @@ export interface ApiError {
   detail?: string
 }
 
+/**
+ * Simple TTL cache for API responses.
+ * Reduces redundant network requests for frequently accessed data.
+ */
+interface CacheEntry<T> {
+  data: T
+  timestamp: number
+}
+
+class ApiCache {
+  private cache = new Map<string, CacheEntry<unknown>>()
+  private defaultTTL = 30000 // 30 seconds
+
+  /**
+   * Get a cached value if it exists and hasn't expired.
+   */
+  get<T>(key: string, ttl: number = this.defaultTTL): T | null {
+    const entry = this.cache.get(key)
+    if (entry && Date.now() - entry.timestamp < ttl) {
+      return entry.data as T
+    }
+    // Clean up expired entry
+    if (entry) {
+      this.cache.delete(key)
+    }
+    return null
+  }
+
+  /**
+   * Store a value in the cache.
+   */
+  set<T>(key: string, data: T): void {
+    this.cache.set(key, { data, timestamp: Date.now() })
+  }
+
+  /**
+   * Invalidate cache entries matching a pattern.
+   * If no pattern provided, clears entire cache.
+   */
+  invalidate(pattern?: string): void {
+    if (!pattern) {
+      this.cache.clear()
+      return
+    }
+    for (const key of this.cache.keys()) {
+      if (key.includes(pattern)) {
+        this.cache.delete(key)
+      }
+    }
+  }
+}
+
 class ApiClient {
   private baseUrl: string
   private authStore: ReturnType<typeof import('@/stores/auth').useAuthStore> | null = null
+  private apiCache = new ApiCache()
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl
@@ -92,6 +145,34 @@ class ApiClient {
     return this.handleResponse<T>(response)
   }
 
+  /**
+   * GET request with caching support.
+   * Use for frequently accessed, rarely changing data like rankings.
+   * 
+   * @param endpoint - API endpoint
+   * @param ttl - Cache TTL in milliseconds (default: 30000ms = 30s)
+   */
+  async getCached<T>(endpoint: string, ttl?: number): Promise<T> {
+    const cached = this.apiCache.get<T>(endpoint, ttl)
+    if (cached) {
+      return cached
+    }
+
+    const data = await this.get<T>(endpoint)
+    this.apiCache.set(endpoint, data)
+    return data
+  }
+
+  /**
+   * Invalidate cached API responses.
+   * Call after mutations that affect cached data.
+   * 
+   * @param pattern - Optional pattern to match cache keys (e.g., '/groups/123')
+   */
+  invalidateCache(pattern?: string): void {
+    this.apiCache.invalidate(pattern)
+  }
+
   async post<T>(endpoint: string, data?: unknown): Promise<T> {
     const headers = await this.getHeaders()
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -145,3 +226,4 @@ export const api = new ApiClient(API_BASE_URL)
 export function initApiClient(store: ReturnType<typeof import('@/stores/auth').useAuthStore>) {
   api.setAuthStore(store)
 }
+

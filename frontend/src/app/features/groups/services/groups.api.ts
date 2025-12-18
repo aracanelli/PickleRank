@@ -36,7 +36,8 @@ export interface UpdateGroupSettingsRequest {
 
 export const groupsApi = {
   async list(): Promise<GroupListResponse> {
-    return api.get('/api/groups')
+    // Cache group list for 30 seconds
+    return api.getCached('/api/groups', 30000)
   },
 
   async listMemberGroups(): Promise<GroupListResponse> {
@@ -44,7 +45,8 @@ export const groupsApi = {
   },
 
   async get(groupId: string): Promise<GroupDto> {
-    return api.get(`/api/groups/${groupId}`)
+    // Cache group details for 30 seconds
+    return api.getCached(`/api/groups/${groupId}`, 30000)
   },
 
   async create(data: CreateGroupRequest): Promise<GroupDto> {
@@ -60,7 +62,8 @@ export const groupsApi = {
   },
 
   async getPlayers(groupId: string): Promise<GroupPlayerListResponse> {
-    return api.get(`/api/groups/${groupId}/players`)
+    // Cache player list for 30 seconds
+    return api.getCached(`/api/groups/${groupId}/players`, 30000)
   },
 
   async addPlayer(

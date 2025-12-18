@@ -56,15 +56,21 @@ async def init_db_pool() -> asyncpg.Pool:
     try:
         # Note: statement_cache_size=0 is required for Supabase/pgbouncer
         # because pgbouncer in transaction mode doesn't support prepared statements
+        # Connection pool settings optimized for serverless:
+        # - min_size=0: Allow pool to shrink to 0 when idle
+        # - max_size=5: Reduced to prevent connection exhaustion in serverless
+        # - max_inactive_connection_lifetime: Clean up idle connections faster
         _pool = await asyncpg.create_pool(
             db_url,
-            min_size=1,
-            max_size=10,
+            min_size=0,
+            max_size=5,
             command_timeout=30,
             # For serverless, we want shorter connection timeouts
             timeout=10,
             # Disable prepared statement caching for pgbouncer compatibility
             statement_cache_size=0,
+            # Clean up idle connections after 60 seconds
+            max_inactive_connection_lifetime=60,
         )
         logger.info("Database connection pool initialized")
     except Exception as e:

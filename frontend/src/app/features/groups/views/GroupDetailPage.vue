@@ -356,6 +356,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
             v-for="(player, index) in permanentPlayers" 
             :key="player.id" 
             class="player-item clickable" 
+            :class="{ 'is-me': player.userId === currentUserId }"
             @click="viewPlayerHistory(player)"
             :style="{ animationDelay: `${index * 50}ms` }"
           >
@@ -369,7 +370,6 @@ function viewPlayerHistory(player: GroupPlayerDto) {
                 </div>
                 <div class="player-stats">
                   <span>{{ (player.winRate * 100).toFixed(0) }}% win rate</span>
-                  <span v-if="player.userId === currentUserId" class="me-indicator">(Me)</span>
                   <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">ORG</span>
                 </div>
               </div>
@@ -824,10 +824,10 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 }
 
 /* Player stats inline indicators */
-.me-indicator {
-  font-weight: 600;
-  color: var(--color-primary);
-  white-space: nowrap;
+.player-item.is-me {
+  background: var(--color-bg-hover);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 
 .role-badge {
@@ -1361,13 +1361,6 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 .role-badge.organizer {
   background: rgba(124, 58, 237, 0.15);
   color: #7c3aed;
-}
-
-.me-indicator {
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  margin-left: var(--spacing-xs);
-  font-weight: normal;
 }
 </style>
 
