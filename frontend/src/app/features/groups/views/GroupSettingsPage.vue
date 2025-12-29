@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import type { GroupDto } from '@/app/core/models/dto'
@@ -91,8 +91,7 @@ async function renameGroup() {
 
 // Auto-populate defaults when rating system changes
 
-// Auto-populate defaults when rating system changes
-import { watch, nextTick } from 'vue'
+
 
 const isInitialLoad = ref(true)
 

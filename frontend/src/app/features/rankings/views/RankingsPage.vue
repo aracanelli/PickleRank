@@ -28,7 +28,7 @@ const cachedPlayerId = ref<string | null>(null)
 // Initialize from cache immediately
 const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
 if (typeof sessionStorage !== 'undefined') {
-  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
+  const cached = sessionStorage.getItem(cacheKey.value)
   if (cached) cachedPlayerId.value = cached
 }
 
@@ -42,13 +42,8 @@ const myPlayer = computed(() => {
       return player
     }
   }
-  // Fall back to cached ID for instant display
-  if (cachedPlayerId.value) {
-    return { id: cachedPlayerId.value } as any
-  }
   return null
 })
-
 const group = ref<GroupDto | null>(null)
 const rankings = ref<RankingEntryDto[]>([])
 const groupPlayers = ref<GroupPlayerDto[]>([])
@@ -198,7 +193,10 @@ async function exportAsImage() {
       canvas.toBlob(resolve, 'image/png')
     })
     
-    if (!blob) return
+    if (!blob) {
+      console.error('Failed to generate image blob')
+      return
+    }
     
     const fileName = `${group.value?.name || 'group'}-rankings.png`
     
@@ -214,7 +212,7 @@ async function exportAsImage() {
         } catch (shareError) {
           // User cancelled or share failed, fall through to other methods
           if ((shareError as Error).name !== 'AbortError') {
-            console.log('Share failed, trying fallback...')
+            console.error('Share failed, trying fallback:', shareError)
           }
         }
       }
@@ -227,6 +225,8 @@ async function exportAsImage() {
     if (isIOS) {
       // Open image in new window - user can long-press to save
       window.open(url, '_blank')
+      // Clean up after a delay to ensure the window has loaded
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     } else {
       // Standard download for desktop
       const a = document.createElement('a')
@@ -238,8 +238,7 @@ async function exportAsImage() {
       URL.revokeObjectURL(url)
     }
   } catch (e) {
-    console.error('Failed to export image:', e)
-    error.value = 'Failed to export image'
+    console.error('Export failed:', e)
   } finally {
     isExporting.value = false
   }

@@ -109,7 +109,7 @@ class EventListResponse(BaseModel):
 class EventCreate(BaseModel):
     """Request to create an event."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
     starts_at: datetime = Field(default_factory=datetime.now, alias="startsAt")
     courts: int = Field(ge=1, le=10)
     rounds: int = Field(ge=1, le=20)

@@ -6,11 +6,12 @@ defineProps<{
 </script>
 
 <template>
-  <div class="skeleton-container">
+  <div class="skeleton-container" role="status" aria-busy="true" aria-label="Loading content">
     <div 
       v-for="i in (rows || 3)" 
       :key="i" 
       class="skeleton-row"
+      aria-hidden="true"
     >
       <div v-if="showAvatar !== false" class="skeleton-avatar"></div>
       <div class="skeleton-content">
@@ -19,8 +20,7 @@ defineProps<{
       </div>
       <div class="skeleton-value"></div>
     </div>
-  </div>
-</template>
+  </div></template>
 
 <style scoped>
 .skeleton-container {

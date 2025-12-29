@@ -81,7 +81,9 @@ async function navigateToStats() {
     const myPlayer = response.players.find((p: any) => p.userId === authStore.userId)
     if (myPlayer) {
       // Cache for future use
-      sessionStorage.setItem(`myPlayerId_${groupId.value}`, myPlayer.id)
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(`myPlayerId_${groupId.value}`, myPlayer.id)
+      }
       cachedPlayerId.value = myPlayer.id
       router.push(`/groups/${groupId.value}/players/${myPlayer.id}`)
     }
@@ -149,9 +151,9 @@ const navItems = [
 </script>
 
 <template>
-  <div class="layout">
+  <div class="layout safe-area-x">
     <!-- Header -->
-    <header class="header">
+    <header class="header safe-area-top">
       <div class="header-content container">
         <router-link to="/" class="logo">
           <span class="logo-icon"><Activity /></span>
@@ -314,7 +316,7 @@ const navItems = [
       </button>
       <button 
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'stats', disabled: !groupId || !cachedPlayerId }"
+        :class="{ active: activeNavItem === 'stats', disabled: !groupId }"
         @click="navigateToStats"
         :disabled="!groupId"
       >

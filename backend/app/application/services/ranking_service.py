@@ -21,16 +21,25 @@ class RankingService:
         self.groups_repo = GroupsRepository(conn)
         self.group_players_repo = GroupPlayersRepository(conn)
 
-    async def get_rankings(self, user_id: str, group_id: UUID) -> List[RankingEntry]:
-        """Get rankings for a group."""
-        # Verify group ownership or membership
-        group = await self.groups_repo.get_by_id(group_id)
-        if not group:
-            raise NotFoundError("Group", str(group_id))
-        if str(group["owner_user_id"]) != user_id:
-            is_member = await self.group_players_repo.is_member(user_id, group_id)
-            if not is_member:
-                raise ForbiddenError("You don't have access to this group")
+    async def get_rankings(
+        self, user_id: str, group_id: UUID, skip_auth: bool = False
+    ) -> List[RankingEntry]:
+        """Get rankings for a group.
+        
+        Args:
+            user_id: The requesting user's ID
+            group_id: The group to get rankings for
+            skip_auth: If True, skip authorization check (caller must have already verified)
+        """
+        # Verify group ownership or membership (unless already verified by caller)
+        if not skip_auth:
+            group = await self.groups_repo.get_by_id(group_id)
+            if not group:
+                raise NotFoundError("Group", str(group_id))
+            if str(group["owner_user_id"]) != user_id:
+                is_member = await self.group_players_repo.is_member(user_id, group_id)
+                if not is_member:
+                    raise ForbiddenError("You don't have access to this group")
 
         # Get all players sorted by rating
         players = await self.group_players_repo.list_by_group(group_id)
@@ -57,8 +66,6 @@ class RankingService:
                 )
             )
 
-        return rankings
-
     async def get_match_history(
         self,
         user_id: str,
@@ -68,7 +75,7 @@ class RankingService:
         player_id: Optional[UUID] = None,
         event_id: Optional[UUID] = None,
         secondary_player_id: Optional[UUID] = None,
-        relationship: Optional[str] = "teammate",
+        relationship: str = "teammate",
         limit: Optional[int] = None,
         offset: Optional[int] = None,
     ) -> Tuple[List[MatchHistoryEntry], int]:
@@ -103,7 +110,11 @@ class RankingService:
                 p1.display_name as t1p1_name,
                 p2.display_name as t1p2_name,
                 p3.display_name as t2p1_name,
-                p4.display_name as t2p2_name
+                p4.display_name as t2p2_name,
+                gp1.player_id as t1p1_id,
+                gp2.player_id as t1p2_id,
+                gp3.player_id as t2p1_id,
+                gp4.player_id as t2p2_id
             FROM games g
             JOIN events e ON e.id = g.event_id
             JOIN group_players gp1 ON gp1.id = g.team1_p1
@@ -143,52 +154,48 @@ class RankingService:
                 group_id,
                 player_id,
             )
+
             if gp_row:
                 gp_id = gp_row["id"]
-                
-                # Check for secondary player filter
                 if secondary_player_id:
-                     gp_row_sec = await self.conn.fetchrow(
+                    gp_row_sec = await self.conn.fetchrow(
                         "SELECT id FROM group_players WHERE group_id = $1 AND player_id = $2",
                         group_id,
                         secondary_player_id,
                     )
-                     if gp_row_sec:
-                         gp_id_sec = gp_row_sec["id"]
-                         
-                         if relationship == 'teammate':
-                             # Both on Team 1 OR Both on Team 2
-                             query += f""" AND (
-                                 ( (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx}) AND (g.team1_p1 = ${param_idx+1} OR g.team1_p2 = ${param_idx+1}) )
-                                 OR
-                                 ( (g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx}) AND (g.team2_p1 = ${param_idx+1} OR g.team2_p2 = ${param_idx+1}) )
-                             )"""
-                         else: # opponent
-                             # One on Team 1 AND One on Team 2
-                             # (P1 on T1 AND P2 on T2) OR (P1 on T2 AND P2 on T1)
-                             query += f""" AND (
-                                 ( (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx}) AND (g.team2_p1 = ${param_idx+1} OR g.team2_p2 = ${param_idx+1}) )
-                                 OR
-                                 ( (g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx}) AND (g.team1_p1 = ${param_idx+1} OR g.team1_p2 = ${param_idx+1}) )
-                             )"""
-                         
-                         params.append(gp_id)
-                         params.append(gp_id_sec)
-                         param_idx += 2
-                     else:
-                         # Secondary player not found in group, return empty or ignore? 
-                         # Let's ignore secondary filter if player not found, but standard is strict.
-                         # Better to fall back to just primary player to avoid errors, or match nothing.
-                         # Let's match nothing if secondary provided but not found.
-                         query += " AND 1=0" 
+                    if gp_row_sec:
+                        gp_id_sec = gp_row_sec["id"]
+
+                        if relationship == 'teammate':
+                            # Both on Team 1 OR Both on Team 2
+                            query += f""" AND (
+                                ( (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx}) AND (g.team1_p1 = ${param_idx+1} OR g.team1_p2 = ${param_idx+1}) )
+                                OR
+                                ( (g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx}) AND (g.team2_p1 = ${param_idx+1} OR g.team2_p2 = ${param_idx+1}) )
+                            )"""
+                        else:  # opponent
+                            # One on Team 1 AND One on Team 2
+                            # (P1 on T1 AND P2 on T2) OR (P1 on T2 AND P2 on T1)
+                            query += f""" AND (
+                                ( (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx}) AND (g.team2_p1 = ${param_idx+1} OR g.team2_p2 = ${param_idx+1}) )
+                                OR
+                                ( (g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx}) AND (g.team1_p1 = ${param_idx+1} OR g.team1_p2 = ${param_idx+1}) )
+                            )"""
+
+                        params.append(gp_id)
+                        params.append(gp_id_sec)
+                        param_idx += 2
+                    else:
+                        # Secondary player provided but not found
+                        query += " AND 1=0"
                 else:
                     # Just primary player filter
                     query += f" AND (g.team1_p1 = ${param_idx} OR g.team1_p2 = ${param_idx} OR g.team2_p1 = ${param_idx} OR g.team2_p2 = ${param_idx})"
                     params.append(gp_id)
                     param_idx += 1
             else:
-                 # Primary player not found
-                 query += " AND 1=0"
+                # Primary player not found
+                query += " AND 1=0"
 
         query += " ORDER BY e.starts_at DESC, g.round_index, g.court_index"
 
@@ -226,6 +233,8 @@ class RankingService:
                     courtIndex=row["court_index"],
                     team1=[row["t1p1_name"], row["t1p2_name"]],
                     team2=[row["t2p1_name"], row["t2p2_name"]],
+                    team1Ids=[row["t1p1_id"], row["t1p2_id"]],
+                    team2Ids=[row["t2p1_id"], row["t2p2_id"]],
                     scoreTeam1=float(row["score_team1"]) if row["score_team1"] else None,
                     scoreTeam2=float(row["score_team2"]) if row["score_team2"] else None,
                     result=row["result"],

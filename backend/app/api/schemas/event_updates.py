@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
+
 
 class EventUpdate(BaseModel):
     """Request to update an event."""
@@ -8,3 +9,20 @@ class EventUpdate(BaseModel):
     
     class Config:
         populate_by_name = True
+
+
+class EventRatingHistoryItem(BaseModel):
+    """Single point in rating history."""
+
+    round: int
+    rating: float
+    type: str
+    label: str
+    delta: Optional[float] = None
+
+
+    class Config:
+        populate_by_name = True
+
+
+RatingHistoryResponse = Dict[str, List[EventRatingHistoryItem]]

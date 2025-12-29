@@ -122,8 +122,7 @@ defineProps<{
   border: 2px solid transparent;
   border-top-color: currentColor;
   border-radius: 50%;
-  animation: spin 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
+  animation: spin 0.6s linear infinite;}
 
 @keyframes spin {
   to {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { Delete } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -23,6 +23,8 @@ const score1 = ref('')
 const score2 = ref('')
 
 // Initialize scores when modal opens
+
+
 watch(() => props.open, (isOpen) => {
   if (isOpen) {
     score1.value = props.initialScore1 != null ? String(props.initialScore1) : ''
@@ -34,6 +36,9 @@ watch(() => props.open, (isOpen) => {
   }
 })
 
+onUnmounted(() => {
+  document.body.style.overflow = ''
+})
 function appendDigit(digit: number) {
   if (activeTeam.value === 1) {
     if (score1.value.length < 3) score1.value += digit
@@ -92,7 +97,7 @@ function handleBackdropClick(e: MouseEvent) {
               @click="switchTeam(1)"
             >
               <div class="team-names">
-                <span v-for="name in team1Names" :key="name">{{ name }}</span>
+                <span v-for="(name, index) in team1Names" :key="`${name}-${index}`">{{ name }}</span>
               </div>
               <div class="team-score">{{ score1 || '-' }}</div>
             </div>
@@ -105,7 +110,7 @@ function handleBackdropClick(e: MouseEvent) {
               @click="switchTeam(2)"
             >
               <div class="team-names">
-                <span v-for="name in team2Names" :key="name">{{ name }}</span>
+                <span v-for="(name, index) in team2Names" :key="`${name}-${index}`">{{ name }}</span>
               </div>
               <div class="team-score">{{ score2 || '-' }}</div>
             </div>

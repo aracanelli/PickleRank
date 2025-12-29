@@ -7,14 +7,13 @@ suitable for caching frequently accessed data like rankings.
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
-
+from typing import Any, Dict, Optional, Tuple
 
 class TTLCache:
     """
     Simple TTL (Time-To-Live) cache for caching expensive database operations.
     
-    Thread-safe via asyncio.Lock. Designed for serverless where external
+    Async-task-safe via asyncio.Lock (single event loop). Designed for serverless where external
     caching (Redis) adds latency and complexity.
     
     Usage:
@@ -28,8 +27,7 @@ class TTLCache:
         # Compute and cache
         result = await expensive_db_query()
         await cache.set("rankings:group-id", result)
-    """
-    
+    """    
     def __init__(self, default_ttl: int = 30):
         """
         Initialize cache with default TTL in seconds.
@@ -37,7 +35,7 @@ class TTLCache:
         Args:
             default_ttl: Default time-to-live for cached items (seconds)
         """
-        self._cache: Dict[str, tuple[Any, datetime]] = {}
+        self._cache: Dict[str, Tuple[Any, datetime]] = {}
         self._default_ttl = default_ttl
         self._lock = asyncio.Lock()
     

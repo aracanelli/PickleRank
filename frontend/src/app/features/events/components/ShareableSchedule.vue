@@ -7,9 +7,24 @@ const props = defineProps<{
   gamesByRound: GameDto[][]
 }>()
 
+// Safe computed values with fallbacks for undefined/null
+const safeRounds = computed(() => {
+  const value = props.event?.rounds
+  return typeof value === 'number' && !isNaN(value) ? value : 0
+})
+
+// Returns an array of court numbers [1, 2, 3, ...] for safe iteration
+const validCourts = computed(() => {
+  const courts = Math.max(0, parseInt(String(props.event?.courts)) || 0)
+  return courts > 0 ? Array.from({ length: courts }, (_, i) => i + 1) : []
+})
+
+// Safe court count for display
+const safeCourtsCount = computed(() => validCourts.value.length)
+
 // Dynamic grid columns style based on court count
 const gridStyle = computed(() => ({
-  '--courts': props.event.courts
+  '--courts': Math.max(1, safeCourtsCount.value)
 }))
 </script>
 
@@ -19,19 +34,19 @@ const gridStyle = computed(() => ({
     <div class="schedule-header">
       <h1 class="event-title">{{ event.name || 'Game Schedule' }}</h1>
       <div class="event-meta">
-        <span>{{ event.rounds }} Rounds</span>
+        <span>{{ safeRounds }} Rounds</span>
         <span>•</span>
-        <span>{{ event.courts }} Courts</span>
+        <span>{{ safeCourtsCount }} Courts</span>
       </div>
     </div>
 
     <!-- Schedule Grid -->
-    <div class="schedule-grid">
+    <div v-if="validCourts.length > 0" class="schedule-grid">
       <!-- Header Row -->
       <div class="grid-header">
         <div class="round-header"></div>
         <div 
-          v-for="courtNum in event.courts" 
+          v-for="courtNum in validCourts" 
           :key="courtNum" 
           class="court-header"
         >
@@ -54,16 +69,21 @@ const gridStyle = computed(() => ({
           class="game-cell"
         >
           <div class="team team1">
-            <span class="players">{{ game.team1.map(p => p.displayName).join(' & ') }}</span>
+            <span class="players">{{ game.team1?.map(p => p.displayName || 'Unknown').join(' & ') || 'TBD' }}</span>
             <span class="elo">({{ Math.round(game.team1Elo || 0) }})</span>
           </div>
           <div class="vs">vs</div>
           <div class="team team2">
-            <span class="players">{{ game.team2.map(p => p.displayName).join(' & ') }}</span>
+            <span class="players">{{ game.team2?.map(p => p.displayName || 'Unknown').join(' & ') || 'TBD' }}</span>
             <span class="elo">({{ Math.round(game.team2Elo || 0) }})</span>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Fallback when no courts -->
+    <div v-else class="no-courts-message">
+      <p>No courts configured for this event.</p>
     </div>
   </div>
 </template>

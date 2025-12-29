@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { isValidRedirect } from '@/router'
 import { getClerk } from '@/app/core/auth/clerk'
 import { useAuthStore } from '@/stores/auth'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
@@ -16,19 +17,19 @@ function goToSignIn() {
   router.push({ name: 'login', query: redirect ? { redirect } : {} })
 }
 
+
+
 // Watch for auth state changes - redirect when authenticated
 watch(() => authStore.isAuthenticated, (isAuth) => {
   if (isAuth) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(isValidRedirect(route.query.redirect))
   }
-}, { immediate: true })
-
+})
 onMounted(async () => {
   // If already authenticated, redirect
   if (authStore.isAuthenticated) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    const redirect = route.query.redirect
+    router.push(isValidRedirect(redirect))
     return
   }
 
@@ -37,8 +38,8 @@ onMounted(async () => {
 
   // Check again after auth is ready
   if (authStore.isAuthenticated) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    const redirect = route.query.redirect
+    router.push(isValidRedirect(redirect))
     return
   }
 
@@ -53,7 +54,7 @@ onMounted(async () => {
   // Mount Clerk sign-up component
   if (authContainer.value) {
     clerk.mountSignUp(authContainer.value, {
-      fallbackRedirectUrl: (route.query.redirect as string) || '/groups',
+      fallbackRedirectUrl: isValidRedirect(route.query.redirect),
       signInFallbackRedirectUrl: '/groups',
       appearance: {
         baseTheme: undefined,

@@ -65,7 +65,7 @@ class GroupsRepository:
             """
             SELECT 
                 g.id, g.name, g.sport, g.created_at, g.is_archived,
-                COUNT(gp2.id) as player_count
+                COUNT(DISTINCT gp2.id) as player_count
             FROM groups g
             JOIN group_players gp ON gp.group_id = g.id
             JOIN players p ON p.id = gp.player_id

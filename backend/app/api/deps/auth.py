@@ -61,7 +61,7 @@ async def get_current_user(
                 clerk_user_id,
             )
             if row is None:
-                logger.error(f"Failed to upsert user with clerk_user_id: {clerk_user_id}")
+                logger.error("Failed to upsert user - database returned no row")
                 raise UnauthorizedError("Failed to create or retrieve user")
             user_id = str(row["id"])
 

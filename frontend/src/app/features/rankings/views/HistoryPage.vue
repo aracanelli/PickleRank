@@ -32,7 +32,11 @@ if (typeof sessionStorage !== 'undefined') {
   if (cached) cachedPlayerId.value = cached
 }
 
-const myPlayer = computed(() => {
+// Type for myPlayer: either full GroupPlayerDto or cached-only reference
+type CachedPlayerRef = { id: string }
+type MyPlayerRef = GroupPlayerDto | CachedPlayerRef
+
+const myPlayer = computed<MyPlayerRef | null>(() => {
   // First try to find from loaded data
   if (players.value.length > 0 && currentUserId.value) {
     const player = players.value.find(p => p.userId === currentUserId.value)
@@ -44,7 +48,7 @@ const myPlayer = computed(() => {
   }
   // Fall back to cached ID for instant display
   if (cachedPlayerId.value) {
-    return { id: cachedPlayerId.value } as any
+    return { id: cachedPlayerId.value }
   }
   return null
 })
@@ -215,20 +219,14 @@ const sortedPlayers = computed(() => {
   )
 })
 
-// Get filtered player's display name
-const filteredPlayerName = computed(() => {
-  if (!filterPlayerId.value) return null
-  const player = players.value.find(p => p.playerId === filterPlayerId.value)
-  return player?.displayName || null
-})
-
 // Determine if filtered player won or lost a match
+// Uses player IDs for reliable matching instead of display names
 function getMatchOutcome(match: MatchHistoryEntryDto): 'win' | 'loss' | 'tie' | null {
-  if (!filteredPlayerName.value) return null
+  if (!filterPlayerId.value) return null
   
-  const playerName = filteredPlayerName.value
-  const isOnTeam1 = match.team1.includes(playerName)
-  const isOnTeam2 = match.team2.includes(playerName)
+  const playerId = filterPlayerId.value
+  const isOnTeam1 = match.team1Ids?.includes(playerId) ?? false
+  const isOnTeam2 = match.team2Ids?.includes(playerId) ?? false
   
   if (!isOnTeam1 && !isOnTeam2) return null
   
@@ -260,7 +258,7 @@ async function saveMatchEdit() {
   
   isSavingEdit.value = true
   try {
-    await eventsApi.updateScore(editingMatch.value.gameId, {
+    await eventsApi.updateScoreWithKeepalive(editingMatch.value.gameId, {
       scoreTeam1: editScore1.value,
       scoreTeam2: editScore2.value
     })
@@ -409,8 +407,8 @@ async function refreshData() {
                     class="team" 
                     :class="{
                       winner: match.result === 'TEAM1_WIN' && !filterPlayerId,
-                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && match.team1.includes(filteredPlayerName || ''),
-                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && match.team1.includes(filteredPlayerName || '')
+                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && (match.team1Ids?.includes(filterPlayerId) ?? false),
+                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && (match.team1Ids?.includes(filterPlayerId) ?? false)
                     }"
                   >
                     <div class="team-info">
@@ -428,8 +426,8 @@ async function refreshData() {
                     class="team" 
                     :class="{
                       winner: match.result === 'TEAM2_WIN' && !filterPlayerId,
-                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && match.team2.includes(filteredPlayerName || ''),
-                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && match.team2.includes(filteredPlayerName || '')
+                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && (match.team2Ids?.includes(filterPlayerId) ?? false),
+                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && (match.team2Ids?.includes(filterPlayerId) ?? false)
                     }"
                   >
                     <div class="team-info">
@@ -918,346 +916,6 @@ async function refreshData() {
     width: 100%; /* Full width on mobile */
   }
 }
-
-.filter-icon {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  min-width: 80px;
-}
-
-.filter-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-width: 180px;
-}
-
-.filter-group label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.toggle-group {
-  display: flex;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 2px;
-}
-
-.toggle-btn {
-  flex: 1;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
-}
-
-.toggle-btn:hover:not(.active) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.toggle-btn.active {
-  background: var(--color-primary);
-  color: white;
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.filter-select {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.filter-select:hover {
-  border-color: var(--color-border-hover);
-}
-
-.filter-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-}
-
-.clear-filters-btn {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.clear-filters-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-/* History Content */
-.history-content {
-  width: 100%;
-}
-
-.event-section {
-  margin-bottom: var(--spacing-2xl);
-}
-
-.event-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.event-header h2 {
-  font-size: 1.25rem;
-}
-
-.event-date {
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-}
-
-.matches-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.match-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.match-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.round-court {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  letter-spacing: 0.05em;
-}
-
-.result-badge {
-  font-size: 0.75rem;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-}
-
-.result-badge.team1_win,
-.result-badge.team2_win {
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--color-success);
-}
-
-.result-badge.tie {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--color-warning);
-}
-
-.match-teams {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.team {
-  flex: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  border: 2px solid transparent;
-}
-
-.team.winner {
-  border-color: var(--color-success);
-}
-
-.team.player-win {
-  border-color: var(--color-success);
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.team.player-loss {
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.team-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.team-names {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.team-elo {
-  font-size: 0.625rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-}
-
-.team-score {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--color-primary);
-}
-
-.vs {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-
-/* Edit Button */
-.edit-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  margin-left: 8px;
-}
-
-.edit-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.edit-form {
-  padding: 1rem 0;
-}
-
-.edit-teams {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.edit-team {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.edit-team-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.text-truncate {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.edit-input {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  font-size: 1.25rem;
-  text-align: center;
-}
-
-.edit-vs {
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
-
-.edit-warning {
-  font-size: 0.8rem;
-  color: var(--color-warning);
-  background: rgba(245, 158, 11, 0.1);
-  padding: 0.75rem;
-  border-radius: var(--radius-md);
-  margin-top: 1rem;
-}
-
-@media (max-width: 768px) {
-  .matches-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .match-teams {
-    flex-direction: column;
-  }
-
-  .team {
-    width: 100%;
-  }
-
-  .filter-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filter-controls {
-    flex-direction: column;
-  }
-
-  .filter-group {
-    width: 100%;
-  }
-}
-
-
 </style>
 
 

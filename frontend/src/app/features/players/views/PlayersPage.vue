@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { playersApi } from '../services/players.api'
 import type { PlayerDto } from '@/app/core/models/dto'
 import { Users, Search, Plus, FileText, Link, UserPlus, Copy, Check } from 'lucide-vue-next'
@@ -30,6 +30,8 @@ const showInviteModal = ref(false)
 const inviteLink = ref('')
 const invitingPlayerName = ref('')
 const copySuccess = ref(false)
+const copyError = ref('')
+let copySuccessTimeoutId: number | null = null
 
 onMounted(async () => {
   await loadPlayers()
@@ -70,26 +72,93 @@ async function createPlayer() {
 
 async function generateInvite(player: PlayerDto) {
   try {
-     const token = await playersApi.generateInvite(player.id)
-     const baseUrl = window.location.origin
-     inviteLink.value = `${baseUrl}/link-player?token=${token}`
-     invitingPlayerName.value = player.displayName
-     showInviteModal.value = true
-     copySuccess.value = false
+    const token = await playersApi.generateInvite(player.id)
+    const baseUrl = window.location.origin
+    inviteLink.value = `${baseUrl}/link-player?token=${encodeURIComponent(token)}`
+    invitingPlayerName.value = player.displayName
+    showInviteModal.value = true
+    copySuccess.value = false
   } catch (e: any) {
-     error.value = e.message || 'Failed to generate invite'
+    error.value = e.message || 'Failed to generate invite'
   }
 }
 
 async function copyLink() {
+  // Clear any pending timeout to avoid stale state updates
+  if (copySuccessTimeoutId !== null) {
+    clearTimeout(copySuccessTimeoutId)
+    copySuccessTimeoutId = null
+  }
+  
+  copyError.value = ''
+  
   try {
-    await navigator.clipboard.writeText(inviteLink.value)
+    // Check if modern clipboard API is available (requires secure context)
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(inviteLink.value)
+    } else {
+      // Fallback for older browsers or insecure contexts
+      const textArea = document.createElement('textarea')
+      textArea.value = inviteLink.value
+      // Prevent scrolling to bottom of page
+      textArea.style.position = 'fixed'
+      textArea.style.top = '0'
+      textArea.style.left = '0'
+      textArea.style.width = '2em'
+      textArea.style.height = '2em'
+      textArea.style.padding = '0'
+      textArea.style.border = 'none'
+      textArea.style.outline = 'none'
+      textArea.style.boxShadow = 'none'
+      textArea.style.background = 'transparent'
+      // Ensure it's off-screen for accessibility
+      textArea.setAttribute('aria-hidden', 'true')
+      textArea.setAttribute('tabindex', '-1')
+      
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      
+      try {
+        const successful = document.execCommand('copy')
+        if (!successful) {
+          throw new Error('execCommand copy failed')
+        }
+      } finally {
+        document.body.removeChild(textArea)
+      }
+    }
+    
     copySuccess.value = true
-    setTimeout(() => { copySuccess.value = false }, 2000)
-  } catch (e) {
-    console.error('Failed to copy', e)
+    copySuccessTimeoutId = window.setTimeout(() => {
+      copySuccess.value = false
+      copySuccessTimeoutId = null
+    }, 2000)
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : 'Unknown error'
+    console.error('Failed to copy link:', errorMessage, e)
+    copySuccess.value = false
+    copyError.value = 'Failed to copy link. Please copy manually.'
+    
+    // Clear error after a delay
+    copySuccessTimeoutId = window.setTimeout(() => {
+      copyError.value = ''
+      copySuccessTimeoutId = null
+    }, 3000)
   }
 }
+
+onBeforeUnmount(() => {
+  // Clean up timeout to prevent state updates after unmount
+  if (copySuccessTimeoutId !== null) {
+    clearTimeout(copySuccessTimeoutId)
+    copySuccessTimeoutId = null
+  }
+  if (searchTimeout !== null) {
+    clearTimeout(searchTimeout)
+    searchTimeout = null
+  }
+})
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', {
@@ -99,10 +168,12 @@ function formatDate(dateStr: string): string {
   })
 }
 
-let searchTimeout: number
+let searchTimeout: number | null = null
 function handleSearch() {
-  clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => loadPlayers(), 300)
+  if (searchTimeout !== null) {
+    clearTimeout(searchTimeout)
+  }
+  searchTimeout = window.setTimeout(() => loadPlayers(), 300)
 }
 
 
@@ -231,6 +302,7 @@ function handleSearch() {
             <template v-else><Copy :size="16" /> Copy</template>
           </BaseButton>
         </div>
+        <p v-if="copyError" class="copy-error">{{ copyError }}</p>
       </div>
       <template #footer>
         <BaseButton @click="showInviteModal = false">Close</BaseButton>
@@ -433,11 +505,7 @@ function handleSearch() {
   .players-grid {
     grid-template-columns: 1fr;
   }
-  .players-grid {
-    grid-template-columns: 1fr;
-  }
 }
-
 .player-meta {
     display: flex;
     justify-content: space-between;
@@ -502,6 +570,15 @@ function handleSearch() {
   color: var(--color-text-primary);
   font-family: var(--font-mono);
   font-size: 0.875rem;
+}
+
+.copy-error {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.875rem;
+  color: var(--color-error, #ef4444);
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-sm);
 }
 </style>
 

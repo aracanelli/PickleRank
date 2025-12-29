@@ -3,7 +3,7 @@ import {
   ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
   Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity
 } from 'lucide-vue-next'
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
@@ -87,27 +87,23 @@ const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
 
 // Initialize from cache immediately
 if (typeof sessionStorage !== 'undefined') {
-  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
+  const cached = sessionStorage.getItem(cacheKey.value)
   if (cached) cachedPlayerId.value = cached
 }
 
 const myPlayer = computed(() => {
   // First try to find from loaded data
   if (players.value.length > 0 && currentUserId.value) {
-    const player = players.value.find(p => p.userId === currentUserId.value)
-    if (player) {
-      // Cache for next navigation
-      sessionStorage.setItem(cacheKey.value, player.id)
-      return player
-    }
-  }
-  // Fall back to cached ID for instant display
-  if (cachedPlayerId.value) {
-    return { id: cachedPlayerId.value } as any
+    return players.value.find(p => p.userId === currentUserId.value) || null
   }
   return null
 })
 
+watch(myPlayer, (player) => {
+  if (player) {
+    sessionStorage.setItem(cacheKey.value, player.id)
+  }
+})
 async function loadPendingEvents() {
   isLoadingEvents.value = true
   try {
@@ -1378,23 +1374,6 @@ function viewPlayerHistory(player: GroupPlayerDto) {
     min-width: 12px; /* Prevent shrink */
   }
 }
-.role-badge {
-  font-size: 0.625rem;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  margin-left: var(--spacing-xs);
-}
-
-.role-badge.organizer {
-  background: rgba(124, 58, 237, 0.15);
-  color: #7c3aed;
-}
-
 </style>
 
 

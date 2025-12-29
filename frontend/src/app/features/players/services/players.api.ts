@@ -48,7 +48,7 @@ export const playersApi = {
   },
 
   async linkPlayer(token: string): Promise<PlayerDto> {
-    return api.post(`/api/players/link?token=${encodeURIComponent(token)}`, {})
+    return api.post('/api/players/link', { token })
   }
 }
 

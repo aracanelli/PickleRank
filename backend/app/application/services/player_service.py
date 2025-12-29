@@ -162,8 +162,8 @@ class PlayerService:
                 initial_rating = base_rating + int(100 * offset_multiplier)
             elif skill_level == SkillLevel.BEGINNER:
                 initial_rating = base_rating - int(100 * offset_multiplier)
-            elif skill_level == SkillLevel.BEGINNER:
-                initial_rating = base_rating - int(100 * offset_multiplier)
+            elif skill_level == SkillLevel.INTERMEDIATE:
+                initial_rating = base_rating
             # INTERMEDIATE stays at base_rating
 
         # If the player is linked to the group owner, make them an organizer automatically
@@ -437,12 +437,12 @@ class PlayerService:
             
         # Check if already linked
         if player["user_id"]:
-             if str(player["user_id"]) == user_id:
-                 # Already linked to this user, harmless
-                 return self._to_player_response(player)
-             else:
-                 raise ConflictError("Player already linked to a user")
-             
+            if str(player["user_id"]) == user_id:
+                # Already linked to this user, harmless
+                return self._to_player_response(player)
+            else:
+                raise ConflictError("Player already linked to a user")
+
         updated = await self.players_repo.update(player["id"], user_id=user_id, invite_token=None)
         
         return self._to_player_response(updated)

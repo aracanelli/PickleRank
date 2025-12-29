@@ -1,7 +1,7 @@
 import csv
 import io
-from typing import Optional
-from uuid import UUID
+from typing import Dict, List, Optional
+from uuid import UUID, uuid4
 
 from asyncpg import Connection
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
@@ -21,8 +21,11 @@ from app.api.schemas.events import (
     SwapRequest,
     SwapResponse,
 )
-from app.api.schemas.event_updates import EventUpdate
+from app.api.schemas.event_updates import EventRatingHistoryItem, EventUpdate, RatingHistoryResponse
 from app.application.services.event_service import EventService
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -37,17 +40,14 @@ async def create_event(
     db: Connection = Depends(get_db),
 ):
     """Create a new event."""
-    import traceback
-    from app.logging_config import get_logger
-    logger = get_logger(__name__)
     
     try:
-        logger.info(f"Creating event for group {group_id}, user {user.user_id}")
+        logger.info(f"Creating event for group {group_id}")
         service = EventService(db)
         return await service.create_event(user.user_id, group_id, data)
     except Exception as e:
-        logger.error(f"Error creating event: {e}")
-        logger.error(traceback.format_exc())
+        error_id = uuid4()
+        logger.error(f"Error creating event (Error ID: {error_id}): {type(e).__name__}")
         raise
 
 
@@ -202,7 +202,7 @@ async def import_history(
     return await service.import_history(user.user_id, group_id, file)
 
 
-@router.get("/events/{event_id}/rating-history")
+@router.get("/events/{event_id}/rating-history", response_model=RatingHistoryResponse)
 @limiter.limit(DEFAULT_RATE)
 async def get_event_rating_history(
     request: Request,

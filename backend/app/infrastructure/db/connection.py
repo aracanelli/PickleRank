@@ -81,14 +81,16 @@ async def init_db_pool() -> asyncpg.Pool:
     return _pool
 
 
-async def get_db_pool() -> asyncpg.Pool:
-    """Get the database connection pool, initializing if needed."""
+async def get_db_pool() -> Optional[asyncpg.Pool]:
+    """Get the database connection pool, initializing if needed.
+    
+    Returns None if no database URL is configured or if the connection
+    failed. Callers must handle the None case appropriately.
+    """
     global _pool
 
     if _pool is None:
         _pool = await init_db_pool()
-        if _pool is None:
-            raise RuntimeError("Database connection pool could not be initialized. Check your SUPABASE_DB_URL environment variable.")
 
     return _pool
 

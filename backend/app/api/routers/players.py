@@ -3,7 +3,6 @@ from uuid import UUID
 
 from asyncpg import Connection
 from fastapi import APIRouter, Depends, Query, Request
-
 from app.api.deps.auth import CurrentUser, get_current_user
 from app.api.deps.db import get_db
 from app.api.deps.rate_limit import DEFAULT_RATE, limiter
@@ -15,6 +14,8 @@ from app.api.schemas.players import (
     BulkPlayerCreateResponse,
     GroupPlayerListResponse,
     GroupPlayerResponse,
+    InviteTokenResponse,
+    LinkPlayerRequest,
     PlayerCreate,
     PlayerListResponse,
     PlayerResponse,
@@ -93,7 +94,7 @@ async def update_player(
     return await service.update_player(user.user_id, player_id, data)
 
 
-@router.post("/players/{player_id}/invite", response_model=str)
+@router.post("/players/{player_id}/invite", response_model=InviteTokenResponse)
 @limiter.limit(DEFAULT_RATE)
 async def generate_invite(
     request: Request,
@@ -103,20 +104,21 @@ async def generate_invite(
 ):
     """Generate an invite token for a player."""
     service = PlayerService(db)
-    return await service.generate_invite(user.user_id, player_id)
+    token = await service.generate_invite(user.user_id, player_id)
+    return InviteTokenResponse(token=token)
 
 
 @router.post("/players/link", response_model=PlayerResponse)
 @limiter.limit(DEFAULT_RATE)
 async def link_player(
     request: Request,
-    token: str = Query(..., min_length=1),
+    request_body: LinkPlayerRequest,
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
     """Link current user to a player via invite token."""
     service = PlayerService(db)
-    return await service.link_player(user.user_id, token)
+    return await service.link_player(user.user_id, request_body.token)
 
 
 @router.post(

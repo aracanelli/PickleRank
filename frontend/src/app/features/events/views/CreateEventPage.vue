@@ -20,6 +20,7 @@ const selectedPlayerIds = ref<Set<string>>(new Set())
 const isLoading = ref(true)
 const isCreating = ref(false)
 const error = ref('')
+const groupWarning = ref('')
 
 // Form
 const eventName = ref('')
@@ -85,6 +86,7 @@ async function loadGroup() {
     }
   } catch (e) {
     console.error('Failed to load group settings', e)
+    groupWarning.value = 'Could not load group defaults — using manual settings'
   }
 }
 
@@ -160,6 +162,10 @@ async function createEvent() {
 
     <template v-else>
       <div v-if="error" class="error-message">{{ error }}</div>
+      <div v-if="groupWarning" class="warning-banner">
+        <span>⚠️ {{ groupWarning }}</span>
+        <button class="dismiss-btn" @click="groupWarning = ''" aria-label="Dismiss warning">×</button>
+      </div>
 
       <div class="form-layout">
         <!-- Left: Configuration -->
@@ -343,6 +349,35 @@ async function createEvent() {
   border-radius: var(--radius-md);
   color: var(--color-error);
   margin-bottom: var(--spacing-lg);
+}
+
+.warning-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-warning, #f59e0b);
+  margin-bottom: var(--spacing-lg);
+}
+
+.dismiss-btn {
+  background: none;
+  border: none;
+  color: var(--color-warning, #f59e0b);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.dismiss-btn:hover {
+  opacity: 1;
 }
 
 .form-layout {

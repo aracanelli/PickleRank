@@ -136,11 +136,7 @@ const handleBackdropClick = (e: MouseEvent) => {
 .modal-leave-to .modal {
   transform: scale(0.95);
 }
-</style>
-
-
-
-
+</style></style>
 
 
 

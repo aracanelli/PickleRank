@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { playersApi } from '../services/players.api'
+import type { PlayerDto } from '@/app/core/models/dto'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
@@ -12,7 +13,7 @@ const router = useRouter()
 const isLoading = ref(true)
 const error = ref('')
 const success = ref(false)
-const linkedPlayer = ref<any>(null)
+const linkedPlayer = ref<PlayerDto | null>(null)
 
 onMounted(async () => {
   const token = route.query.token as string
@@ -24,15 +25,16 @@ onMounted(async () => {
   
   try {
     const player = await playersApi.linkPlayer(token)
-    linkedPlayer.value = player
-    success.value = true
-  } catch (e: any) {
-    error.value = e.message || 'Failed to link player'
+    if (player && typeof player.displayName === 'string') {
+      linkedPlayer.value = player
+      success.value = true
+    } else {
+      error.value = 'Invalid player data received'
+    }  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to link player'
   } finally {
     isLoading.value = false
-  }
-})
-</script>
+  }})</script>
 
 <template>
   <div class="container link-page">
@@ -42,7 +44,7 @@ onMounted(async () => {
         <div v-else-if="success" class="result success">
             <CheckCircle :size="48" class="icon" />
             <h1>Linked Successfully!</h1>
-            <p>You have been linked to player <strong>{{ linkedPlayer.displayName }}</strong>.</p>
+            <p>You have been linked to player <strong>{{ linkedPlayer?.displayName }}</strong>.</p>
             <BaseButton @click="router.push('/groups')">Go to Dashboard</BaseButton>
         </div>
         

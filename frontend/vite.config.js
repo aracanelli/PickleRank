@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+    esbuild: {
+        drop: mode === 'production' ? ['console', 'debugger'] : [],
+    },
     plugins: [vue()],
     resolve: {
         alias: {
@@ -20,10 +23,8 @@ export default defineConfig({
             }
         },
         target: 'esnext',
-        // Use esbuild (default, faster than terser) with console/debugger removal
+        // Use esbuild (default, faster than terser)
         minify: 'esbuild',
-        // Note: esbuild drop options require Vite 4.0+ 
-        // Console logs will be minified but not fully removed without terser
     },
     server: {
         port: 5173,
@@ -34,4 +35,4 @@ export default defineConfig({
             }
         }
     }
-});
+}));

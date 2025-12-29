@@ -34,13 +34,20 @@ class EventsRepository:
             courts,
             rounds,
         )
-        return dict(row) if row else None
-
+        return self._row_to_dict(row)
     async def update(self, event_id: UUID, values: Dict[str, Any]) -> None:
-        """Update event fields."""
+        """Update event fields."""        """Update event fields."""
         if not values:
             return
 
+        # Whitelist of allowed columns
+        ALLOWED_COLUMNS = {'name', 'starts_at', 'courts', 'rounds'}
+        
+        # Validate all keys are in whitelist
+        invalid_keys = set(values.keys()) - ALLOWED_COLUMNS
+        if invalid_keys:
+            raise ValueError(f"Invalid columns: {invalid_keys}")
+        
         set_clauses = []
         args = [event_id]
         for i, (key, value) in enumerate(values.items()):
@@ -54,8 +61,7 @@ class EventsRepository:
         """
         await self.conn.execute(query, *args)
 
-    async def get_by_id(self, event_id: UUID) -> Optional[Dict[str, Any]]:
-        """Get an event by ID."""
+    async def get_by_id(self, event_id: UUID) -> Optional[Dict[str, Any]]:        """Get an event by ID."""
         row = await self.conn.fetchrow(
             """
             SELECT e.id, e.group_id, e.name, e.starts_at, e.courts, e.rounds,

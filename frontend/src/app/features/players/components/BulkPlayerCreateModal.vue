@@ -29,18 +29,24 @@ function closeBulkModal() {
     }, 200)
 }
 
-function getBulkNameCount(): number {
-  return bulkNames.value
-    .split('\n')
-    .map(name => name.trim())
-    .filter(name => name.length > 0).length
-}
-
-async function bulkCreatePlayers() {
-  const names = bulkNames.value
+/**
+ * Parses the bulk names input string into an array of non-empty trimmed names.
+ * Handles empty/undefined input by returning an empty array.
+ */
+function parseBulkNames(input: string | undefined): string[] {
+  if (!input) return []
+  return input
     .split('\n')
     .map(name => name.trim())
     .filter(name => name.length > 0)
+}
+
+function getBulkNameCount(): number {
+  return parseBulkNames(bulkNames.value).length
+}
+
+async function bulkCreatePlayers() {
+  const names = parseBulkNames(bulkNames.value)
 
   if (names.length === 0) return
 
@@ -57,17 +63,16 @@ async function bulkCreatePlayers() {
     
     // If all were created successfully, close modal after delay
     if (response.skipped.length === 0) {
+      emit('success')
       setTimeout(() => {
         closeBulkModal()
-        emit('success')
       }, 1500)
     } else {
-        // partial success, still emit success so list updates
-        emit('success')
-    }
-    
-  } catch (e: any) {
-    error.value = e.message || 'Failed to create players'
+      // partial success, still emit success so list updates
+      emit('success')
+    }    
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Failed to create players'
   } finally {
     isBulkCreating.value = false
   }

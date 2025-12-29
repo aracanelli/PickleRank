@@ -15,10 +15,8 @@ from app.api.schemas.groups import (
     GroupSettingsUpdate,
 )
 from app.exceptions import ForbiddenError, NotFoundError
-from app.infrastructure.repositories.groups_repo import GroupsRepository
-from app.infrastructure.repositories.players_repo import GroupPlayersRepository
-from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
 from app.infrastructure.repositories.games_repo import GamesRepository
+from app.infrastructure.repositories.groups_repo import GroupsRepository
 from app.infrastructure.repositories.players_repo import GroupPlayersRepository
 from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
 
@@ -180,12 +178,6 @@ class GroupService:
         settings = group["settings"]
         base_rating = settings.get("initialRating", 1000)
         
-        # Debug: Log the rating system settings being used
-        print(f"[DEBUG recalculate_ratings] Group ID: {group_id}")
-        print(f"[DEBUG recalculate_ratings] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
-        print(f"[DEBUG recalculate_ratings] K-Factor: {settings.get('kFactor', 32)}")
-        print(f"[DEBUG recalculate_ratings] ELO Const: {settings.get('eloConst')}")
-        print(f"[DEBUG recalculate_ratings] Full settings: {settings}")
         
         # Get all players to calculate initial ratings based on skill level
         all_players = await self.conn.fetch(
@@ -525,7 +517,7 @@ class GroupService:
         settings = GroupSettings(**group["settings"])
         return GroupResponse(
             id=group["id"],
-            owner_user_id=group["clerk_user_id"],
+            owner_user_id=group["owner_user_id"],
             name=group["name"],
             sport=group["sport"],
             settings=settings,

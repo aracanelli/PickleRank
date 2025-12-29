@@ -7,7 +7,12 @@ const props = defineProps<{
   rankings: RankingEntryDto[]
   groupName?: string
   ratingSystem?: string
+  generatedAt?: Date | string
 }>()
+
+const formattedDate = computed(() => {
+  return new Date(props.generatedAt ?? new Date()).toLocaleDateString()
+})
 
 const topRankings = computed(() => props.rankings.slice(0, 20)) // Show top 20 max for image to fit
 
@@ -32,9 +37,8 @@ function getRankClass(rank: number): string {
         <h1 class="group-title">{{ groupName || 'Group Rankings' }}</h1>
         <div class="meta-badges">
           <span class="meta-badge">
-            {{ ratingSystem === 'CATCH_UP' ? 'Catch-Up' : 'Serious ELO' }}
-          </span>
-          <span class="meta-text">{{ new Date().toLocaleDateString() }}</span>
+            {{ ratingSystem === 'CATCH_UP' ? 'Catch-Up' : ratingSystem === 'SERIOUS_ELO' ? 'Serious ELO' : 'Rankings' }}          </span>
+          <span class="meta-text">{{ formattedDate }}</span>
         </div>
       </div>
     </div>

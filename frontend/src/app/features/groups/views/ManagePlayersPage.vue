@@ -32,6 +32,8 @@ const showInviteModal = ref(false)
 const inviteLink = ref('')
 const invitingPlayerName = ref('')
 const copySuccess = ref(false)
+const copyError = ref(false)
+const copyErrorMessage = ref('')
 
 // Track updates in progress
 const updatingPlayerId = ref<string | null>(null)
@@ -225,9 +227,18 @@ async function copyLink() {
   try {
     await navigator.clipboard.writeText(inviteLink.value)
     copySuccess.value = true
+    copyError.value = false
+    copyErrorMessage.value = ''
     setTimeout(() => { copySuccess.value = false }, 2000)
-  } catch (e) {
+  } catch (e: any) {
     console.error('Failed to copy', e)
+    copySuccess.value = false
+    copyError.value = true
+    copyErrorMessage.value = e.message || 'Failed to copy to clipboard'
+    setTimeout(() => {
+      copyError.value = false
+      copyErrorMessage.value = ''
+    }, 2000)
   }
 }
 
@@ -278,7 +289,7 @@ async function handleBulkSuccess() {
                 <div class="player-details">
                   <span class="player-name">{{ player.displayName }}</span>
                   <span class="player-stats">
-                    {{ player.rating.toFixed(1) }} • {{ player.gamesPlayed }} games
+                    {{ player.rating != null ? player.rating.toFixed(1) : '—' }} • {{ player.gamesPlayed }} games
                   </span>
                 </div>
               </div>
@@ -288,6 +299,7 @@ async function handleBulkSuccess() {
                     class="action-btn invite"
                     @click="invitePlayer(player)"
                     title="Invite to Link"
+                    aria-label="Invite to Link"
                 >
                     <Link :size="14" />
                 </button>
@@ -298,6 +310,7 @@ async function handleBulkSuccess() {
                     :class="{ organizer: player.role === 'ORGANIZER' }"
                     @click="updateRole(player)"
                     :title="player.role === 'ORGANIZER' ? 'Demote to Player' : 'Promote to Organizer'"
+                    :aria-label="player.role === 'ORGANIZER' ? 'Demote to Player' : 'Promote to Organizer'"
                 >
                   <Shield :size="14" />
                 </button>
@@ -340,7 +353,7 @@ async function handleBulkSuccess() {
                 <div class="player-details">
                   <span class="player-name">{{ player.displayName }}</span>
                   <span class="player-stats">
-                    {{ player.rating.toFixed(1) }} • {{ player.gamesPlayed }} games
+                    {{ player.rating != null ? player.rating.toFixed(1) : '—' }} • {{ player.gamesPlayed }} games
                   </span>
                 </div>
               </div>
@@ -350,6 +363,7 @@ async function handleBulkSuccess() {
                     class="action-btn invite"
                     @click="invitePlayer(player)"
                     title="Invite to Link"
+                    aria-label="Invite to Link"
                 >
                     <Link :size="14" />
                 </button>
@@ -360,6 +374,7 @@ async function handleBulkSuccess() {
                     :class="{ organizer: player.role === 'ORGANIZER' }"
                     @click="updateRole(player)"
                     :title="player.role === 'ORGANIZER' ? 'Demote to Player' : 'Promote to Organizer'"
+                    :aria-label="player.role === 'ORGANIZER' ? 'Demote to Player' : 'Promote to Organizer'"
                 >
                   <Shield :size="14" />
                 </button>
@@ -488,6 +503,7 @@ async function handleBulkSuccess() {
             <template v-else><Copy :size="16" /> Copy</template>
           </BaseButton>
         </div>
+        <div v-if="copyError" class="copy-error-message">{{ copyErrorMessage }}</div>
         
         <p class="invite-note">This link allows the user to claim this player profile and see it in their dashboard.</p>
       </div>
@@ -887,6 +903,16 @@ async function handleBulkSuccess() {
 .invite-note {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
+}
+
+.copy-error-message {
+  padding: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: 0.875rem;
+  text-align: center;
 }
 </style>
 

@@ -21,10 +21,7 @@ export default defineConfig({
       }
     },
     target: 'esnext',
-    // Use esbuild (default, faster than terser) with console/debugger removal
-    minify: 'esbuild',
-    // Note: esbuild drop options require Vite 4.0+ 
-    // Console logs will be minified but not fully removed without terser
+    minify: 'esbuild', minify: 'esbuild',
   },
   server: {
     port: 5173,

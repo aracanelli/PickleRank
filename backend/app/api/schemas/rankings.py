@@ -39,6 +39,8 @@ class MatchHistoryEntry(BaseModel):
     court_index: int = Field(alias="courtIndex")
     team1: List[str]
     team2: List[str]
+    team1_ids: List[UUID] = Field(alias="team1Ids")
+    team2_ids: List[UUID] = Field(alias="team2Ids")
     score_team1: Optional[float] = Field(None, alias="scoreTeam1")
     score_team2: Optional[float] = Field(None, alias="scoreTeam2")
     result: str

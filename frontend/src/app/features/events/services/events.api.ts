@@ -53,6 +53,14 @@ export const eventsApi = {
     return api.patch(`/api/games/${gameId}/score`, data)
   },
 
+  /**
+   * Update score with keepalive option for reliable saves during page unload.
+   * Use this in onUnmounted hooks to ensure the request completes even during navigation.
+   */
+  async updateScoreWithKeepalive(gameId: string, data: ScoreUpdateRequest): Promise<GameDto> {
+    return api.patchWithKeepalive(`/api/games/${gameId}/score`, data)
+  },
+
   async complete(eventId: string): Promise<CompleteResponse> {
     return api.post(`/api/events/${eventId}/complete`)
   },

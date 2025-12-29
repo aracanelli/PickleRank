@@ -67,7 +67,7 @@ const sortedHistory = computed(() => {
   if (history.length > 0) {
       const first = history[0]
       // rating_before = rating_after - delta
-      const startRating = first.rating - first.delta
+      const startRating = first.rating - (first.delta ?? 0)
       
       // Create a "start" point slightly before the first event
       const startDate = new Date(first.createdAt)
@@ -83,9 +83,7 @@ const sortedHistory = computed(() => {
   }
 
   return history
-})
-
-const chartData = computed(() => {
+})const chartData = computed(() => {
   if (sortedHistory.value.length === 0) return null
   
   return {
@@ -187,13 +185,21 @@ const chartOptions = computed(() => ({
       axis: 'x',
       intersect: false
   }
-}))
+}))// Drill Down Types
+interface EventRatingHistoryItem {
+  round: number
+  rating: number
+  delta?: number
+  type: string
+  label: string
+}
 
 // Drill Down State
 const isDrillDown = ref(false)
 const isChartLoading = ref(false)
-const drillDownHistory = ref<any[]>([])
+const drillDownHistory = ref<EventRatingHistoryItem[]>([])
 const drillDownEventName = ref('')
+const chartError = ref('')
 
 async function handleChartClick(item: any) {
     if (isDrillDown.value || isChartLoading.value) return 
@@ -201,18 +207,36 @@ async function handleChartClick(item: any) {
     if (item && item.eventId) {
         try {
             isChartLoading.value = true
+            chartError.value = '' // Clear any previous errors
             drillDownEventName.value = item.eventName || 'Event'
             
             // Fetch detailed history
             const historyMap = await groupsApi.getEventRatingHistory(item.eventId)
+            
+            // Validate historyMap is a non-null object
+            if (!historyMap || typeof historyMap !== 'object' || Array.isArray(historyMap)) {
+                chartError.value = 'Failed to load event history: Invalid response from server'
+                return
+            }
+            
+            // Validate playerId exists as a key in historyMap
+            if (!playerId.value || !(playerId.value in historyMap)) {
+                chartError.value = 'No rating history found for this player in this event'
+                return
+            }
+            
             const playerHistory = historyMap[playerId.value]
             
-            if (playerHistory) {
+            if (playerHistory && Array.isArray(playerHistory) && playerHistory.length > 0) {
                 drillDownHistory.value = playerHistory
                 isDrillDown.value = true
+                chartError.value = '' // Ensure error is cleared on success
+            } else {
+                chartError.value = 'No detailed rating history available for this event'
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Failed to load event history", e)
+            chartError.value = e?.message || 'Failed to load event history. Please try again.'
         } finally {
             isChartLoading.value = false
         }
@@ -223,6 +247,7 @@ function exitDrillDown() {
     isDrillDown.value = false
     drillDownHistory.value = []
     drillDownEventName.value = ''
+    chartError.value = '' // Clear error when exiting drill-down
 }
 
 onMounted(async () => {
@@ -330,6 +355,9 @@ function formatRating(rating: number): string {
                               Back
                           </BaseButton>
                       </div>
+                  </div>
+                  <div v-if="chartError" class="chart-error">
+                      {{ chartError }}
                   </div>
                   <div class="chart-area">
                       <Line :data="chartData" :options="chartOptions as any" />
@@ -598,6 +626,17 @@ function formatRating(rating: number): string {
 .chart-area {
     height: 250px;
     width: 100%;
+}
+
+.chart-error {
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-md);
+    color: var(--color-error);
+    font-size: 0.875rem;
+    text-align: center;
 }
 
 /* Insights List */

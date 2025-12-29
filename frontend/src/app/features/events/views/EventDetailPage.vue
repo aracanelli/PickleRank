@@ -30,6 +30,12 @@ const savingGameIds = ref<Set<string>>(new Set())
 const savedGameIds = ref<Set<string>>(new Set()) // Track recently saved for checkmark animation
 const pendingSaves = ref<Map<string, number>>(new Map()) // game id -> timeout id for debounce
 const queuedSaves = ref<Map<string, { score1?: number, score2?: number }>>(new Map()) // game id -> next scores to save
+const draftScores = ref<Map<string, { score1: string, score2: string }>>(new Map()) // game id -> raw input strings
+
+// Baseline scores per game - saved before optimistic updates for rollback on error
+const gameBaselines = ref<Map<string, { score1?: number, score2?: number, result: GameResult }>>(new Map())
+// Track persistent failures per game for visibility
+const gameFailureCounts = ref<Map<string, number>>(new Map())
 
 const showCompletedModal = ref(false)
 const ratingUpdates = ref<RatingUpdateDto[]>([])
@@ -126,21 +132,35 @@ const DEBOUNCE_DELAY = 500
 // Cleanup pending timeouts on unmount
 // Cleanup pending timeouts and save immediately on unmount
 onUnmounted(() => {
+  // Save all games with pending debounced saves using keepalive
   pendingSaves.value.forEach((timeoutId, gameId) => {
     clearTimeout(timeoutId)
-    // We can't use performSave directly easily because we don't have the scores handy 
-    // in this simplified map. But we do have them in event.games if we search...
-    // Actually, `debouncedSave` only sets the timeout. The scores are in the input refs if we are editing.
-    // BUT onUnmounted happens when leaving. Editing might be active.
-    if (editingGameId.value === gameId) {
-       // If we are currently editing this game, save it now.
-       const game = event.value?.games.find(g => g.id === gameId)
-       const s1 = parseFloat(editingScoreTeam1.value)
-       const s2 = parseFloat(editingScoreTeam2.value)
-       if (game) performSave(gameId, isNaN(s1) ? undefined : s1, isNaN(s2) ? undefined : s2)
-    }
+    
+    // Look up pending draft for this game
+    const draft = draftScores.value.get(gameId)
+    if (!draft) return // Should ideally exist if pending save exists, but safety check
+
+    const s1 = parseFloat(draft.score1)
+    const s2 = parseFloat(draft.score2)
+    const score1 = isNaN(s1) ? undefined : s1
+    const score2 = isNaN(s2) ? undefined : s2
+    
+    // Fire and forget with keepalive - request will complete even if page unloads
+    eventsApi.updateScoreWithKeepalive(gameId, {
+      scoreTeam1: score1,
+      scoreTeam2: score2
+    })
   })
   pendingSaves.value.clear()
+  
+  // Also flush any queued saves that haven't been processed yet
+  queuedSaves.value.forEach((scores, gameId) => {
+    eventsApi.updateScoreWithKeepalive(gameId, {
+      scoreTeam1: scores.score1,
+      scoreTeam2: scores.score2
+    })
+  })
+  queuedSaves.value.clear()
 })
 
 onMounted(async () => {
@@ -208,14 +228,24 @@ const allScoresEntered = computed(() => {
 })
 
 function startEditing(game: GameDto, teamIndex: 1 | 2 = 1) {
-  // Cancel any pending save for previous game
-  if (editingGameId.value && editingGameId.value !== game.id) {
-    flushPendingSave(editingGameId.value)
-  }
+
   
   editingGameId.value = game.id
-  editingScoreTeam1.value = game.scoreTeam1?.toString() || ''
-  editingScoreTeam2.value = game.scoreTeam2?.toString() || ''
+  
+  // Check if we have a pending draft, otherwise load from game
+  const draft = draftScores.value.get(game.id)
+  if (draft) {
+    editingScoreTeam1.value = draft.score1
+    editingScoreTeam2.value = draft.score2
+  } else {
+    editingScoreTeam1.value = game.scoreTeam1?.toString() || ''
+    editingScoreTeam2.value = game.scoreTeam2?.toString() || ''
+    // Initialize draft map immediately so we have a record if they start typing
+    draftScores.value.set(game.id, { 
+      score1: editingScoreTeam1.value, 
+      score2: editingScoreTeam2.value 
+    })
+  }
   
   // Focus the correct input
   nextTick(() => {
@@ -236,6 +266,8 @@ function cancelEditing() {
       clearTimeout(timeoutId)
       pendingSaves.value.delete(editingGameId.value)
     }
+    // Also clear the draft for this game since we are cancelling
+    draftScores.value.delete(editingGameId.value)
   }
   editingGameId.value = null
   editingScoreTeam1.value = ''
@@ -262,10 +294,23 @@ async function performSave(gameId: string, score1?: number, score2?: number) {
     return
   }
   
+  // Save baseline before first save attempt if not already saved
+  // This allows reverting to original state on error without full reload
+  if (!gameBaselines.value.has(gameId)) {
+    const currentGame = event.value.games.find(g => g.id === gameId)
+    if (currentGame) {
+      gameBaselines.value.set(gameId, {
+        score1: currentGame.scoreTeam1,
+        score2: currentGame.scoreTeam2,
+        result: currentGame.result
+      })
+    }
+  }
+  
   savingGameIds.value.add(gameId)
   
   try {
-    const updated = await eventsApi.updateScore(gameId, {
+    const updated = await eventsApi.updateScoreWithKeepalive(gameId, {
       scoreTeam1: score1,
       scoreTeam2: score2
     })
@@ -282,20 +327,44 @@ async function performSave(gameId: string, score1?: number, score2?: number) {
           event.value.status = 'IN_PROGRESS'
         }
         
+        // Clear baseline and failure count on successful save
+        gameBaselines.value.delete(gameId)
+        gameFailureCounts.value.delete(gameId)
+        
         // Show brief success indicator
         savedGameIds.value.add(gameId)
         setTimeout(() => savedGameIds.value.delete(gameId), 1500)
     }
     
   } catch (e: any) {
-    // If we have a queued save, looking at this error might be premature, 
-    // but usually we want to know. 
-    // However, if we're going to retry immediately with new data, maybe suppress?
-    // Use safe approach: show error unless we are about to overwrite it.
-    if (!queuedSaves.value.has(gameId)) {
-        error.value = e.message || 'Failed to save score'
-        // Reload to reset state on error
-        await loadEvent()
+    const errorMessage = e.message || 'Failed to save score'
+    
+    // Always log the error for debugging visibility
+    console.error(`[Score Save Error] Game ${gameId}:`, errorMessage, e)
+    
+    // Increment failure counter for this game
+    const currentFailures = gameFailureCounts.value.get(gameId) || 0
+    gameFailureCounts.value.set(gameId, currentFailures + 1)
+    
+    // Show user-visible error notification (don't silently swallow even if queued)
+    error.value = `Failed to save score for game (attempt ${currentFailures + 1}): ${errorMessage}`
+    
+    // Revert only this game's optimistic state from baseline (avoid full reload)
+    if (!queuedSaves.value.has(gameId) && event.value) {
+      const baseline = gameBaselines.value.get(gameId)
+      if (baseline) {
+        const idx = event.value.games.findIndex(g => g.id === gameId)
+        if (idx !== -1) {
+          event.value.games[idx] = {
+            ...event.value.games[idx],
+            scoreTeam1: baseline.score1,
+            scoreTeam2: baseline.score2,
+            result: baseline.result
+          }
+        }
+      }
+      // Clear baseline after revert
+      gameBaselines.value.delete(gameId)
     }
   } finally {
     savingGameIds.value.delete(gameId)
@@ -304,8 +373,8 @@ async function performSave(gameId: string, score1?: number, score2?: number) {
     if (queuedSaves.value.has(gameId)) {
         const next = queuedSaves.value.get(gameId)
         queuedSaves.value.delete(gameId)
-        // Process next save
-        performSave(gameId, next?.score1, next?.score2)
+        // Process next save - await for proper error handling and potential backoff
+        await performSave(gameId, next?.score1, next?.score2)
     }
   }
 }
@@ -351,7 +420,6 @@ function getResultFromScores(score1?: number, score2?: number): GameResult {
   return 'TIE'
 }
 
-// Save immediately (on Enter or explicit save)
 // Save immediately (on Enter or explicit save)
 async function saveScoreNow(game: GameDto, shouldClose = true) {
   if (!event.value) return
@@ -405,6 +473,13 @@ function handleScoreKeyup(game: GameDto, evt: KeyboardEvent) {
 
 // Handle input changes - triggers debounced save
 function handleScoreInput(game: GameDto) {
+  // Update the draft map with current inputs
+  if (editingGameId.value === game.id) {
+    draftScores.value.set(game.id, {
+      score1: editingScoreTeam1.value,
+      score2: editingScoreTeam2.value
+    })
+  }
   debouncedSave(game)
 }
 
@@ -462,8 +537,10 @@ async function exportAsImage() {
       canvas.toBlob(resolve, 'image/png')
     })
     
-    if (!blob) return
-    
+    if (!blob) {
+      error.value = 'Failed to create image'
+      return
+    }    
     const fileName = `${event.value?.name || 'schedule'}-games.png`
     
     // Check if Web Share API is available (best for mobile)
@@ -484,25 +561,18 @@ async function exportAsImage() {
       }
     }
     
-    // Check if iOS (for long-press save fallback)
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
     const url = URL.createObjectURL(blob)
     
-    if (isIOS) {
-      // Open image in new window - user can long-press to save
-      window.open(url, '_blank')
-    } else {
-      // Standard download for desktop
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    }
-  } catch (e) {
-    console.error('Failed to export image:', e)
+    // Use download link approach for all platforms
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    // Delay revocation to ensure download completes
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (e) {    console.error('Failed to export image:', e)
     error.value = 'Failed to export image'
   } finally {
     isExporting.value = false

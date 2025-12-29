@@ -75,10 +75,11 @@ class EventService:
 
         # Check access
         group = await self.groups_repo.get_by_id(event["group_id"])
-        if not await self._is_owner_or_organizer(user_id, group) and not await self.groups_repo.is_member(user_id, group["id"]):
-             # Allow members to view history too, similar to player stats
-             pass
-
+        is_authorized = await self._is_owner_or_organizer(user_id, group)
+        if not is_authorized:
+            is_authorized = await self.groups_repo.is_member(user_id, group["id"])
+        if not is_authorized:
+            raise ForbiddenError("Only group members can view event rating history")
         # Get actual known starting ratings and end ratings from DB
         updates = await self.rating_updates_repo.list_by_event(event_id)
         # Map player_id -> rating_before
@@ -606,11 +607,13 @@ class EventService:
         # Player info for response
         player_info = {p["group_player_id"]: p["display_name"] for p in participants}
 
-        # Debug: Log the rating system settings being used
-        print(f"[DEBUG complete_event] Event ID: {event_id}")
-        print(f"[DEBUG complete_event] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
-        print(f"[DEBUG complete_event] K-Factor: {settings.get('kFactor', 32)}")
-        print(f"[DEBUG complete_event] ELO Const: {settings.get('eloConst')}")
+        logger.debug(
+            "complete_event rating settings",
+            event_id=str(event_id),
+            rating_system=settings.get('ratingSystem', 'SERIOUS_ELO'),
+            k_factor=settings.get('kFactor', 32),
+            elo_const=settings.get('eloConst'),
+        )
         
         rating_system = create_rating_system(
             settings.get("ratingSystem", "SERIOUS_ELO"),
@@ -798,13 +801,15 @@ class EventService:
         if not await self._is_owner_or_organizer(user_id, group):
             raise ForbiddenError("Only owners and organizers can import history")
 
-        # Debug: Log the group settings being used for import
+        # Get group settings for rating system
         settings = group["settings"]
-        print(f"[DEBUG import_history] Group ID: {group_id}")
-        print(f"[DEBUG import_history] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
-        print(f"[DEBUG import_history] K-Factor: {settings.get('kFactor', 32)}")
-        print(f"[DEBUG import_history] ELO Const: {settings.get('eloConst')}")
-        print(f"[DEBUG import_history] Full settings: {settings}")
+        logger.debug(
+            "import_history rating settings",
+            group_id=str(group_id),
+            rating_system=settings.get('ratingSystem', 'SERIOUS_ELO'),
+            k_factor=settings.get('kFactor', 32),
+            elo_const=settings.get('eloConst'),
+        )
 
         # Read and parse CSV
         contents = await file.read()

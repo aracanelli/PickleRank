@@ -1,5 +1,67 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+/**
+ * Sanitizes a redirect path to prevent open redirect attacks.
+ * Only allows internal paths that:
+ * - Are a non-empty string
+ * - Start with a single "/" (not "//")
+ * - Do not contain "://" (protocol schemes)
+ * - Do not contain domain-like patterns
+ * 
+ * @param redirect - The redirect value from query parameters
+ * @returns A safe internal path, or '/groups' as fallback
+ */
+export function isValidRedirect(redirect: unknown): string {
+  const fallback = '/groups'
+
+  // Must be a non-empty string
+  if (typeof redirect !== 'string' || !redirect) {
+    return fallback
+  }
+
+  // Trim whitespace
+  const trimmed = redirect.trim()
+
+  // Must start with a single "/" (not "//" which could be protocol-relative)
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//')) {
+    return fallback
+  }
+
+  // Must not contain "://" anywhere (blocks http://, https://, javascript:, etc.)
+  if (trimmed.includes('://')) {
+    return fallback
+  }
+
+  // Block any backslash characters (could be used for path traversal or URL manipulation)
+  if (trimmed.includes('\\')) {
+    return fallback
+  }
+
+  // Extract just the pathname portion (strip query strings and hashes for validation)
+  // but allow them in the final result if the path is valid
+  const pathMatch = trimmed.match(/^(\/[^?#]*)/)
+  if (!pathMatch) {
+    return fallback
+  }
+
+  const pathname = pathMatch[1]
+
+  // Ensure the path doesn't contain encoded characters that could bypass checks
+  // Decode and re-check for dangerous patterns
+  try {
+    const decoded = decodeURIComponent(pathname)
+    if (decoded.includes('://') || decoded.startsWith('//') || decoded.includes('\\')) {
+      return fallback
+    }
+  } catch {
+    // If decoding fails, the URL is malformed - reject it
+    return fallback
+  }
+
+  // Path is safe - return the original trimmed value (preserves query/hash if present)
+  return trimmed
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -123,8 +185,7 @@ router.beforeEach(async (to, _from) => {
 
   // If user is authenticated and trying to go to login or signup, redirect to groups
   if ((to.name === 'login' || to.name === 'signup') && authStore.isAuthenticated) {
-    const redirect = to.query.redirect as string
-    return redirect || '/groups'
+    return isValidRedirect(to.query.redirect)
   }
 
   // If user is authenticated and on home page, redirect to dashboard

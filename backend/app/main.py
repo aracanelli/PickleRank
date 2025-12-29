@@ -57,9 +57,8 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
             try:
                 settings = get_settings()
                 cors_origins = settings.cors_origins
-            except:
-                cors_origins = ["*"]
-            
+            except Exception:
+                cors_origins = ["*"]            
             origin = request.headers.get("origin", "")
             
             response = JSONResponse(
@@ -69,9 +68,11 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
             
             # Add CORS headers if origin is allowed
             if cors_origins == ["*"] or origin in cors_origins:
-                response.headers["Access-Control-Allow-Origin"] = origin or "*"
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-            
+                allow_origin = origin if origin else "*"
+                response.headers["Access-Control-Allow-Origin"] = allow_origin
+                # Don't set credentials with wildcard origin (CORS spec violation)
+                if origin:
+                    response.headers["Access-Control-Allow-Credentials"] = "true"            
             return response
 
 
@@ -98,6 +99,9 @@ def create_app() -> FastAPI:
         app.state.limiter = limiter
         app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     except Exception as e:
+        if settings and settings.is_production:
+            logger.error(f"Failed to setup rate limiting: {e}")
+            raise e
         logger.warning(f"Failed to setup rate limiting: {e}")
 
     # CORS - must be added BEFORE other middleware
@@ -162,9 +166,14 @@ except Exception as e:
     
     @app.get("/")
     async def error_root():
-        return {"error": "Application failed to initialize", "detail": str(e)}
+        return {"error": "Application failed to initialize", "detail": "Check server logs for details"}
+    
+    @app.get("/api/health")
+    from fastapi.responses import JSONResponse
     
     @app.get("/api/health")
     async def error_health():
-        return {"status": "error", "detail": "Application initialization failed"}
-
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "message": "Application initialization failed"}
+        )
