@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter, Trophy, Activity, LayoutDashboard } from 'lucide-vue-next'
+import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter } from 'lucide-vue-next'
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
@@ -10,8 +10,10 @@ import { useAuthStore } from '@/stores/auth'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
+import SkeletonLoader from '@/app/core/ui/components/SkeletonLoader.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
+import PullToRefresh from '@/app/core/ui/components/PullToRefresh.vue'
 
 const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.userId)
@@ -272,6 +274,11 @@ async function saveMatchEdit() {
     isSavingEdit.value = false
   }
 }
+
+// Pull-to-refresh handler
+async function refreshData() {
+  await loadHistory()
+}
 </script>
 
 <template>
@@ -360,7 +367,9 @@ async function saveMatchEdit() {
       </div>
     </div>
 
-    <LoadingSpinner v-if="isLoading" text="Loading history..." />
+    <!-- Mobile: Skeleton Loader, Desktop: Spinner -->
+    <SkeletonLoader v-if="isLoading" :rows="4" class="mobile-skeleton" />
+    <LoadingSpinner v-if="isLoading" text="Loading history..." class="desktop-spinner" />
 
     <div v-else-if="error" class="error-message">{{ error }}</div>
 
@@ -372,7 +381,8 @@ async function saveMatchEdit() {
     />
 
     <template v-else>
-      <div class="history-content">
+      <PullToRefresh :on-refresh="refreshData" class="history-refresh-wrapper">
+        <div class="history-content">
         <div v-for="event in matchesByEvent" :key="event.id" :id="`event-${event.id}`" class="event-section">
           <div class="event-header">
             <h2>{{ event.name }}</h2>
@@ -435,7 +445,8 @@ async function saveMatchEdit() {
             </BaseCard>
           </div>
         </div>
-      </div>
+        </div>
+      </PullToRefresh>
     </template>
 
     <!-- Edit Match Modal -->
@@ -462,25 +473,6 @@ async function saveMatchEdit() {
       </template>
     </Modal>
 
-    <!-- Mobile Bottom Navigation Bar -->
-    <nav class="mobile-bottom-nav">
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
-        <Trophy :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Rankings</span>
-      </button>
-      <button class="bottom-nav-item active">
-        <ChartBar :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">History</span>
-      </button>
-      <button class="bottom-nav-item" :class="{ disabled: !myPlayer }" @click="myPlayer && router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
-        <Activity :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Stats</span>
-      </button>
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}`)">
-        <LayoutDashboard :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Dash</span>
-      </button>
-    </nav>
   </div>
 </template>
 
@@ -530,6 +522,20 @@ async function saveMatchEdit() {
   border-radius: var(--radius-md);
   color: var(--color-error);
   text-align: center;
+}
+
+/* Skeleton/Spinner visibility - Desktop: spinner, Mobile: skeleton */
+.mobile-skeleton {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-skeleton {
+    display: block;
+  }
+  .desktop-spinner {
+    display: none !important;
+  }
 }
 
 /* Filter Bar */
@@ -1251,74 +1257,8 @@ async function saveMatchEdit() {
   }
 }
 
-/* Per-page bottom nav hidden - using global nav from AppLayout */
-.mobile-bottom-nav {
-  display: none !important;
-}
 
-@media (max-width: 768px) {
-  .history-page {
-    padding-bottom: 100px;
-  }
-
-  .mobile-bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(255, 255, 255, 0.85);
-    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
-    display: flex;
-    justify-content: space-around;
-    padding: 12px 16px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-    z-index: 100;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .mobile-bottom-nav {
-      background: rgba(30, 30, 30, 0.8);
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .bottom-nav-item {
-    background: none;
-    border: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    color: var(--color-text-secondary);
-    padding: 4px 12px;
-    border-radius: 12px;
-    transition: all 0.2s ease;
-    min-width: 60px;
-    flex: 1;
-  }
-
-  .bottom-nav-item.active {
-    color: var(--color-primary);
-  }
-
-  .bottom-nav-item:active {
-    transform: scale(0.95);
-    background: rgba(16, 185, 129, 0.1);
-  }
-
-  .bottom-nav-item.disabled {
-    opacity: 0.4;
-    pointer-events: none;
-  }
-
-  .bottom-nav-label {
-    font-size: 0.625rem;
-    font-weight: 500;
-    text-transform: uppercase;
-  }
-}
 </style>
+
+
+

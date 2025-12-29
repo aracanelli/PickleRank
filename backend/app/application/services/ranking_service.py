@@ -2,7 +2,7 @@
 Ranking service - handles ranking and history queries.
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from uuid import UUID
 
 from asyncpg import Connection
@@ -69,8 +69,14 @@ class RankingService:
         event_id: Optional[UUID] = None,
         secondary_player_id: Optional[UUID] = None,
         relationship: Optional[str] = "teammate",
-    ) -> List[MatchHistoryEntry]:
-        """Get match history for a group."""
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> Tuple[List[MatchHistoryEntry], int]:
+        """Get match history for a group with optional pagination.
+        
+        Returns:
+            Tuple of (matches, total_count)
+        """
         # Verify group ownership or membership
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
@@ -186,6 +192,22 @@ class RankingService:
 
         query += " ORDER BY e.starts_at DESC, g.round_index, g.court_index"
 
+        # Get total count for pagination
+        count_query = f"SELECT COUNT(*) as total FROM ({query}) as subquery"
+        count_row = await self.conn.fetchrow(count_query, *params)
+        total = count_row["total"] if count_row else 0
+        
+        # Add pagination if specified
+        if limit is not None:
+            query += f" LIMIT ${param_idx}"
+            params.append(limit)
+            param_idx += 1
+        
+        if offset is not None:
+            query += f" OFFSET ${param_idx}"
+            params.append(offset)
+            param_idx += 1
+
         rows = await self.conn.fetch(query, *params)
 
         matches = []
@@ -212,7 +234,10 @@ class RankingService:
                 )
             )
 
-        return matches
+        return matches, total
+
+
+
 
 
 

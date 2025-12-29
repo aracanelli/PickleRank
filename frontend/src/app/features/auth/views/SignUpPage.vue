@@ -11,6 +11,11 @@ const authStore = useAuthStore()
 const clerkReady = ref(false)
 const authContainer = ref<HTMLElement>()
 
+function goToSignIn() {
+  const redirect = route.query.redirect as string
+  router.push({ name: 'login', query: redirect ? { redirect } : {} })
+}
+
 // Watch for auth state changes - redirect when authenticated
 watch(() => authStore.isAuthenticated, (isAuth) => {
   if (isAuth) {
@@ -60,7 +65,7 @@ onMounted(async () => {
           colorText: '#f8fafc',
           colorTextSecondary: '#94a3b8',
           colorDanger: '#ef4444',
-          borderRadius: '0.5rem',
+          borderRadius: '0.75rem',
           fontFamily: 'Outfit, system-ui, sans-serif',
         },
         elements: {
@@ -78,6 +83,10 @@ onMounted(async () => {
           },
           main: {
             width: '100%',
+            padding: '0 8px',
+          },
+          form: {
+            padding: '0 8px',
           },
           headerTitle: {
             display: 'none',
@@ -89,12 +98,28 @@ onMounted(async () => {
             background: '#334155',
             border: '1px solid #475569',
             color: '#f8fafc',
+            minHeight: '52px',
+            fontSize: '0.9375rem',
+            fontWeight: '500',
+            borderRadius: '0.75rem',
             '&:hover': {
               background: '#475569',
             },
           },
+          socialButtons: {
+            display: 'flex',
+            justifyContent: 'center',
+          },
+          socialButtonsBlockButtonText: {
+            fontWeight: '500',
+          },
           formButtonPrimary: {
             background: 'linear-gradient(135deg, #10b981, #059669)',
+            minHeight: '52px',
+            fontSize: '1rem',
+            fontWeight: '600',
+            borderRadius: '0.75rem',
+            marginTop: '8px',
             '&:hover': {
               background: 'linear-gradient(135deg, #059669, #047857)',
             },
@@ -103,13 +128,22 @@ onMounted(async () => {
             background: '#0f172a',
             border: '1px solid #334155',
             color: '#f8fafc',
+            minHeight: '52px',
+            fontSize: '1rem',
             '&:focus': {
               borderColor: '#10b981',
-              boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.2)',
+              boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.2)',
             },
           },
           formFieldLabel: {
             color: '#94a3b8',
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            paddingLeft: '8px',
+            marginBottom: '8px',
+          },
+          formField: {
+            marginBottom: '20px',
           },
           footerActionLink: {
             color: '#10b981',
@@ -133,6 +167,9 @@ onMounted(async () => {
           },
           footerActionText: {
             color: '#94a3b8',
+          },
+          footer: {
+            display: 'none',
           },
         },
       },
@@ -193,6 +230,12 @@ onUnmounted(() => {
           <div class="signup-header">
             <h2>Create an account</h2>
             <p>Sign up to start tracking your games</p>
+          </div>
+
+          <!-- Auth Mode Toggle -->
+          <div class="auth-toggle">
+            <button class="toggle-btn" @click="goToSignIn">Sign In</button>
+            <button class="toggle-btn active">Sign Up</button>
           </div>
 
           <div v-if="authStore.isLoading && !authStore.isInitialized" class="loading-container">
@@ -396,8 +439,42 @@ onUnmounted(() => {
 }
 
 .auth-container {
-  min-height: 300px;
+  min-height: 280px;
   width: 100%;
+}
+
+/* Auth Mode Toggle - Prominent tabs */
+.auth-toggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-tertiary);
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 14px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.toggle-btn:hover:not(.active) {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-btn.active {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 }
 
 /* Clerk component overrides for mobile */
@@ -412,10 +489,16 @@ onUnmounted(() => {
 
 :deep(.cl-socialButtonsBlockButton) {
   min-width: 0 !important;
+  min-height: 52px !important;
 }
 
 :deep(.cl-formFieldInput) {
   width: 100% !important;
+  min-height: 52px !important;
+}
+
+:deep(.cl-formButtonPrimary) {
+  min-height: 52px !important;
 }
 
 /* No auth state */

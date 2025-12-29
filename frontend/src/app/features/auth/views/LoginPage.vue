@@ -20,8 +20,7 @@ watch(() => authStore.isAuthenticated, (isAuth) => {
 }, { immediate: true })
 
 onMounted(async () => {
-  // If already authenticated, router guard should handle redirect
-  // but double-check here for safety
+  // If already authenticated, redirect
   if (authStore.isAuthenticated) {
     const redirect = route.query.redirect as string
     router.push(redirect || '/groups')
@@ -61,7 +60,7 @@ onMounted(async () => {
           colorText: '#f8fafc',
           colorTextSecondary: '#94a3b8',
           colorDanger: '#ef4444',
-          borderRadius: '0.5rem',
+          borderRadius: '0.75rem',
           fontFamily: 'Outfit, system-ui, sans-serif',
         },
         elements: {
@@ -79,6 +78,10 @@ onMounted(async () => {
           },
           main: {
             width: '100%',
+            padding: '0 8px',
+          },
+          form: {
+            padding: '0 8px',
           },
           headerTitle: {
             display: 'none',
@@ -90,12 +93,28 @@ onMounted(async () => {
             background: '#334155',
             border: '1px solid #475569',
             color: '#f8fafc',
+            minHeight: '52px',
+            fontSize: '0.9375rem',
+            fontWeight: '500',
+            borderRadius: '0.75rem',
             '&:hover': {
               background: '#475569',
             },
           },
+          socialButtons: {
+            display: 'flex',
+            justifyContent: 'center',
+          },
+          socialButtonsBlockButtonText: {
+            fontWeight: '500',
+          },
           formButtonPrimary: {
             background: 'linear-gradient(135deg, #10b981, #059669)',
+            minHeight: '52px',
+            fontSize: '1rem',
+            fontWeight: '600',
+            borderRadius: '0.75rem',
+            marginTop: '8px',
             '&:hover': {
               background: 'linear-gradient(135deg, #059669, #047857)',
             },
@@ -104,16 +123,26 @@ onMounted(async () => {
             background: '#0f172a',
             border: '1px solid #334155',
             color: '#f8fafc',
+            minHeight: '52px',
+            fontSize: '1rem',
             '&:focus': {
               borderColor: '#10b981',
-              boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.2)',
+              boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.2)',
             },
           },
           formFieldLabel: {
             color: '#94a3b8',
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            paddingLeft: '8px',
+            marginBottom: '8px',
+          },
+          formField: {
+            marginBottom: '20px',
           },
           footerActionLink: {
             color: '#10b981',
+            fontWeight: '600',
             '&:hover': {
               color: '#059669',
             },
@@ -127,13 +156,8 @@ onMounted(async () => {
           dividerText: {
             color: '#64748b',
           },
-          footerAction: {
-            '& a': {
-              color: '#10b981',
-            },
-          },
-          footerActionText: {
-            color: '#94a3b8',
+          footer: {
+            display: 'none',
           },
         },
       },
@@ -147,6 +171,11 @@ onUnmounted(() => {
     clerk.unmountSignIn(authContainer.value)
   }
 })
+
+function goToSignUp() {
+  const redirect = route.query.redirect as string
+  router.push({ name: 'signup', query: redirect ? { redirect } : {} })
+}
 </script>
 
 <template>
@@ -158,7 +187,7 @@ onUnmounted(() => {
     </div>
 
     <div class="login-container">
-      <!-- Left side - Branding -->
+      <!-- Left side - Branding (hidden on mobile) -->
       <div class="login-branding">
         <div class="brand-content">
           <div class="brand-icon">🏓</div>
@@ -193,7 +222,13 @@ onUnmounted(() => {
         <div class="login-card">
           <div class="login-header">
             <h2>Welcome back</h2>
-            <p>Sign in to continue to your dashboard</p>
+            <p>Sign in to continue to your games</p>
+          </div>
+
+          <!-- Auth Mode Toggle -->
+          <div class="auth-toggle">
+            <button class="toggle-btn active">Sign In</button>
+            <button class="toggle-btn" @click="goToSignUp">Sign Up</button>
           </div>
 
           <div v-if="authStore.isLoading && !authStore.isInitialized" class="loading-container">
@@ -206,23 +241,6 @@ onUnmounted(() => {
             <div class="no-auth-icon">⚠️</div>
             <p class="no-auth-title">Authentication not configured</p>
             <p class="no-auth-message">Please set <code>VITE_CLERK_PUBLISHABLE_KEY</code> in your environment variables.</p>
-          </div>
-
-          <!-- Show cached sessions for quick sign-in -->
-          <div v-if="authStore.cachedSessions.length > 0 && !authStore.isAuthenticated && authStore.isInitialized" class="previous-sessions">
-            <p class="sessions-label">Previously signed in as:</p>
-            <div class="sessions-list">
-              <div 
-                v-for="session in authStore.cachedSessions" 
-                :key="session.userId"
-                class="session-item"
-              >
-                <span class="session-avatar">
-                  {{ session.firstName?.[0] || session.email?.[0] || '?' }}
-                </span>
-                <span class="session-email">{{ session.email }}</span>
-              </div>
-            </div>
           </div>
 
           <div class="login-footer">
@@ -393,7 +411,7 @@ onUnmounted(() => {
 
 .login-header {
   text-align: center;
-  margin-bottom: var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
 }
 
 .login-header h2 {
@@ -407,6 +425,40 @@ onUnmounted(() => {
   font-size: 0.875rem;
 }
 
+/* Auth Mode Toggle - Prominent tabs */
+.auth-toggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-tertiary);
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 14px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.toggle-btn:hover:not(.active) {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-btn.active {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
 .loading-container {
   display: flex;
   justify-content: center;
@@ -414,7 +466,7 @@ onUnmounted(() => {
 }
 
 .auth-container {
-  min-height: 300px;
+  min-height: 280px;
   width: 100%;
 }
 
@@ -430,10 +482,16 @@ onUnmounted(() => {
 
 :deep(.cl-socialButtonsBlockButton) {
   min-width: 0 !important;
+  min-height: 52px !important;
 }
 
 :deep(.cl-formFieldInput) {
   width: 100% !important;
+  min-height: 52px !important;
+}
+
+:deep(.cl-formButtonPrimary) {
+  min-height: 52px !important;
 }
 
 /* No auth state */
@@ -470,54 +528,6 @@ onUnmounted(() => {
   font-size: 0.8rem;
 }
 
-/* Previous sessions */
-.previous-sessions {
-  margin-top: var(--spacing-lg);
-  padding-top: var(--spacing-lg);
-  border-top: 1px solid var(--color-border);
-}
-
-.sessions-label {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  margin-bottom: var(--spacing-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.sessions-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.session-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm);
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-md);
-}
-
-.session-avatar {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-primary);
-  color: white;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.session-email {
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
-}
-
 /* Footer */
 .login-footer {
   margin-top: var(--spacing-xl);
@@ -528,8 +538,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: 6px 12px;
-  background-color: var(--color-bg-secondary);
+  padding: 8px 16px;
+  background-color: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
@@ -549,6 +559,8 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .login-page {
     padding: var(--spacing-md);
+    align-items: flex-start;
+    padding-top: var(--spacing-xl);
   }
 
   .login-container {
@@ -570,25 +582,38 @@ onUnmounted(() => {
   }
 
   .login-header {
-    margin-bottom: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
   }
 
   .login-header::before {
     content: '🏓';
     display: block;
     font-size: 2.5rem;
-    margin-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .login-header h2 {
+    font-size: 1.375rem;
+  }
+
+  .auth-toggle {
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .toggle-btn {
+    padding: 16px;
+    font-size: 1rem;
   }
 
   .auth-container {
-    min-height: 350px;
-    overflow-x: auto;
+    min-height: 320px;
   }
 }
 
 @media (max-width: 480px) {
   .login-page {
     padding: var(--spacing-sm);
+    padding-top: var(--spacing-lg);
   }
 
   .login-form-section {

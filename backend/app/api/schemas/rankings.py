@@ -50,9 +50,19 @@ class MatchHistoryEntry(BaseModel):
 
 
 class MatchHistoryResponse(BaseModel):
-    """Response for match history."""
+    """Response for match history with optional pagination."""
 
     matches: List[MatchHistoryEntry]
+    total: Optional[int] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    has_more: Optional[bool] = Field(None, alias="hasMore")
+    
+    class Config:
+        populate_by_name = True
+
+
+
 
 
 

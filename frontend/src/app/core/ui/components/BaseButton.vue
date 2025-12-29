@@ -35,11 +35,18 @@ defineProps<{
   border: none;
   cursor: pointer;
   transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
 }
 
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Active/press state for touch feedback */
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 /* Sizes */
@@ -69,6 +76,10 @@ defineProps<{
   box-shadow: var(--shadow-glow);
 }
 
+.btn-primary:active:not(:disabled) {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
+}
+
 .btn-secondary {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
@@ -78,6 +89,10 @@ defineProps<{
 .btn-secondary:hover:not(:disabled) {
   background: var(--color-bg-hover);
   border-color: var(--color-border-light);
+}
+
+.btn-secondary:active:not(:disabled) {
+  background: var(--color-bg-secondary);
 }
 
 .btn-ghost {
@@ -97,6 +112,7 @@ defineProps<{
 
 .btn-danger:hover:not(:disabled) {
   background: #dc2626;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
 }
 
 /* Loading */
@@ -106,7 +122,7 @@ defineProps<{
   border: 2px solid transparent;
   border-top-color: currentColor;
   border-radius: 50%;
-  animation: spin 0.75s linear infinite;
+  animation: spin 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes spin {
@@ -114,7 +130,22 @@ defineProps<{
     transform: rotate(360deg);
   }
 }
+
+/* Mobile touch enhancements */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px;
+  }
+  
+  .btn:active:not(:disabled) {
+    transform: scale(0.95);
+    transition: transform 0.1s ease-out;
+  }
+}
 </style>
+
+
+
 
 
 

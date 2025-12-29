@@ -8,6 +8,7 @@ import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import ShareableSchedule from '../components/ShareableSchedule.vue'
+import ScoreEntryModal from '../components/ScoreEntryModal.vue'
 import html2canvas from 'html2canvas'
 import { Download, ArrowLeft } from 'lucide-vue-next'
 
@@ -42,6 +43,45 @@ const shareableRef = ref<HTMLElement | null>(null)
 const isEditingName = ref(false)
 const tempEventName = ref('')
 const isSavingName = ref(false)
+
+// Touch device detection for better UX hints
+const isTouchDevice = computed(() => 'ontouchstart' in window || navigator.maxTouchPoints > 0)
+
+// Mobile score entry modal state
+const showScoreModal = ref(false)
+const scoreModalGame = ref<GameDto | null>(null)
+
+function openScoreModal(game: GameDto) {
+  scoreModalGame.value = game
+  showScoreModal.value = true
+}
+
+function closeScoreModal() {
+  showScoreModal.value = false
+  scoreModalGame.value = null
+}
+
+async function handleModalSave(score1: number | undefined, score2: number | undefined) {
+  if (!scoreModalGame.value || !event.value) return
+  
+  const game = scoreModalGame.value
+  
+  // Optimistic update
+  const idx = event.value.games.findIndex(g => g.id === game.id)
+  if (idx !== -1) {
+    event.value.games[idx] = {
+      ...event.value.games[idx],
+      scoreTeam1: score1,
+      scoreTeam2: score2,
+      result: getResultFromScores(score1, score2)
+    }
+  }
+  
+  closeScoreModal()
+  
+  // Save to server
+  await performSave(game.id, score1, score2)
+}
 
 function startEditName() {
   if (!event.value) return
@@ -675,7 +715,7 @@ async function exportAsImage() {
                     autofocus
                   />
                 </div>
-                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game, 1)">
+                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && (isTouchDevice ? openScoreModal(game) : startEditing(game, 1))">
                   {{ game.scoreTeam1 ?? '-' }}
                 </div>
               </div>
@@ -702,7 +742,7 @@ async function exportAsImage() {
                     @blur="handleScoreBlur(game, $event)"
                   />
                 </div>
-                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game, 2)">
+                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && (isTouchDevice ? openScoreModal(game) : startEditing(game, 2))">
                   {{ game.scoreTeam2 ?? '-' }}
                 </div>
               </div>
@@ -725,7 +765,7 @@ async function exportAsImage() {
                 Auto-saving...
               </div>
               <div v-else-if="event.status !== 'COMPLETED'" class="edit-hint">
-                Click score to edit
+                {{ isTouchDevice ? 'Tap' : 'Click' }} score to edit
               </div>
             </div>
           </div>
@@ -751,6 +791,17 @@ async function exportAsImage() {
       </div>
 
     </Modal>
+
+    <!-- Mobile Score Entry Modal -->
+    <ScoreEntryModal
+      :open="showScoreModal"
+      :team1-names="scoreModalGame?.team1.map(p => p.displayName) ?? []"
+      :team2-names="scoreModalGame?.team2.map(p => p.displayName) ?? []"
+      :initial-score1="scoreModalGame?.scoreTeam1"
+      :initial-score2="scoreModalGame?.scoreTeam2"
+      @close="closeScoreModal"
+      @save="handleModalSave"
+    />
 
     <!-- Hidden container for export (off-screen) -->
     <div class="export-hidden-container">
@@ -1379,6 +1430,9 @@ async function exportAsImage() {
   pointer-events: none;
 }
 </style>
+
+
+
 
 
 

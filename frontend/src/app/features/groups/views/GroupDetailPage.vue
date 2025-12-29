@@ -158,6 +158,15 @@ function getStatusLabel(status: string): string {
   }
 }
 
+function getStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'DRAFT': return 'badge-muted'
+    case 'GENERATED': return 'badge-info'
+    case 'IN_PROGRESS': return 'badge-warning'
+    default: return 'badge-muted'
+  }
+}
+
 async function downloadTemplate() {
   try {
     const { useAuthStore } = await import('@/stores/auth')
@@ -255,7 +264,23 @@ function viewPlayerHistory(player: GroupPlayerDto) {
       <!-- Header -->
       <div class="page-header">
         <div>
-          <router-link to="/groups" class="back-link">
+          <!-- Mobile: back button and actions on same row -->
+          <div class="header-top-row mobile-only">
+            <router-link to="/groups" class="back-link">
+              <ArrowLeft :size="16" /><span class="back-text">Back</span>
+            </router-link>
+            <div class="header-actions" v-if="isOrganizer">
+              <button class="glass-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
+                <Settings :size="18" />
+              </button>
+              <button class="new-event-btn" @click="router.push(`/groups/${groupId}/events/new`)">
+                <Plus :size="16" />
+                <span>New Event</span>
+              </button>
+            </div>
+          </div>
+          <!-- Desktop: original back link -->
+          <router-link to="/groups" class="back-link desktop-only">
             <ArrowLeft :size="16" /> Back to All Groups
           </router-link>
           <h1>{{ group.name }}</h1>
@@ -275,47 +300,38 @@ function viewPlayerHistory(player: GroupPlayerDto) {
             <Plus :size="16" /> New Event
           </BaseButton>
         </div>
-        <!-- Mobile header actions (icon buttons) -->
-        <div class="header-actions mobile-only" v-if="isOrganizer">
-          <button class="mobile-icon-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
-            <Settings :size="20" />
-          </button>
-          <button class="mobile-icon-btn primary" @click="router.push(`/groups/${groupId}/events/new`)" title="New Event">
-            <Plus :size="20" />
-          </button>
-        </div>
       </div>
 
       <!-- Quick Actions -->
       <div class="quick-actions">
         <BaseCard clickable @click="router.push(`/groups/${groupId}/rankings`)">
           <div class="quick-action">
-            <div class="qa-icon"><Trophy :size="32" /></div>
+            <div class="qa-icon icon-container icon-container-lg"><Trophy :size="28" /></div>
             <span class="qa-label">Rankings</span>
           </div>
         </BaseCard>
 
         <BaseCard clickable @click="router.push(`/groups/${groupId}/history`)">
           <div class="quick-action">
-            <div class="qa-icon"><ChartBar :size="32" /></div>
+            <div class="qa-icon icon-container icon-container-lg"><ChartBar :size="28" /></div>
             <span class="qa-label">History</span>
           </div>
         </BaseCard>
         <BaseCard v-if="myPlayer" clickable @click="router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
           <div class="quick-action">
-            <div class="qa-icon"><Activity :size="32" /></div>
+            <div class="qa-icon icon-container icon-container-lg"><Activity :size="28" /></div>
             <span class="qa-label">My Stats</span>
           </div>
         </BaseCard>
         <BaseCard v-if="isOrganizer" clickable @click="showImportModal = true">
           <div class="quick-action">
-            <div class="qa-icon"><Upload :size="32" /></div>
+            <div class="qa-icon icon-container icon-container-lg"><Upload :size="28" /></div>
             <span class="qa-label">Import History</span>
           </div>
         </BaseCard>
         <BaseCard v-if="isOrganizer" clickable @click="router.push(`/groups/${groupId}/events/new`)">
           <div class="quick-action">
-            <div class="qa-icon"><Target :size="32" /></div>
+            <div class="qa-icon icon-container icon-container-lg"><Target :size="28" /></div>
             <span class="qa-label">New Event</span>
           </div>
         </BaseCard>
@@ -325,10 +341,10 @@ function viewPlayerHistory(player: GroupPlayerDto) {
       <section class="section">
         <div class="section-header">
           <div class="section-title">
-            <h2>Players</h2>
+            <span class="section-label">Players</span>
             <div class="player-counts">
-              <span class="count-badge permanent">{{ permanentPlayers.length }} Permanent</span>
-              <span class="count-badge sub">{{ subPlayers.length }} Sub</span>
+              <span class="badge badge-primary">{{ permanentPlayers.length }} Permanent</span>
+              <span class="badge badge-warning">{{ subPlayers.length }} Subs</span>
             </div>
           </div>
           <div class="section-actions" v-if="isOrganizer">
@@ -351,11 +367,11 @@ function viewPlayerHistory(player: GroupPlayerDto) {
           </template>
         </EmptyState>
 
-        <div v-else class="players-list">
+        <div v-else class="players-list card-container">
           <div 
             v-for="(player, index) in permanentPlayers" 
             :key="player.id" 
-            class="player-item clickable" 
+            class="player-item card-container-item clickable" 
             :class="{ 'is-me': player.userId === currentUserId }"
             @click="viewPlayerHistory(player)"
             :style="{ animationDelay: `${index * 50}ms` }"
@@ -367,10 +383,10 @@ function viewPlayerHistory(player: GroupPlayerDto) {
               <div class="player-details">
                 <div class="player-name-row">
                   <span class="player-name">{{ player.displayName }}</span>
+                  <span v-if="player.role === 'ORGANIZER'" class="badge badge-purple">ORG</span>
                 </div>
                 <div class="player-stats">
                   <span>{{ (player.winRate * 100).toFixed(0) }}% win rate</span>
-                  <span v-if="player.role === 'ORGANIZER'" class="role-badge organizer">ORG</span>
                 </div>
               </div>
             </div>
@@ -394,8 +410,8 @@ function viewPlayerHistory(player: GroupPlayerDto) {
       <section class="section">
         <div class="section-header">
           <div class="section-title">
-            <h2>Pending Events</h2>
-            <span v-if="pendingEvents.length > 0" class="count-badge">
+            <span class="section-label">Pending Events</span>
+            <span v-if="pendingEvents.length > 0" class="badge badge-info">
               {{ pendingEvents.length }}
             </span>
           </div>
@@ -418,12 +434,12 @@ function viewPlayerHistory(player: GroupPlayerDto) {
         <LoadingSpinner v-if="isLoadingEvents" text="Loading events..." />
 
         <div v-else-if="pendingEvents.length > 0" class="events-list">
-          <BaseCard v-for="event in pendingEvents" :key="event.id" class="event-card">
+          <BaseCard v-for="event in pendingEvents" :key="event.id" class="event-card" :data-status="event.status.toLowerCase()">
             <div class="event-card-content">
               <div class="event-info">
                 <div class="event-name-row">
                   <h3 class="event-name">{{ event.name || 'Unnamed Event' }}</h3>
-                  <span class="status-badge" :class="event.status.toLowerCase()">
+                  <span class="badge" :class="getStatusBadgeClass(event.status)">
                     {{ getStatusLabel(event.status) }}
                   </span>
                 </div>
@@ -497,29 +513,6 @@ function viewPlayerHistory(player: GroupPlayerDto) {
         </BaseButton>
       </template>
     </Modal>
-
-    <!-- Mobile Bottom Navigation Bar - Always visible for seamless navigation -->
-    <nav class="mobile-bottom-nav">
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/rankings`)">
-        <Trophy :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Rankings</span>
-      </button>
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
-        <ChartBar :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">History</span>
-      </button>
-
-
-      <button class="bottom-nav-item" :class="{ disabled: !myPlayer }" @click="myPlayer && router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
-        <Activity :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Stats</span>
-      </button>
-      <!-- Import hidden on mobile per user request - desktop function only -->
-      <button v-if="isOrganizer" class="bottom-nav-item" @click="router.push(`/groups/${groupId}/events/new`)">
-        <Target :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Event</span>
-      </button>
-    </nav>
   </div>
 </template>
 
@@ -585,11 +578,24 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 
 .qa-icon {
   font-size: 2rem;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  color: var(--color-primary);
+}
+
+.quick-action:hover .qa-icon,
+.quick-action:active .qa-icon {
+  transform: scale(1.1);
 }
 
 .qa-label {
   font-weight: 500;
   color: var(--color-text-secondary);
+  transition: color 0.2s ease;
+}
+
+.quick-action:hover .qa-label,
+.quick-action:active .qa-label {
+  color: var(--color-text-primary);
 }
 
 .section {
@@ -653,10 +659,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 .players-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  /* Ensure container doesn't cut off shadows if we add them */
-  padding: 4px; 
-  margin: -4px;
+  gap: 0; /* No gap - using border separators */
 }
 
 @keyframes slideUpFade {
@@ -674,10 +677,9 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  padding: var(--spacing-md);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  border-radius: 0;
   
   /* Staggered Animation Base */
   animation: slideUpFade 0.4s ease-out forwards;
@@ -686,12 +688,16 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 
 .player-item.clickable {
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast);
 }
 
 .player-item.clickable:hover {
-  border-color: var(--color-primary);
   background: var(--color-bg-hover);
+}
+
+.player-item.clickable:active {
+  background: var(--color-bg-tertiary);
+  transition: background 0.1s ease-out;
 }
 
 .player-info {
@@ -825,9 +831,8 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 
 /* Player stats inline indicators */
 .player-item.is-me {
-  background: var(--color-bg-hover);
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary);
+  background: rgba(16, 185, 129, 0.05);
+  box-shadow: inset 4px 0 0 var(--color-primary);
 }
 
 .role-badge {
@@ -1057,6 +1062,32 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 
 .event-card {
   transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Status indicator border on left */
+.event-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--color-text-muted);
+  transition: background var(--transition-fast);
+}
+
+.event-card[data-status="draft"]::before {
+  background: var(--color-text-muted);
+}
+
+.event-card[data-status="generated"]::before {
+  background: var(--color-info);
+}
+
+.event-card[data-status="in_progress"]::before {
+  background: var(--color-warning);
 }
 
 .event-card:hover {
@@ -1166,50 +1197,32 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   background: var(--color-primary-hover);
 }
 
-/* Mobile bottom navigation bar */
-.mobile-bottom-nav {
-  display: none;
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: var(--color-bg-card);
-  border-top: 1px solid var(--color-border);
-  padding: var(--spacing-sm) var(--spacing-md);
-  padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0));
-  z-index: 100;
-  justify-content: space-around;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.bottom-nav-item {
-  display: flex;
-  flex-direction: column;
+/* Prominent New Event button */
+.new-event-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: var(--spacing-sm);
-  background: none;
+  gap: 6px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
   border: none;
-  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
-  min-width: 64px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 }
 
-.bottom-nav-item:hover,
-.bottom-nav-item:active {
-  color: var(--color-primary);
+.new-event-btn:hover {
+  background: linear-gradient(135deg, var(--color-primary-hover) 0%, var(--color-primary-dark) 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
 }
 
-.bottom-nav-icon {
-  font-size: 1.5rem;
-}
-
-.bottom-nav-label {
-  font-size: 0.625rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+.new-event-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
 }
 
 @media (max-width: 768px) {
@@ -1222,11 +1235,7 @@ function viewPlayerHistory(player: GroupPlayerDto) {
     display: flex !important;
   }
 
-  .mobile-bottom-nav {
-    display: flex;
-  }
-
-  /* Hide quick actions on mobile - they're in bottom nav now */
+  /* Hide quick actions on mobile - they're in global bottom nav now */
   .quick-actions {
     display: none;
   }
@@ -1237,13 +1246,36 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   }
 
   .page-header {
-    flex-direction: row;
-    gap: var(--spacing-md);
-    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    align-items: stretch;
   }
 
   .page-header > div:first-child {
-    flex: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  /* Mobile header row: back button on left, actions on right */
+  .header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  /* Compact back link on mobile */
+  .back-link {
+    padding: 8px 10px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    margin-bottom: 0;
+  }
+
+  /* Hide back link text on mobile, show just icon */
+  .back-link .back-text {
+    display: none;
   }
 
   .header-actions.mobile-only {
@@ -1362,7 +1394,11 @@ function viewPlayerHistory(player: GroupPlayerDto) {
   background: rgba(124, 58, 237, 0.15);
   color: #7c3aed;
 }
+
 </style>
+
+
+
 
 
 

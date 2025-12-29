@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { signOut, getClerk, getSessions, switchSession } from '@/app/core/auth/clerk'
-import { ClipboardList, Users, LogOut, ChevronDown, Activity, Check, Trophy, ChartBar, LayoutDashboard, Target } from 'lucide-vue-next'
+import { ClipboardList, Users, LogOut, ChevronDown, Activity, Check, Trophy, ChartBar, Home } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,12 +19,15 @@ const groupId = computed(() => {
   return null
 })
 
-// Check if current route should show bottom nav (group-related pages, not groups list)
+// Check if on auth pages (login/signup) - hide Sign In button
+const isOnAuthPage = computed(() => {
+  return route.path === '/login' || route.path === '/signup'
+})
+
+// Check if current route should show bottom nav
 const showBottomNav = computed(() => {
   if (!authStore.isAuthenticated) return false
-  if (!groupId.value) return false
-  // Don't show on /groups list page
-  if (route.path === '/groups') return false
+  // Show on groups list and all group-related pages
   return true
 })
 
@@ -43,18 +46,17 @@ watch(() => groupId.value, (newGroupId) => {
 // Determine which nav item is active based on current route
 const activeNavItem = computed(() => {
   const path = route.path
+  if (path === '/groups') return 'groups'
   if (path.includes('/rankings')) return 'rankings'
   if (path.includes('/history')) return 'history'
   if (path.includes('/players/')) return 'stats'
   // Check if on group detail page (exact match for /groups/:id pattern)
-  if (path.match(/^\/groups\/[^/]+$/)) return 'event'
-  return 'dash'
+  if (path.match(/^\/groups\/[^/]+$/)) return 'group'
+  // In any other group context, group is still the home
+  if (groupId.value) return 'group'
+  return 'groups'
 })
 
-// Check if we're on the group detail page (show Event instead of Dash)
-const isOnGroupDetail = computed(() => {
-  return route.path.match(/^\/groups\/[^/]+$/)
-})
 
 // Navigation helpers
 function navigateToRankings() {
@@ -90,8 +92,9 @@ async function navigateToStats() {
 function navigateToDash() {
   if (groupId.value) router.push(`/groups/${groupId.value}`)
 }
-function navigateToEvent() {
-  if (groupId.value) router.push(`/groups/${groupId.value}/events/new`)
+
+function navigateToGroups() {
+  router.push('/groups')
 }
 
 // Close menus when clicking outside
@@ -214,7 +217,7 @@ const navItems = [
               </div>
             </div>
           </template>
-          <template v-else-if="!authStore.isLoading">
+          <template v-else-if="!authStore.isLoading && !isOnAuthPage">
             <router-link to="/login" class="btn btn-primary">
               Sign In
             </router-link>
@@ -272,48 +275,60 @@ const navItems = [
 
     <!-- Global Mobile Bottom Navigation Bar -->
     <nav class="global-bottom-nav" v-if="showBottomNav">
+      <!-- Context-aware first button: Group (current) or Groups (all) -->
+      <button 
+        v-if="groupId"
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'group' }"
+        @click="navigateToDash"
+      >
+        <Home :size="20" />
+        <span>Group</span>
+      </button>
+      <button 
+        v-else
+        class="global-nav-item" 
+        :class="{ active: activeNavItem === 'groups' }"
+        @click="navigateToGroups"
+      >
+        <ClipboardList :size="20" />
+        <span>Groups</span>
+      </button>
       <button 
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'rankings' }"
+        :class="{ active: activeNavItem === 'rankings', disabled: !groupId }"
         @click="navigateToRankings"
+        :disabled="!groupId"
       >
         <Trophy :size="20" />
         <span>Rankings</span>
       </button>
       <button 
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'history' }"
+        :class="{ active: activeNavItem === 'history', disabled: !groupId }"
         @click="navigateToHistory"
+        :disabled="!groupId"
       >
         <ChartBar :size="20" />
         <span>History</span>
       </button>
       <button 
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'stats' }"
+        :class="{ active: activeNavItem === 'stats', disabled: !groupId || !cachedPlayerId }"
         @click="navigateToStats"
+        :disabled="!groupId"
       >
         <Activity :size="20" />
         <span>Stats</span>
       </button>
-      <!-- Show Event on group detail, Dash on other pages -->
+      <!-- All Groups button - always visible when in a group -->
       <button 
-        v-if="isOnGroupDetail"
+        v-if="groupId"
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'event' }"
-        @click="navigateToEvent"
+        @click="navigateToGroups"
       >
-        <Target :size="20" />
-        <span>Event</span>
-      </button>
-      <button 
-        v-else
-        class="global-nav-item" 
-        :class="{ active: activeNavItem === 'dash' }"
-        @click="navigateToDash"
-      >
-        <LayoutDashboard :size="20" />
-        <span>Dash</span>
+        <ClipboardList :size="20" />
+        <span>All</span>
       </button>
     </nav>
   </div>
@@ -721,28 +736,73 @@ const navItems = [
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    color: rgba(255, 255, 255, 0.7);
-    padding: 4px 12px;
-    border-radius: 12px;
-    transition: all 0.2s ease;
+    color: rgba(255, 255, 255, 0.5);
+    padding: 6px 14px;
+    border-radius: 16px;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     min-width: 60px;
     flex: 1;
     cursor: pointer;
+    position: relative;
   }
 
   .global-nav-item span {
     font-size: 0.625rem;
     font-weight: 500;
     text-transform: uppercase;
+    transition: all 0.2s ease;
+    opacity: 0.8;
+  }
+
+  .global-nav-item svg {
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   .global-nav-item.active {
     color: var(--color-primary);
+    background: rgba(16, 185, 129, 0.12);
+  }
+  
+  .global-nav-item.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    animation: indicatorPop 0.3s ease-out;
+  }
+  
+  @keyframes indicatorPop {
+    from {
+      transform: translateX(-50%) scale(0);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(-50%) scale(1);
+      opacity: 1;
+    }
+  }
+  
+  .global-nav-item.active svg {
+    transform: scale(1.1);
+  }
+  
+  .global-nav-item.active span {
+    opacity: 1;
+    font-weight: 600;
   }
 
   .global-nav-item:active:not(:disabled) {
-    transform: scale(0.95);
-    background: rgba(16, 185, 129, 0.1);
+    transform: scale(0.92);
+    background: rgba(16, 185, 129, 0.15);
+  }
+  
+  .global-nav-item:active:not(:disabled) svg {
+    transform: scale(0.9);
   }
 
   .global-nav-item:disabled,

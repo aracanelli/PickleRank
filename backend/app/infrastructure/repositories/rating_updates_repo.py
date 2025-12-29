@@ -102,15 +102,26 @@ class RatingUpdatesRepository:
 
 
     async def get_history_by_group_player(self, group_player_id: UUID) -> List[Dict[str, Any]]:
-        """Get rating history for a group player."""
+        """Get rating history for a group player.
+        
+        Uses event starts_at date for the chart x-axis (falls back to ru.created_at if null).
+        """
         rows = await self.conn.fetch(
             """
-            SELECT ru.rating_after as rating, ru.created_at, e.name as event_name, ru.event_id, ru.delta, ru.rating_before
+            SELECT ru.rating_after as rating, 
+                   COALESCE(e.starts_at, ru.created_at) as created_at,
+                   e.name as event_name, 
+                   ru.event_id, 
+                   ru.delta, 
+                   ru.rating_before
             FROM rating_updates ru
             LEFT JOIN events e ON e.id = ru.event_id
             WHERE ru.group_player_id = $1
-            ORDER BY ru.created_at ASC
+            ORDER BY COALESCE(e.starts_at, ru.created_at) ASC
             """,
             group_player_id,
         )
         return [dict(row) for row in rows]
+
+
+

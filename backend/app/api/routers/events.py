@@ -213,3 +213,6 @@ async def get_event_rating_history(
     """Get round-by-round rating history for an event."""
     service = EventService(db)
     return await service.get_event_rating_history(user.user_id, event_id)
+
+
+

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Trophy, Medal, Download, ChartBar, Activity, LayoutDashboard } from 'lucide-vue-next'
+import { ArrowLeft, Trophy, Medal, Download, TrendingUp, TrendingDown, ChevronUp, ChevronDown, Minus } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
@@ -8,8 +8,10 @@ import type { RankingEntryDto, GroupDto, GroupPlayerDto } from '@/app/core/model
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
+import SkeletonLoader from '@/app/core/ui/components/SkeletonLoader.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import ShareableRankings from '../components/ShareableRankings.vue'
+import PullToRefresh from '@/app/core/ui/components/PullToRefresh.vue'
 import html2canvas from 'html2canvas'
 import { useAuthStore } from '@/stores/auth'
 
@@ -82,11 +84,30 @@ async function loadData() {
   }
 }
 
+// Refresh function for pull-to-refresh
+async function refreshData() {
+  await loadData()
+}
+
+// Helper to get rating delta for a player
+function getRatingDelta(playerId: string): number | undefined {
+  return ratingDeltaMap.value.get(playerId)
+}
+
 // Create a lookup map for membership type by playerId
 const membershipMap = computed(() => {
   const map = new Map<string, 'PERMANENT' | 'SUB'>()
   groupPlayers.value.forEach(p => {
     map.set(p.playerId, p.membershipType)
+  })
+  return map
+})
+
+// Create lookup map for ratingDelta from groupPlayers
+const ratingDeltaMap = computed(() => {
+  const map = new Map<string, number | undefined>()
+  groupPlayers.value.forEach(p => {
+    map.set(p.playerId, p.ratingDelta)
   })
   return map
 })
@@ -101,6 +122,45 @@ const filteredRankings = computed(() => {
     const membership = membershipMap.value.get(r.playerId)
     return !membership || membership === 'PERMANENT'
   })
+})
+
+// Calculate previous ranks based on rating - delta
+// This gives us what the rankings would have been before the last event
+// We depend on filteredRankings so the previous rank is calculated RELATIVE to the current view
+const previousRanksMap = computed(() => {
+  const map = new Map<string, number>()
+  
+  // Build array of players with their previous ratings
+  // Use filteredRankings to compare against the same set of players
+  const playersWithPrevRating = filteredRankings.value.map(r => {
+    const delta = ratingDeltaMap.value.get(r.playerId) || 0
+    return {
+      playerId: r.playerId,
+      previousRating: r.rating - delta
+    }
+  })
+  
+  // Sort by previous rating (descending) to get previous ranks
+  const sorted = [...playersWithPrevRating].sort((a, b) => b.previousRating - a.previousRating)
+  
+  // Assign previous ranks
+  sorted.forEach((player, index) => {
+    map.set(player.playerId, index + 1)
+  })
+  
+  return map
+})
+
+// Get rank change for a player (positive = moved up, negative = moved down, 0 = no change)
+function getRankChange(playerId: string, currentRank: number): number {
+  const prevRank = previousRanksMap.value.get(playerId)
+  if (prevRank === undefined) return 0
+  return prevRank - currentRank // positive = moved up, negative = moved down
+}
+
+// Check if any player has a rating delta (meaning there was a recent event)
+const hasRecentChanges = computed(() => {
+  return groupPlayers.value.some(p => p.ratingDelta !== undefined && p.ratingDelta !== 0)
 })
 
 function getRankClass(rank: number): string {
@@ -227,7 +287,9 @@ async function exportAsImage() {
       </button>
     </div>
 
-    <LoadingSpinner v-if="isLoading" text="Loading rankings..." />
+    <!-- Mobile: Skeleton Loader, Desktop: Spinner -->
+    <SkeletonLoader v-if="isLoading" :rows="5" class="mobile-skeleton" />
+    <LoadingSpinner v-if="isLoading" text="Loading rankings..." class="desktop-spinner" />
 
     <div v-else-if="error" class="error-message">{{ error }}</div>
 
@@ -255,10 +317,21 @@ async function exportAsImage() {
           <tbody>
             <tr v-for="(entry, index) in filteredRankings" :key="entry.playerId" class="ranking-row">
               <td class="rank-col">
-                <span class="rank-badge" :class="{ top3: index < 3 }">
-                  <Medal v-if="index < 3" :class="getRankClass(index + 1)" :size="24" />
-                  <span v-else>#{{ index + 1 }}</span>
-                </span>
+                <div class="rank-display">
+                  <span class="rank-badge" :class="{ top3: index < 3 }">
+                    <Medal v-if="index < 3" :class="getRankClass(index + 1)" :size="24" />
+                    <span v-else>#{{ index + 1 }}</span>
+                  </span>
+                  <span v-if="getRankChange(entry.playerId, index + 1) > 0" class="rank-change up">
+                    <ChevronUp :size="14" />{{ getRankChange(entry.playerId, index + 1) }}
+                  </span>
+                  <span v-else-if="getRankChange(entry.playerId, index + 1) < 0" class="rank-change down">
+                    <ChevronDown :size="14" />{{ Math.abs(getRankChange(entry.playerId, index + 1)) }}
+                  </span>
+                  <span v-else-if="hasRecentChanges" class="rank-change same">
+                    <Minus :size="12" />
+                  </span>
+                </div>
               </td>
               <td class="player-col">
                 <div class="player-info">
@@ -270,7 +343,15 @@ async function exportAsImage() {
                 </div>
               </td>
               <td class="rating-col">
-                <span class="rating-value">{{ entry.rating.toFixed(1) }}</span>
+                <div class="rating-display">
+                  <span class="rating-value">{{ entry.rating.toFixed(1) }}</span>
+                  <span v-if="getRatingDelta(entry.playerId) && getRatingDelta(entry.playerId)! > 0" class="rating-delta positive">
+                    <TrendingUp :size="12" /> +{{ getRatingDelta(entry.playerId)!.toFixed(1) }}
+                  </span>
+                  <span v-else-if="getRatingDelta(entry.playerId) && getRatingDelta(entry.playerId)! < 0" class="rating-delta negative">
+                    <TrendingDown :size="12" /> {{ getRatingDelta(entry.playerId)!.toFixed(1) }}
+                  </span>
+                </div>
               </td>
               <td class="games-col">{{ entry.gamesPlayed }}</td>
               <td class="record-col">
@@ -289,18 +370,30 @@ async function exportAsImage() {
         </table>
       </BaseCard>
 
-      <!-- Mobile Card View -->
-      <div class="mobile-rankings">
+      <!-- Mobile Card View with Pull to Refresh -->
+      <PullToRefresh :on-refresh="refreshData" class="mobile-rankings-wrapper">
+        <div class="mobile-rankings">
         <div 
           v-for="(entry, index) in filteredRankings" 
           :key="entry.playerId" 
           class="mobile-rank-card"
         >
           <div class="mobile-rank-header">
-            <span class="mobile-rank-badge" :class="{ top3: index < 3 }">
-              <Medal v-if="index < 3" :class="getRankClass(index + 1)" :size="24" />
-              <span v-else>#{{ index + 1 }}</span>
-            </span>
+            <div class="mobile-rank-left">
+              <span class="mobile-rank-badge" :class="{ top3: index < 3 }">
+                <Medal v-if="index < 3" :class="getRankClass(index + 1)" :size="24" />
+                <span v-else>#{{ index + 1 }}</span>
+              </span>
+              <span v-if="getRankChange(entry.playerId, index + 1) > 0" class="rank-change up">
+                <ChevronUp :size="12" />{{ getRankChange(entry.playerId, index + 1) }}
+              </span>
+              <span v-else-if="getRankChange(entry.playerId, index + 1) < 0" class="rank-change down">
+                <ChevronDown :size="12" />{{ Math.abs(getRankChange(entry.playerId, index + 1)) }}
+              </span>
+              <span v-else-if="hasRecentChanges" class="rank-change same">
+                <Minus :size="10" />
+              </span>
+            </div>
             <div class="mobile-player-info">
               <div class="player-avatar" :class="{ sub: isSub(entry.playerId) }">
                 {{ entry.displayName[0] }}
@@ -312,6 +405,12 @@ async function exportAsImage() {
             </div>
             <div class="mobile-rating">
               <span class="rating-value">{{ entry.rating.toFixed(1) }}</span>
+              <span v-if="getRatingDelta(entry.playerId) && getRatingDelta(entry.playerId)! > 0" class="rating-delta positive">
+                <TrendingUp :size="10" /> +{{ getRatingDelta(entry.playerId)!.toFixed(1) }}
+              </span>
+              <span v-else-if="getRatingDelta(entry.playerId) && getRatingDelta(entry.playerId)! < 0" class="rating-delta negative">
+                <TrendingDown :size="10" /> {{ getRatingDelta(entry.playerId)!.toFixed(1) }}
+              </span>
             </div>
           </div>
           <div class="mobile-rank-stats">
@@ -333,7 +432,8 @@ async function exportAsImage() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      </PullToRefresh>
     </template>
 
     <!-- Hidden container for export (off-screen) -->
@@ -348,25 +448,6 @@ async function exportAsImage() {
       </div>
     </div>
 
-    <!-- Mobile Bottom Navigation Bar -->
-    <nav class="mobile-bottom-nav">
-      <button class="bottom-nav-item active">
-        <Trophy :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Rankings</span>
-      </button>
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}/history`)">
-        <ChartBar :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">History</span>
-      </button>
-      <button class="bottom-nav-item" :class="{ disabled: !myPlayer }" @click="myPlayer && router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
-        <Activity :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Stats</span>
-      </button>
-      <button class="bottom-nav-item" @click="router.push(`/groups/${groupId}`)">
-        <LayoutDashboard :size="20" class="bottom-nav-icon" />
-        <span class="bottom-nav-label">Dash</span>
-      </button>
-    </nav>
   </div>
 </template>
 
@@ -546,7 +627,62 @@ async function exportAsImage() {
 }
 
 .rating-col {
-  width: 80px;
+  width: 100px;
+}
+
+/* Rank display with change indicator */
+.rank-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.rank-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.rank-change.up {
+  color: var(--color-success);
+}
+
+.rank-change.down {
+  color: var(--color-error);
+}
+
+.rank-change.same {
+  color: var(--color-text-muted);
+  opacity: 0.6;
+}
+
+/* Rating display with delta */
+.rating-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.rating-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.rating-delta.positive {
+  color: var(--color-success);
+}
+
+.rating-delta.negative {
+  color: var(--color-error);
 }
 
 .rating-value {
@@ -633,6 +769,14 @@ async function exportAsImage() {
   font-size: 1.5rem;
 }
 
+.mobile-rank-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 40px;
+}
+
 .mobile-player-info {
   display: flex;
   align-items: center;
@@ -647,11 +791,18 @@ async function exportAsImage() {
 }
 
 .mobile-rating {
-  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
 
 .mobile-rating .rating-value {
   font-size: 1.25rem;
+}
+
+.mobile-rating .rating-delta {
+  font-size: 0.625rem;
 }
 
 .mobile-rank-stats {
@@ -708,6 +859,22 @@ async function exportAsImage() {
     display: flex;
     justify-content: flex-end;
   }
+
+  /* Show skeleton on mobile, hide spinner */
+  .desktop-spinner {
+    display: none !important;
+  }
+}
+
+/* Hide skeleton on desktop by default */
+.mobile-skeleton {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-skeleton {
+    display: block;
+  }
 }
 
 /* Hidden container for export - positioned off-screen but still renderable */
@@ -718,77 +885,11 @@ async function exportAsImage() {
   pointer-events: none;
 }
 
-/* Per-page bottom nav hidden - using global nav from AppLayout */
-.mobile-bottom-nav {
-  display: none !important;
-}
 
-@media (max-width: 768px) {
-  .rankings-page {
-    padding-bottom: 100px;
-  }
-
-  .mobile-bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(255, 255, 255, 0.85);
-    background: var(--color-bg-glass, rgba(255, 255, 255, 0.8));
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
-    display: flex;
-    justify-content: space-around;
-    padding: 12px 16px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-    z-index: 100;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .mobile-bottom-nav {
-      background: rgba(30, 30, 30, 0.8);
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .bottom-nav-item {
-    background: none;
-    border: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    color: var(--color-text-secondary);
-    padding: 4px 12px;
-    border-radius: 12px;
-    transition: all 0.2s ease;
-    min-width: 60px;
-    flex: 1;
-  }
-
-  .bottom-nav-item.active {
-    color: var(--color-primary);
-  }
-
-  .bottom-nav-item:active {
-    transform: scale(0.95);
-    background: rgba(16, 185, 129, 0.1);
-  }
-
-  .bottom-nav-item.disabled {
-    opacity: 0.4;
-    pointer-events: none;
-  }
-
-  .bottom-nav-label {
-    font-size: 0.625rem;
-    font-weight: 500;
-    text-transform: uppercase;
-  }
-}
 </style>
+
+
+
 
 
 
