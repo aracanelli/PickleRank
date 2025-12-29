@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, Trophy, Medal, Download, TrendingUp, TrendingDown, ChevronUp, ChevronDown, Minus } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import type { RankingEntryDto, GroupDto, GroupPlayerDto } from '@/app/core/models/dto'
@@ -13,41 +13,15 @@ import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import ShareableRankings from '../components/ShareableRankings.vue'
 import PullToRefresh from '@/app/core/ui/components/PullToRefresh.vue'
 import html2canvas from 'html2canvas'
-import { useAuthStore } from '@/stores/auth'
+
 
 const route = useRoute()
-const router = useRouter()
-const authStore = useAuthStore()
+
+
 
 const groupId = computed(() => route.params.groupId as string)
 
-// Find current user's player for Stats button - use cached value for instant display
-const currentUserId = computed(() => authStore.userId)
-const cachedPlayerId = ref<string | null>(null)
 
-// Initialize from cache immediately
-const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
-if (typeof sessionStorage !== 'undefined') {
-  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
-  if (cached) cachedPlayerId.value = cached
-}
-
-const myPlayer = computed(() => {
-  // First try to find from loaded data
-  if (groupPlayers.value.length > 0 && currentUserId.value) {
-    const player = groupPlayers.value.find(p => p.userId === currentUserId.value)
-    if (player) {
-      // Cache for next navigation
-      sessionStorage.setItem(cacheKey.value, player.id)
-      return player
-    }
-  }
-  // Fall back to cached ID for instant display
-  if (cachedPlayerId.value) {
-    return { id: cachedPlayerId.value } as any
-  }
-  return null
-})
 
 const group = ref<GroupDto | null>(null)
 const rankings = ref<RankingEntryDto[]>([])

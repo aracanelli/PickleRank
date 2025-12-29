@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter } from 'lucide-vue-next'
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
@@ -19,35 +19,10 @@ const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.userId)
 
 const route = useRoute()
-const router = useRouter()
+
 const groupId = computed(() => route.params.groupId as string)
 
-// Find current user's player for Stats button - use cached value for instant display
-const cachedPlayerId = ref<string | null>(null)
-const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
 
-// Initialize from cache immediately
-if (typeof sessionStorage !== 'undefined') {
-  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
-  if (cached) cachedPlayerId.value = cached
-}
-
-const myPlayer = computed(() => {
-  // First try to find from loaded data
-  if (players.value.length > 0 && currentUserId.value) {
-    const player = players.value.find(p => p.userId === currentUserId.value)
-    if (player) {
-      // Cache for next navigation
-      sessionStorage.setItem(cacheKey.value, player.id)
-      return player
-    }
-  }
-  // Fall back to cached ID for instant display
-  if (cachedPlayerId.value) {
-    return { id: cachedPlayerId.value } as any
-  }
-  return null
-})
 
 const group = ref<GroupDto | null>(null)
 const players = ref<GroupPlayerDto[]>([])
