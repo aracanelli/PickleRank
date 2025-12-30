@@ -85,9 +85,9 @@ const isOrganizer = computed(() => {
 const cachedPlayerId = ref<string | null>(null)
 const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
 
-// Initialize from cache immediately
-if (typeof sessionStorage !== 'undefined') {
-  const cached = sessionStorage.getItem(`myPlayerId_${route.params.groupId}`)
+// Initialize from cache immediately (use localStorage to persist across browser sessions)
+if (typeof localStorage !== 'undefined') {
+  const cached = localStorage.getItem(`myPlayerId_${route.params.groupId}`)
   if (cached) cachedPlayerId.value = cached
 }
 
@@ -102,7 +102,7 @@ const myPlayerFromData = computed(() => {
 // Watch for when player data is found and cache it
 watch(myPlayerFromData, (player) => {
   if (player) {
-    sessionStorage.setItem(cacheKey.value, player.id)
+    localStorage.setItem(cacheKey.value, player.id)
     cachedPlayerId.value = player.id
   }
 }, { immediate: true })
@@ -113,8 +113,9 @@ const myPlayer = computed(() => {
   if (myPlayerFromData.value) {
     return myPlayerFromData.value
   }
-  // Fall back to cached ID for instant display while loading
-  if (cachedPlayerId.value && !authStore.isInitialized) {
+  // Fall back to cached ID while data is loading or auth isn't ready yet
+  // This allows the button to show immediately on page navigation
+  if (cachedPlayerId.value && (isLoading.value || !authStore.isInitialized)) {
     return { id: cachedPlayerId.value } as any
   }
   return null
