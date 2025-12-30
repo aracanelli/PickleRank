@@ -314,7 +314,7 @@ const navItems = [
       </button>
       <button 
         class="global-nav-item" 
-        :class="{ active: activeNavItem === 'stats', disabled: !groupId || !cachedPlayerId }"
+        :class="{ active: activeNavItem === 'stats', disabled: !groupId }"
         @click="navigateToStats"
         :disabled="!groupId"
       >
