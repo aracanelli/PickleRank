@@ -3,7 +3,7 @@ import {
   ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
   Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity
 } from 'lucide-vue-next'
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
@@ -81,44 +81,12 @@ const isOrganizer = computed(() => {
   return !!myPlayer
 })
 
-// Find current user's player for Stats button - use cached value for instant display
-const cachedPlayerId = ref<string | null>(null)
-const cacheKey = computed(() => `myPlayerId_${groupId.value}`)
-
-// Initialize from cache immediately (use localStorage to persist across browser sessions)
-if (typeof localStorage !== 'undefined') {
-  const cached = localStorage.getItem(`myPlayerId_${route.params.groupId}`)
-  if (cached) cachedPlayerId.value = cached
-}
-
-// Computed: find user's player from loaded data  
-const myPlayerFromData = computed(() => {
+// Find current user's player for Stats button - simple lookup by userId
+const myPlayer = computed(() => {
   if (!currentUserId.value || players.value.length === 0) {
     return null
   }
   return players.value.find(p => p.userId === currentUserId.value) || null
-})
-
-// Watch for when player data is found and cache it
-watch(myPlayerFromData, (player) => {
-  if (player) {
-    localStorage.setItem(cacheKey.value, player.id)
-    cachedPlayerId.value = player.id
-  }
-}, { immediate: true })
-
-// Exposed computed: return real data preferably, fallback to cache for instant display
-const myPlayer = computed(() => {
-  // Prefer real data when available
-  if (myPlayerFromData.value) {
-    return myPlayerFromData.value
-  }
-  // Fall back to cached ID while data is loading or auth isn't ready yet
-  // This allows the button to show immediately on page navigation
-  if (cachedPlayerId.value && (isLoading.value || !authStore.isInitialized)) {
-    return { id: cachedPlayerId.value } as any
-  }
-  return null
 })
 
 async function loadPendingEvents() {
