@@ -3,7 +3,7 @@ import {
   ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
   Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity
 } from 'lucide-vue-next'
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
@@ -91,18 +91,30 @@ if (typeof sessionStorage !== 'undefined') {
   if (cached) cachedPlayerId.value = cached
 }
 
-const myPlayer = computed(() => {
-  // First try to find from loaded data
-  if (players.value.length > 0 && currentUserId.value) {
-    const player = players.value.find(p => p.userId === currentUserId.value)
-    if (player) {
-      // Cache for next navigation
-      sessionStorage.setItem(cacheKey.value, player.id)
-      return player
-    }
+// Computed: find user's player from loaded data  
+const myPlayerFromData = computed(() => {
+  if (!currentUserId.value || players.value.length === 0) {
+    return null
   }
-  // Fall back to cached ID for instant display
-  if (cachedPlayerId.value) {
+  return players.value.find(p => p.userId === currentUserId.value) || null
+})
+
+// Watch for when player data is found and cache it
+watch(myPlayerFromData, (player) => {
+  if (player) {
+    sessionStorage.setItem(cacheKey.value, player.id)
+    cachedPlayerId.value = player.id
+  }
+}, { immediate: true })
+
+// Exposed computed: return real data preferably, fallback to cache for instant display
+const myPlayer = computed(() => {
+  // Prefer real data when available
+  if (myPlayerFromData.value) {
+    return myPlayerFromData.value
+  }
+  // Fall back to cached ID for instant display while loading
+  if (cachedPlayerId.value && !authStore.isInitialized) {
     return { id: cachedPlayerId.value } as any
   }
   return null

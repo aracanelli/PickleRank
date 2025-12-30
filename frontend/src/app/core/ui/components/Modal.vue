@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { watch, onUnmounted } from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -16,6 +16,11 @@ watch(() => props.open, (isOpen) => {
   } else {
     document.body.style.overflow = ''
   }
+})
+
+// Cleanup on unmount to prevent scroll lock persisting during navigation
+onUnmounted(() => {
+  document.body.style.overflow = ''
 })
 
 const handleBackdropClick = (e: MouseEvent) => {

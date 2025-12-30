@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { Delete } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -32,6 +32,11 @@ watch(() => props.open, (isOpen) => {
   } else {
     document.body.style.overflow = ''
   }
+})
+
+// Cleanup on unmount to prevent scroll lock persisting during navigation
+onUnmounted(() => {
+  document.body.style.overflow = ''
 })
 
 function appendDigit(digit: number) {

@@ -8,7 +8,7 @@ import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import ShareableSchedule from '../components/ShareableSchedule.vue'
-import ScoreEntryModal from '../components/ScoreEntryModal.vue'
+
 import html2canvas from 'html2canvas'
 import { Download, ArrowLeft } from 'lucide-vue-next'
 
@@ -44,44 +44,7 @@ const isEditingName = ref(false)
 const tempEventName = ref('')
 const isSavingName = ref(false)
 
-// Touch device detection for better UX hints
-const isTouchDevice = computed(() => 'ontouchstart' in window || navigator.maxTouchPoints > 0)
 
-// Mobile score entry modal state
-const showScoreModal = ref(false)
-const scoreModalGame = ref<GameDto | null>(null)
-
-function openScoreModal(game: GameDto) {
-  scoreModalGame.value = game
-  showScoreModal.value = true
-}
-
-function closeScoreModal() {
-  showScoreModal.value = false
-  scoreModalGame.value = null
-}
-
-async function handleModalSave(score1: number | undefined, score2: number | undefined) {
-  if (!scoreModalGame.value || !event.value) return
-  
-  const game = scoreModalGame.value
-  
-  // Optimistic update
-  const idx = event.value.games.findIndex(g => g.id === game.id)
-  if (idx !== -1) {
-    event.value.games[idx] = {
-      ...event.value.games[idx],
-      scoreTeam1: score1,
-      scoreTeam2: score2,
-      result: getResultFromScores(score1, score2)
-    }
-  }
-  
-  closeScoreModal()
-  
-  // Save to server
-  await performSave(game.id, score1, score2)
-}
 
 function startEditName() {
   if (!event.value) return
@@ -704,7 +667,9 @@ async function exportAsImage() {
                 <div class="team-elo">ELO: {{ Math.round(game.team1Elo || 0) }}</div>
                 <div v-if="editingGameId === game.id" class="score-input-wrapper">
                   <input
-                    type="number"
+                    type="text"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
                     v-model="editingScoreTeam1"
                     class="inline-score-input team-1"
                     :class="`game-input-${game.id}`"
@@ -715,7 +680,7 @@ async function exportAsImage() {
                     autofocus
                   />
                 </div>
-                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && (isTouchDevice ? openScoreModal(game) : startEditing(game, 1))">
+                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game, 1)">
                   {{ game.scoreTeam1 ?? '-' }}
                 </div>
               </div>
@@ -731,18 +696,19 @@ async function exportAsImage() {
                 <div class="team-elo">ELO: {{ Math.round(game.team2Elo || 0) }}</div>
                 <div v-if="editingGameId === game.id" class="score-input-wrapper">
                   <input
-                    type="number"
+                    type="text"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
                     v-model="editingScoreTeam2"
                     class="inline-score-input team-2"
                     :class="`game-input-${game.id}`"
                     placeholder="0"
-                    min="0"
                     @keyup="handleScoreKeyup(game, $event)"
                     @input="handleScoreInput(game)"
                     @blur="handleScoreBlur(game, $event)"
                   />
                 </div>
-                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && (isTouchDevice ? openScoreModal(game) : startEditing(game, 2))">
+                <div v-else class="team-score" @click="event.status !== 'COMPLETED' && startEditing(game, 2)">
                   {{ game.scoreTeam2 ?? '-' }}
                 </div>
               </div>
@@ -765,7 +731,7 @@ async function exportAsImage() {
                 Auto-saving...
               </div>
               <div v-else-if="event.status !== 'COMPLETED'" class="edit-hint">
-                {{ isTouchDevice ? 'Tap' : 'Click' }} score to edit
+                Tap score to edit
               </div>
             </div>
           </div>
@@ -792,16 +758,7 @@ async function exportAsImage() {
 
     </Modal>
 
-    <!-- Mobile Score Entry Modal -->
-    <ScoreEntryModal
-      :open="showScoreModal"
-      :team1-names="scoreModalGame?.team1.map(p => p.displayName) ?? []"
-      :team2-names="scoreModalGame?.team2.map(p => p.displayName) ?? []"
-      :initial-score1="scoreModalGame?.scoreTeam1"
-      :initial-score2="scoreModalGame?.scoreTeam2"
-      @close="closeScoreModal"
-      @save="handleModalSave"
-    />
+
 
     <!-- Hidden container for export (off-screen) -->
     <div class="export-hidden-container">
