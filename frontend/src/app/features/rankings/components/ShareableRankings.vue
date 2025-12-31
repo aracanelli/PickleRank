@@ -32,7 +32,7 @@ function getRankClass(rank: number): string {
         <h1 class="group-title">{{ groupName || 'Group Rankings' }}</h1>
         <div class="meta-badges">
           <span class="meta-badge">
-            {{ ratingSystem === 'CATCH_UP' ? 'Catch-Up' : 'Serious ELO' }}
+            {{ ratingSystem === 'CATCH_UP' ? 'Catch-Up' : ratingSystem === 'RACS_ELO' ? "Rac's ELO" : 'Serious ELO' }}
           </span>
           <span class="meta-text">{{ new Date().toLocaleDateString() }}</span>
         </div>

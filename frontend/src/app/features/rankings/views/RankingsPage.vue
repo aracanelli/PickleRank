@@ -156,16 +156,22 @@ async function exportAsImage() {
   
   isExporting.value = true
   try {
-    const wrapper = shareableRef.value
-    const rankingEl = wrapper.firstElementChild as HTMLElement
+    // Target the ShareableRankings component directly (it's the first child)
+    const targetEl = shareableRef.value.querySelector('.shareable-rankings') as HTMLElement
+    if (!targetEl) return
     
-    const canvas = await html2canvas(rankingEl || wrapper, {
+    // Get the actual bounding box of the content for tight cropping
+    const rect = targetEl.getBoundingClientRect()
+    
+    const canvas = await html2canvas(targetEl, {
       backgroundColor: null,
       scale: 2,
       useCORS: true,
       logging: false,
-      width: (rankingEl || wrapper).scrollWidth,
-      height: (rankingEl || wrapper).scrollHeight
+      width: rect.width,
+      height: rect.height,
+      windowWidth: rect.width,
+      windowHeight: rect.height
     })
     
     const blob = await new Promise<Blob | null>((resolve) => {
@@ -228,7 +234,7 @@ async function exportAsImage() {
           <ArrowLeft :size="16" /> Back to Group
         </router-link>
         <h1><Trophy :size="32" class="page-title-icon" /> Rankings</h1>
-        <p class="subtitle">Current standings based on {{ group?.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up' : 'Serious ELO' }} ratings</p>
+        <p class="subtitle">Current standings based on {{ group?.settings.ratingSystem === 'CATCH_UP' ? 'Catch-Up' : group?.settings.ratingSystem === 'RACS_ELO' ? "Rac's ELO" : 'Serious ELO' }} ratings</p>
       </div>
       <div class="header-right">
         <BaseButton 

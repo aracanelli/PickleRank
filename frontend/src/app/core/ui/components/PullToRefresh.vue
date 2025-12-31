@@ -10,35 +10,69 @@ const isPulling = ref(false)
 const isRefreshing = ref(false)
 const pullDistance = ref(0)
 const threshold = 80 // pixels to trigger refresh
+const activationThreshold = 20 // minimum pull before activating gesture
 
 let startY = 0
 let currentY = 0
+let isActivePull = false // True once we've confirmed this is a deliberate pull
+let lastMoveTime = 0
+let lastMoveY = 0
 
 function onTouchStart(e: TouchEvent) {
   // Only enable if at top of scroll
   const container = e.currentTarget as HTMLElement
   if (container.scrollTop > 0) return
   
+  // Don't allow refresh if already refreshing
+  if (isRefreshing.value) return
+  
   startY = e.touches[0].clientY
+  lastMoveY = startY
+  lastMoveTime = Date.now()
   isPulling.value = true
+  isActivePull = false // Reset - not yet confirmed as intentional pull
 }
 
 function onTouchMove(e: TouchEvent) {
   if (!isPulling.value || isRefreshing.value) return
   
+  const now = Date.now()
   currentY = e.touches[0].clientY
   const diff = currentY - startY
   
+  // Check velocity - if scrolling too fast, it's likely a scroll not a pull
+  const timeDelta = now - lastMoveTime
+  const moveDelta = currentY - lastMoveY
+  const velocity = timeDelta > 0 ? Math.abs(moveDelta / timeDelta) : 0
+  
+  lastMoveTime = now
+  lastMoveY = currentY
+  
+  // Only activate as a pull gesture if:
+  // 1. Moving downward (diff > 0)
+  // 2. Not moving too fast (velocity < 2 pixels/ms threshold)
+  // 3. Either already active OR reached activation threshold
   if (diff > 0) {
-    // Dampen the pull (resistance effect)
-    pullDistance.value = Math.min(diff * 0.5, threshold * 1.5)
+    if (!isActivePull && diff >= activationThreshold && velocity < 2) {
+      isActivePull = true
+    }
+    
+    if (isActivePull) {
+      // Dampen the pull (resistance effect)
+      pullDistance.value = Math.min(diff * 0.5, threshold * 1.5)
+    }
+  } else {
+    // If user scrolls up, cancel the pull gesture
+    isActivePull = false
+    pullDistance.value = 0
   }
 }
 
 async function onTouchEnd() {
   if (!isPulling.value || isRefreshing.value) return
   
-  if (pullDistance.value >= threshold) {
+  // Only trigger refresh if it was an active, intentional pull
+  if (isActivePull && pullDistance.value >= threshold) {
     isRefreshing.value = true
     try {
       await props.onRefresh()
@@ -48,9 +82,12 @@ async function onTouchEnd() {
   }
   
   isPulling.value = false
+  isActivePull = false
   pullDistance.value = 0
   startY = 0
   currentY = 0
+  lastMoveY = 0
+  lastMoveTime = 0
 }
 </script>
 
