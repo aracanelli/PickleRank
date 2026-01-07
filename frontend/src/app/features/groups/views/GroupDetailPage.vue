@@ -387,8 +387,8 @@ function viewPlayerHistory(player: GroupPlayerDto) {
         </div>
       </section>
 
-      <!-- Pending Events Section -->
-      <section class="section">
+      <!-- Pending Events Section (Organizers only) -->
+      <section v-if="isOrganizer" class="section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-label">Pending Events</span>
