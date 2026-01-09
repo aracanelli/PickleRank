@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter } from 'lucide-vue-next'
+import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter, Settings2 } from 'lucide-vue-next'
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
@@ -14,6 +14,7 @@ import SkeletonLoader from '@/app/core/ui/components/SkeletonLoader.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import PullToRefresh from '@/app/core/ui/components/PullToRefresh.vue'
+import EventEditModal from '../components/EventEditModal.vue'
 
 const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.userId)
@@ -254,6 +255,59 @@ async function saveMatchEdit() {
 async function refreshData() {
   await loadHistory()
 }
+
+// Event Edit Modal
+interface EventEditData {
+  id: string
+  name: string
+  date: string
+  matches: MatchHistoryEntryDto[]
+}
+
+const showEventEditModal = ref(false)
+const editingEvent = ref<EventEditData | null>(null)
+
+async function openEventEdit(event: { id: string; name: string; date: string; matches: MatchHistoryEntryDto[] }) {
+  try {
+    // Fetch full event data to get ALL games, not just filtered ones
+    const fullEvent = await eventsApi.get(event.id)
+    
+    // Convert GameDto[] to MatchHistoryEntryDto[] format
+    const allMatches: MatchHistoryEntryDto[] = fullEvent.games.map(game => ({
+      gameId: game.id,
+      eventId: fullEvent.id,
+      eventName: fullEvent.name,
+      date: fullEvent.startsAt || event.date,
+      roundIndex: game.roundIndex,
+      courtIndex: game.courtIndex,
+      team1: game.team1.map(p => p.displayName),
+      team2: game.team2.map(p => p.displayName),
+      team1Ids: game.team1.map(p => p.id),
+      team2Ids: game.team2.map(p => p.id),
+      scoreTeam1: game.scoreTeam1,
+      scoreTeam2: game.scoreTeam2,
+      result: game.result,
+      team1Elo: game.team1Elo,
+      team2Elo: game.team2Elo
+    }))
+    
+    editingEvent.value = {
+      id: event.id,
+      name: event.name,
+      date: event.date,
+      matches: allMatches
+    }
+    showEventEditModal.value = true
+  } catch (e: any) {
+    console.error('Failed to load event for editing:', e)
+    alert('Failed to load event: ' + (e.message || 'Unknown error'))
+  }
+}
+
+function handleEventEditSaved() {
+  // Reload data to reflect changes
+  loadHistory()
+}
 </script>
 
 <template>
@@ -362,6 +416,10 @@ async function refreshData() {
           <div class="event-header">
             <h2>{{ event.name }}</h2>
             <span class="event-date">{{ formatDate(event.date) }}</span>
+            <button v-if="isOrganizer" class="edit-event-btn" @click="openEventEdit(event)" title="Edit Event">
+              <Settings2 :size="16" />
+              Edit Event
+            </button>
           </div>
 
           <div class="matches-grid">
@@ -389,8 +447,10 @@ async function refreshData() {
                     }"
                   >
                     <div class="team-info">
-                      <div class="team-names">
-                        {{ match.team1.join(' & ') }}
+                      <div class="team-players-list">
+                        <span class="player-name">{{ match.team1[0] }}</span>
+                        <span class="player-amp">&amp;</span>
+                        <span class="player-name">{{ match.team1[1] }}</span>
                       </div>
                       <div class="team-elo" v-if="match.team1Elo">ELO: {{ match.team1Elo.toFixed(1) }}</div>
                     </div>
@@ -408,8 +468,10 @@ async function refreshData() {
                     }"
                   >
                     <div class="team-info">
-                      <div class="team-names">
-                        {{ match.team2.join(' & ') }}
+                      <div class="team-players-list">
+                        <span class="player-name">{{ match.team2[0] }}</span>
+                        <span class="player-amp">&amp;</span>
+                        <span class="player-name">{{ match.team2[1] }}</span>
                       </div>
                       <div class="team-elo" v-if="match.team2Elo">ELO: {{ match.team2Elo.toFixed(1) }}</div>
                     </div>
@@ -428,18 +490,29 @@ async function refreshData() {
     <Modal :open="showEditModal" title="Edit Match Score" @close="showEditModal = false">
       <div v-if="editingMatch" class="edit-form">
         <div class="edit-teams">
-          <div class="edit-team">
-            <span class="edit-team-label text-truncate">{{ editingMatch.team1.join(' & ') }}</span>
-            <input type="number" v-model="editScore1" class="edit-input" placeholder="0" min="0" />
+          <div class="edit-team-block">
+            <div class="edit-team-header">Team 1</div>
+            <div class="edit-team-players">
+              <span class="edit-player-name">{{ editingMatch.team1[0] }}</span>
+              <span class="edit-player-amp">&amp;</span>
+              <span class="edit-player-name">{{ editingMatch.team1[1] }}</span>
+            </div>
+            <input type="number" v-model="editScore1" class="edit-input" placeholder="0" min="0" inputmode="numeric" />
           </div>
-          <span class="edit-vs">vs</span>
-          <div class="edit-team">
-            <span class="edit-team-label text-truncate">{{ editingMatch.team2.join(' & ') }}</span>
-            <input type="number" v-model="editScore2" class="edit-input" placeholder="0" min="0" />
+          <span class="edit-vs">VS</span>
+          <div class="edit-team-block">
+            <div class="edit-team-header">Team 2</div>
+            <div class="edit-team-players">
+              <span class="edit-player-name">{{ editingMatch.team2[0] }}</span>
+              <span class="edit-player-amp">&amp;</span>
+              <span class="edit-player-name">{{ editingMatch.team2[1] }}</span>
+            </div>
+            <input type="number" v-model="editScore2" class="edit-input" placeholder="0" min="0" inputmode="numeric" />
           </div>
         </div>
         <p class="edit-warning">
-          <AlertTriangle :size="16" class="warning-icon" /> Updating this score will recalculate ratings for the entire group from this event onwards. This may take a moment.
+          <AlertTriangle :size="16" class="warning-icon" />
+          <span>Updating this score will recalculate ratings for the entire group from this event onwards. This may take a moment.</span>
         </p>
       </div>
       <template #footer>
@@ -447,6 +520,15 @@ async function refreshData() {
         <BaseButton :loading="isSavingEdit" @click="saveMatchEdit">Save & Recalculate</BaseButton>
       </template>
     </Modal>
+
+    <!-- Event Edit Modal (Full-screen) -->
+    <EventEditModal
+      :open="showEventEditModal"
+      :event="editingEvent"
+      :group-id="groupId"
+      @close="showEventEditModal = false"
+      @saved="handleEventEditSaved"
+    />
 
   </div>
 </template>
@@ -668,6 +750,28 @@ async function refreshData() {
   font-size: 0.875rem;
 }
 
+.edit-event-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.edit-event-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
 .matches-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -747,12 +851,35 @@ async function refreshData() {
 .team-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.team-players-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.3;
+}
+
+.team-players-list .player-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.team-players-list .player-amp {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
 }
 
 .team-names {
   font-size: 0.875rem;
   font-weight: 500;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .team-elo {
@@ -766,12 +893,16 @@ async function refreshData() {
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--color-primary);
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
 }
 
 .vs {
   font-size: 0.75rem;
   color: var(--color-text-muted);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 /* Edit Button */
@@ -787,7 +918,8 @@ async function refreshData() {
   color: var(--color-text-secondary);
   cursor: pointer;
   transition: all var(--transition-fast);
-  margin-left: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .edit-btn:hover {
@@ -802,53 +934,91 @@ async function refreshData() {
 
 .edit-teams {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  gap: var(--spacing-md);
   margin-bottom: 1.5rem;
 }
 
-.edit-team {
-  flex: 1;
+.edit-team-block {
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--spacing-sm);
 }
 
-.edit-team-label {
-  font-size: 0.875rem;
+.edit-team-header {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}
+
+.edit-team-players {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.edit-player-name {
+  font-size: 0.9375rem;
   font-weight: 500;
+  color: var(--color-text-primary);
 }
 
-.text-truncate {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.edit-player-amp {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
 }
 
 .edit-input {
   width: 100%;
-  padding: 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
   background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  font-size: 1.25rem;
+  color: var(--color-primary);
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
   text-align: center;
 }
 
+.edit-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
 .edit-vs {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 0.875rem;
   color: var(--color-text-muted);
+  text-align: center;
+  padding: var(--spacing-xs) 0;
+  letter-spacing: 0.1em;
 }
 
 .edit-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
   font-size: 0.8rem;
   color: var(--color-warning);
   background: rgba(245, 158, 11, 0.1);
   padding: 0.75rem;
   border-radius: var(--radius-md);
   margin-top: 1rem;
+  line-height: 1.5;
+}
+
+.edit-warning .warning-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 @media (max-width: 768px) {
@@ -858,17 +1028,27 @@ async function refreshData() {
 
   .match-teams {
     flex-direction: column;
+    gap: var(--spacing-sm);
   }
 
   .team {
     width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: var(--spacing-md);
   }
 
-  /* Mobile Filter Styles */
-  .filter-bar {
-    flex-direction: column;
-    align-items: stretch;
-    padding: var(--spacing-md);
+  .vs {
+    display: none;
+  }
+
+  .match-header {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+
+  .edit-btn {
+    margin-left: 0;
   }
 
   .filter-icon {

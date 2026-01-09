@@ -1,29 +1,30 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, markRaw } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
+import { Target, ChartBar, Trophy, Zap, Activity } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const isLoggedIn = computed(() => authStore.isAuthenticated)
 
 const features = [
   {
-    icon: '🎯',
+    icon: markRaw(Target),
     title: 'Smart Matchmaking',
     description: 'Generate fair 2v2 matchups with teammate and opponent constraints'
   },
   {
-    icon: '📊',
+    icon: markRaw(ChartBar),
     title: 'ELO Ratings',
     description: 'Track player skill with Serious ELO or fun Catch-Up mode'
   },
   {
-    icon: '🏆',
+    icon: markRaw(Trophy),
     title: 'Live Rankings',
     description: 'See real-time standings, win rates, and match history'
   },
   {
-    icon: '⚡',
+    icon: markRaw(Zap),
     title: 'Quick Scoring',
     description: 'Enter scores on the go and complete events in seconds'
   }
@@ -36,7 +37,7 @@ const features = [
     <section class="hero">
       <div class="container">
         <div class="hero-content">
-          <span class="badge">🏓 For Pickleball Enthusiasts</span>
+          <span class="badge"><Activity :size="16" /> For Pickleball Enthusiasts</span>
           <h1>
             Fair Matchups,<br/>
             <span class="gradient">Real Rankings</span>
@@ -123,7 +124,7 @@ const features = [
         <h2>Everything you need to run your league</h2>
         <div class="features-grid">
           <div v-for="feature in features" :key="feature.title" class="feature-card">
-            <span class="feature-icon">{{ feature.icon }}</span>
+            <component :is="feature.icon" class="feature-icon" :size="32" />
             <h3>{{ feature.title }}</h3>
             <p>{{ feature.description }}</p>
           </div>
@@ -169,7 +170,9 @@ const features = [
 }
 
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   padding: var(--spacing-xs) var(--spacing-md);
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.3);
@@ -541,8 +544,7 @@ const features = [
 }
 
 .feature-icon {
-  font-size: 2rem;
-  display: block;
+  color: var(--color-primary);
   margin-bottom: var(--spacing-sm);
 }
 

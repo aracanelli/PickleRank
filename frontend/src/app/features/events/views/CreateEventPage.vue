@@ -8,7 +8,7 @@ import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import { ArrowLeft } from 'lucide-vue-next'
+import { ArrowLeft, Star, RefreshCw } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -229,7 +229,7 @@ async function createEvent() {
               <div class="player-group">
                 <div class="group-header">
                   <h4 class="group-title permanent">
-                    <span class="group-icon">⭐</span>
+                    <Star class="group-icon" :size="20" />
                     Permanent Players
                     <span class="group-count">
                       {{ selectedPermanentCount }} / {{ permanentPlayers.length }} selected
@@ -258,7 +258,7 @@ async function createEvent() {
               <div class="player-group">
                 <div class="group-header">
                   <h4 class="group-title sub">
-                    <span class="group-icon">🔄</span>
+                    <RefreshCw class="group-icon" :size="20" />
                     Sub Players
                     <span class="group-count">
                       {{ selectedSubCount }} / {{ subPlayers.length }} selected

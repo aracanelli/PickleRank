@@ -9,7 +9,7 @@ import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import BulkPlayerCreateModal from '@/app/features/players/components/BulkPlayerCreateModal.vue'
-import { Shield, UserPlus, Link, Copy, Check, FileText, ArrowLeft } from 'lucide-vue-next'
+import { Shield, UserPlus, Link, Copy, Check, FileText, ArrowLeft, CheckCircle } from 'lucide-vue-next'
 
 const route = useRoute()
 const groupId = computed(() => route.params.groupId as string)
@@ -466,7 +466,7 @@ async function handleBulkSuccess() {
       <section v-if="availablePlayers.length === 0 && existingPlayers.length > 0" class="section">
         <BaseCard class="all-added-card">
           <div class="all-added-content">
-            <span class="all-added-icon">✅</span>
+            <CheckCircle class="all-added-icon" :size="32" />
             <p>Don't see who you're looking for?</p>
             <BaseButton variant="secondary" size="sm" @click="showBulkModal = true">
               Bulk Add New Players

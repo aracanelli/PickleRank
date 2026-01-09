@@ -10,7 +10,7 @@ import Modal from '@/app/core/ui/components/Modal.vue'
 import ShareableSchedule from '../components/ShareableSchedule.vue'
 
 import html2canvas from 'html2canvas'
-import { Download, ArrowLeft } from 'lucide-vue-next'
+import { Download, ArrowLeft, ClipboardList, RefreshCw, Check, Loader2 } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -511,7 +511,7 @@ async function exportAsImage() {
               :loading="isGenerating"
               @click="generateSchedule(true)"
             >
-              🔄 Regenerate
+                            <RefreshCw :size="16" /> Regenerate
             </BaseButton>
             <BaseButton
               variant="secondary"
@@ -522,7 +522,7 @@ async function exportAsImage() {
               Export Schedule
             </BaseButton>
             <BaseButton @click="acceptPreview">
-              ✓ Continue to Score Entry
+                            <Check :size="16" /> Continue to Score Entry
             </BaseButton>
           </template>
 
@@ -534,7 +534,7 @@ async function exportAsImage() {
               :loading="isGenerating"
               @click="generateSchedule(true)"
             >
-              🔄 Regenerate
+                            <RefreshCw :size="16" /> Regenerate
             </BaseButton>
             <BaseButton
               v-if="event.status !== 'COMPLETED' && event.status !== 'DRAFT'"
@@ -555,7 +555,7 @@ async function exportAsImage() {
       <div v-if="showPreview && event.games.length > 0" class="preview-screen">
         <BaseCard>
           <div class="preview-header">
-            <h2>📋 Generated Games Preview</h2>
+            <h2><ClipboardList :size="24" /> Generated Games Preview</h2>
             <p class="preview-subtitle">Review the generated schedule before entering scores</p>
           </div>
 
@@ -607,7 +607,7 @@ async function exportAsImage() {
               Export Schedule
             </BaseButton>
             <BaseButton @click="acceptPreview">
-              ✓ Continue to Score Entry
+                            <Check :size="16" /> Continue to Score Entry
             </BaseButton>
           </div>
         </BaseCard>
@@ -722,10 +722,10 @@ async function exportAsImage() {
                 Press Enter to save, Esc to cancel
               </div>
               <div v-else-if="savingGameIds.has(game.id)" class="saving-indicator">
-                ⏳ Saving...
+                <Loader2 :size="12" class="spin-icon" /> Saving...
               </div>
               <div v-else-if="savedGameIds.has(game.id)" class="saved-indicator">
-                ✓ Saved
+                <Check :size="12" /> Saved
               </div>
               <div v-else-if="pendingSaves.has(game.id)" class="pending-indicator">
                 Auto-saving...
@@ -742,7 +742,7 @@ async function exportAsImage() {
 
 
     <!-- Completed Modal -->
-    <Modal :open="showCompletedModal" title="🎉 Event Completed!" @close="showCompletedModal = false">
+    <Modal :open="showCompletedModal" title="Event Completed!" @close="showCompletedModal = false">
       <div class="completed-content">
         <p>Ratings have been updated based on the results:</p>
         <div class="rating-updates">

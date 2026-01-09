@@ -156,7 +156,7 @@ class ScheduleGenerator:
         
         Uses ELO-based candidate pool generation:
         1. Generate all valid matches filtered by ELO tolerance
-        2. For each round, select non-overlapping matches from the pool
+        2. For each round, select non-overlapping matches using backtracking
         
         Returns:
             Tuple of (games, success, failure_reason)
@@ -169,12 +169,18 @@ class ScheduleGenerator:
         if not valid_matches:
             return [], False, 'rating'
         
+        # Check if match pool is theoretically sufficient
+        # We need at least `courts` non-overlapping matches per round
+        # If the pool is too small, it's a rating issue
+        if not self._has_sufficient_match_pool(valid_matches):
+            return [], False, 'rating'
+        
         all_games: List[Game] = []
         event_teammate_pairs: Set[FrozenSet[UUID]] = set()
         event_opponent_counts: Dict[FrozenSet[UUID], int] = {}
 
         for round_idx in range(self.rounds):
-            round_games = self._select_round_matches(
+            round_games, failure_type = self._select_round_matches(
                 round_idx,
                 valid_matches,
                 event_teammate_pairs,
@@ -182,7 +188,9 @@ class ScheduleGenerator:
             )
 
             if round_games is None:
-                return [], False, 'hard_constraints'
+                # Determine the true failure reason
+                # If failure_type indicates insufficient pool, it's a rating issue
+                return [], False, failure_type
 
             # Update tracking sets
             for game in round_games:
@@ -194,6 +202,30 @@ class ScheduleGenerator:
             all_games.extend(round_games)
 
         return all_games, True, None
+    
+    def _has_sufficient_match_pool(self, matches: List[Tuple[Tuple[UUID, UUID], Tuple[UUID, UUID]]]) -> bool:
+        """
+        Check if the match pool is theoretically sufficient.
+        
+        A necessary (but not sufficient) condition is that we can cover
+        all players with non-overlapping matches from the pool.
+        """
+        # Try to find courts non-overlapping matches using greedy check
+        used_players: Set[UUID] = set()
+        count = 0
+        
+        for match in matches:
+            team1, team2 = match
+            match_players = set(team1) | set(team2)
+            
+            if not (match_players & used_players):
+                used_players.update(match_players)
+                count += 1
+                
+                if count >= self.courts:
+                    return True
+        
+        return False
 
     def _generate_all_valid_matches(
         self, elo_diff: float
@@ -237,9 +269,12 @@ class ScheduleGenerator:
         valid_matches: List[Tuple[Tuple[UUID, UUID], Tuple[UUID, UUID]]],
         event_teammate_pairs: Set[FrozenSet[UUID]],
         event_opponent_counts: Dict[FrozenSet[UUID], int],
-    ) -> Optional[List[Game]]:
+    ) -> Tuple[Optional[List[Game]], str]:
         """
-        Select non-overlapping matches for one round from the candidate pool.
+        Select non-overlapping matches for one round using backtracking.
+        
+        This exhaustively explores all valid match combinations to guarantee
+        finding a solution if one exists.
         
         Args:
             round_idx: The round number
@@ -248,61 +283,151 @@ class ScheduleGenerator:
             event_opponent_counts: Opponent pair counts for this event
         
         Returns:
-            List of games for this round, or None if cannot fill all courts
+            Tuple of (games, failure_reason):
+            - (games, 'success') if matches found
+            - (None, 'rating') if pool too small
+            - (None, 'hard_constraints') if constraints cannot be satisfied
         """
-        # Try multiple times with different shuffles
-        for _ in range(self.MAX_ROUND_ATTEMPTS):
-            # Shuffle to get variety
-            shuffled_matches = valid_matches.copy()
-            random.shuffle(shuffled_matches)
-            
-            selected: List[Game] = []
-            used_players: Set[UUID] = set()
-            round_teammate_pairs: Set[FrozenSet[UUID]] = set()
-            round_opponent_counts: Dict[FrozenSet[UUID], int] = {}
-            
-            for match in shuffled_matches:
-                team1, team2 = match
-                match_players = set(team1) | set(team2)
-                
-                # Skip if any player already used this round
-                if match_players & used_players:
-                    continue
-                
-                # Create game object
-                game = Game(
-                    round_index=round_idx,
-                    court_index=len(selected),
-                    team1=team1,
-                    team2=team2,
-                )
-                
-                # Merge event and round tracking for constraint checking
-                combined_teammate_pairs = event_teammate_pairs | round_teammate_pairs
-                combined_opponent_counts = {**event_opponent_counts}
-                for pair, count in round_opponent_counts.items():
-                    combined_opponent_counts[pair] = combined_opponent_counts.get(pair, 0) + count
-                
-                # Check hard constraints
-                if not self._check_hard_constraints(
-                    game, combined_teammate_pairs, combined_opponent_counts
-                ):
-                    continue
-                
-                # Add match
-                selected.append(game)
-                used_players.update(match_players)
-                round_teammate_pairs.update(game.teammate_pairs())
-                for pair in game.opponent_pairs():
-                    round_opponent_counts[pair] = round_opponent_counts.get(pair, 0) + 1
-                
-                # Check if we have enough games for all courts
-                if len(selected) == self.courts:
-                    return selected
-            
-            # If we got close but not enough, try again with different shuffle
+        # Shuffle once for variety in output
+        shuffled_matches = valid_matches.copy()
+        random.shuffle(shuffled_matches)
         
-        return None  # Couldn't fill all courts after max attempts
+        # Track statistics to determine failure type
+        matches_rejected_for_hard_constraints = 0
+        matches_rejected_for_player_overlap = 0
+        
+        # Filter matches that pass hard constraints for this round
+        # This pre-filters to reduce backtracking search space
+        eligible_matches = []
+        for match in shuffled_matches:
+            team1, team2 = match
+            game = Game(
+                round_index=round_idx,
+                court_index=0,
+                team1=team1,
+                team2=team2,
+            )
+            
+            if self._check_hard_constraints(game, event_teammate_pairs, event_opponent_counts):
+                eligible_matches.append(match)
+            else:
+                matches_rejected_for_hard_constraints += 1
+        
+        # If too few eligible matches to potentially fill courts, check why
+        if len(eligible_matches) < self.courts:
+            # Determine failure type
+            if matches_rejected_for_hard_constraints > 0 and len(valid_matches) >= self.courts:
+                return None, 'hard_constraints'
+            else:
+                return None, 'rating'
+        
+        # Use backtracking to find a valid combination
+        result = self._backtrack_select_matches(
+            round_idx=round_idx,
+            matches=eligible_matches,
+            match_idx=0,
+            selected=[],
+            used_players=set(),
+            round_teammate_pairs=set(),
+            round_opponent_counts={},
+            event_teammate_pairs=event_teammate_pairs,
+            event_opponent_counts=event_opponent_counts,
+        )
+        
+        if result is not None:
+            return result, 'success'
+        
+        # Backtracking failed - determine why
+        # If we had eligible matches but couldn't combine them, likely hard constraints
+        # If we had very few eligible matches, likely rating issue
+        if len(eligible_matches) < len(self.players) // 2:
+            return None, 'rating'
+        else:
+            return None, 'hard_constraints'
+    
+    def _backtrack_select_matches(
+        self,
+        round_idx: int,
+        matches: List[Tuple[Tuple[UUID, UUID], Tuple[UUID, UUID]]],
+        match_idx: int,
+        selected: List[Game],
+        used_players: Set[UUID],
+        round_teammate_pairs: Set[FrozenSet[UUID]],
+        round_opponent_counts: Dict[FrozenSet[UUID], int],
+        event_teammate_pairs: Set[FrozenSet[UUID]],
+        event_opponent_counts: Dict[FrozenSet[UUID], int],
+    ) -> Optional[List[Game]]:
+        """
+        Backtracking algorithm to find non-overlapping matches that fill all courts.
+        
+        This guarantees finding a solution if one exists by exhaustively
+        exploring all valid combinations.
+        """
+        # Success: we've filled all courts
+        if len(selected) == self.courts:
+            return selected.copy()
+        
+        # Pruning: not enough matches left to fill remaining courts
+        remaining_courts = self.courts - len(selected)
+        remaining_matches = len(matches) - match_idx
+        if remaining_matches < remaining_courts:
+            return None
+        
+        # Try each remaining match
+        for i in range(match_idx, len(matches)):
+            match = matches[i]
+            team1, team2 = match
+            match_players = set(team1) | set(team2)
+            
+            # Skip if any player already used this round
+            if match_players & used_players:
+                continue
+            
+            # Create game object with proper court index
+            game = Game(
+                round_index=round_idx,
+                court_index=len(selected),
+                team1=team1,
+                team2=team2,
+            )
+            
+            # Check hard constraints with combined event + round context
+            combined_teammate_pairs = event_teammate_pairs | round_teammate_pairs
+            combined_opponent_counts = {**event_opponent_counts}
+            for pair, count in round_opponent_counts.items():
+                combined_opponent_counts[pair] = combined_opponent_counts.get(pair, 0) + count
+            
+            if not self._check_hard_constraints(game, combined_teammate_pairs, combined_opponent_counts):
+                continue
+            
+            # Try this match - update state
+            new_used_players = used_players | match_players
+            new_teammate_pairs = round_teammate_pairs | game.teammate_pairs()
+            new_opponent_counts = round_opponent_counts.copy()
+            for pair in game.opponent_pairs():
+                new_opponent_counts[pair] = new_opponent_counts.get(pair, 0) + 1
+            
+            # Recurse with this match selected
+            result = self._backtrack_select_matches(
+                round_idx=round_idx,
+                matches=matches,
+                match_idx=i + 1,  # Only consider matches after this one
+                selected=selected + [game],
+                used_players=new_used_players,
+                round_teammate_pairs=new_teammate_pairs,
+                round_opponent_counts=new_opponent_counts,
+                event_teammate_pairs=event_teammate_pairs,
+                event_opponent_counts=event_opponent_counts,
+            )
+            
+            if result is not None:
+                return result
+            
+            # Backtrack: this match didn't lead to a solution
+            # State is already preserved in the recursive call, no cleanup needed
+        
+        # No valid combination found from this point
+        return None
 
     def _find_best_game(
         self,

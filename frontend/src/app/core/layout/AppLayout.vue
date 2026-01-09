@@ -727,6 +727,10 @@ const navItems = [
     padding-bottom: max(12px, env(safe-area-inset-bottom));
     z-index: 9999;
     box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
+    /* Prevent keyboard from pushing up bottom nav */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    will-change: transform;
   }
 
   .global-nav-item {

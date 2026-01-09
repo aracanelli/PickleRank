@@ -21,6 +21,19 @@ class ScoreUpdateResponse(GameResponse):
     pass
 
 
+class GameUpdatePlayersRequest(BaseModel):
+    """Request to update player positions in a game."""
+
+    team1_p1: str = Field(..., alias="team1P1")
+    team1_p2: str = Field(..., alias="team1P2")
+    team2_p1: str = Field(..., alias="team2P1")
+    team2_p2: str = Field(..., alias="team2P2")
+
+    class Config:
+        populate_by_name = True
+
+
+
 
 
 

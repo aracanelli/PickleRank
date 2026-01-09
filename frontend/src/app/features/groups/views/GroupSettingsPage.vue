@@ -6,7 +6,7 @@ import type { GroupDto } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import { ArrowLeft } from 'lucide-vue-next'
+import { ArrowLeft, Target, PartyPopper, Rocket, AlertTriangle, RefreshCw, Copy, Archive } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -224,7 +224,7 @@ async function duplicateGroup() {
       <div v-if="success" class="message success">{{ success }}</div>
 
       <div class="warning-banner">
-        ⚠️ Changes affect future events only. Historical events remain unchanged.
+        <AlertTriangle :size="16" /> Changes affect future events only. Historical events remain unchanged.
       </div>
 
       <form @submit.prevent="saveSettings">
@@ -261,21 +261,21 @@ async function duplicateGroup() {
               <label class="radio-option">
                 <input type="radio" v-model="ratingSystem" value="SERIOUS_ELO" />
                 <div class="radio-content">
-                  <span class="radio-title">🎯 Serious ELO</span>
+                  <span class="radio-title"><Target :size="16" /> Serious ELO</span>
                   <span class="radio-desc">Standard competitive rating. Fair and consistent.</span>
                 </div>
               </label>
               <label class="radio-option">
                 <input type="radio" v-model="ratingSystem" value="CATCH_UP" />
                 <div class="radio-content">
-                  <span class="radio-title">🎉 Catch-Up Mode</span>
+                  <span class="radio-title"><PartyPopper :size="16" /> Catch-Up Mode</span>
                   <span class="radio-desc">Fun mode that helps lower-rated players catch up faster.</span>
                 </div>
               </label>
               <label class="radio-option">
                 <input type="radio" v-model="ratingSystem" value="RACS_ELO" />
                 <div class="radio-content">
-                  <span class="radio-title">🚀 Rac's ELO</span>
+                  <span class="radio-title"><Rocket :size="16" /> Rac's ELO</span>
                   <span class="radio-desc">Volatile ratings with score-based K-factor. Blowouts matter more!</span>
                 </div>
               </label>
@@ -375,7 +375,7 @@ async function duplicateGroup() {
             @click="recalculateRatings" 
             :loading="isRecalculating"
           >
-            🔄 Recalculate
+            <RefreshCw :size="16" /> Recalculate
           </BaseButton>
         </div>
 
@@ -389,7 +389,7 @@ async function duplicateGroup() {
             @click="duplicateGroup" 
             :loading="isDuplicating"
           >
-            📋 Duplicate
+            <Copy :size="16" /> Duplicate
           </BaseButton>
         </div>
 
@@ -403,7 +403,7 @@ async function duplicateGroup() {
             @click="archiveGroup" 
             :loading="isArchiving"
           >
-            📦 Archive
+            <Archive :size="16" /> Archive
           </BaseButton>
         </div>
       </BaseCard>
@@ -443,6 +443,9 @@ async function duplicateGroup() {
 }
 
 .warning-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   padding: var(--spacing-md);
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
@@ -560,6 +563,9 @@ form > * {
 }
 
 .radio-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   font-weight: 500;
 }
 

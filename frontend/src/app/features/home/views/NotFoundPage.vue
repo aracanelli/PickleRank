@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
+import { Activity } from 'lucide-vue-next'
 </script>
 
 <template>
   <div class="not-found container">
     <div class="content">
-      <span class="icon">🏓</span>
+      <Activity class="icon" :size="64" />
       <h1>404</h1>
       <p>Oops! Looks like this ball went out of bounds.</p>
       <router-link to="/">
@@ -28,7 +29,7 @@ import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 }
 
 .icon {
-  font-size: 4rem;
+  color: var(--color-primary);
   display: block;
   margin-bottom: var(--spacing-lg);
   animation: bounce 2s ease-in-out infinite;

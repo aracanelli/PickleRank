@@ -201,6 +201,8 @@ export interface MatchHistoryEntryDto {
   courtIndex: number
   team1: string[]
   team2: string[]
+  team1Ids: string[]
+  team2Ids: string[]
   scoreTeam1?: number
   scoreTeam2?: number
   result: string

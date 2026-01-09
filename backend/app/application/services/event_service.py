@@ -572,6 +572,74 @@ class EventService:
 
         raise NotFoundError("Game", str(game_id))
 
+    async def delete_game(self, user_id: str, game_id: UUID) -> None:
+        """Delete a game and trigger rating recalculation."""
+        game = await self.games_repo.get_by_id(game_id)
+        if not game:
+            raise NotFoundError("Game", str(game_id))
+
+        # Verify ownership or organizer role through group
+        group = await self.groups_repo.get_by_id(game["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can delete games")
+
+        # Get event to check status
+        event = await self.events_repo.get_by_id(game["event_id"])
+        was_completed = event["status"] == "COMPLETED"
+
+        # Delete the game
+        await self.games_repo.delete(game_id)
+
+        # If event was COMPLETED, trigger recalculation
+        if was_completed:
+            from app.application.services.group_service import GroupService
+            group_service = GroupService(self.conn)
+            await group_service.recalculate_ratings(user_id, group["id"])
+
+    async def update_game_players(
+        self,
+        user_id: str,
+        game_id: UUID,
+        team1_p1: UUID,
+        team1_p2: UUID,
+        team2_p1: UUID,
+        team2_p2: UUID,
+    ) -> GameResponse:
+        """Update player positions in a game."""
+        game = await self.games_repo.get_by_id(game_id)
+        if not game:
+            raise NotFoundError("Game", str(game_id))
+
+        # Verify ownership or organizer role through group
+        group = await self.groups_repo.get_by_id(game["group_id"])
+        if not await self._is_owner_or_organizer(user_id, group):
+            raise ForbiddenError("Only owners and organizers can update games")
+
+        # Get event to check status
+        event = await self.events_repo.get_by_id(game["event_id"])
+        was_completed = event["status"] == "COMPLETED"
+
+        # Update players
+        await self.games_repo.update_players(game_id, team1_p1, team1_p2, team2_p1, team2_p2)
+
+        # Update event status to IN_PROGRESS if needed
+        if event["status"] == "GENERATED":
+            await self.events_repo.update_status(event["id"], "IN_PROGRESS")
+
+        # If event was COMPLETED, trigger recalculation
+        if was_completed:
+            from app.application.services.group_service import GroupService
+            group_service = GroupService(self.conn)
+            await group_service.recalculate_ratings(user_id, group["id"])
+
+        # Get player info
+        games_with_players = await self._get_games_with_players(game["event_id"])
+        for g in games_with_players:
+            if g.id == game_id:
+                return g
+
+        raise NotFoundError("Game", str(game_id))
+
     async def complete_event(self, user_id: str, event_id: UUID) -> CompleteResponse:
         """Complete an event and calculate rating updates."""
         event = await self.events_repo.get_by_id(event_id)

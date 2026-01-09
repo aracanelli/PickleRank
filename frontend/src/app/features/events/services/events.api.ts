@@ -63,6 +63,19 @@ export const eventsApi = {
 
   async update(eventId: string, data: { name?: string }): Promise<EventDto> {
     return api.patch(`/api/events/${eventId}`, data)
+  },
+
+  async deleteGame(gameId: string): Promise<void> {
+    return api.delete(`/api/games/${gameId}`)
+  },
+
+  async updateGamePlayers(gameId: string, data: {
+    team1P1: string
+    team1P2: string
+    team2P1: string
+    team2P2: string
+  }): Promise<GameDto> {
+    return api.patch(`/api/games/${gameId}/players`, data)
   }
 }
 

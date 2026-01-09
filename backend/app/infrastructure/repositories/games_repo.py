@@ -185,6 +185,35 @@ class GamesRepository:
             event_id,
         )
 
+    async def delete(self, game_id: UUID) -> None:
+        """Delete a single game by ID."""
+        await self.conn.execute(
+            "DELETE FROM games WHERE id = $1",
+            game_id,
+        )
+
+    async def update_players(
+        self, game_id: UUID, team1_p1: UUID, team1_p2: UUID, team2_p1: UUID, team2_p2: UUID
+    ) -> Dict[str, Any]:
+        """Update all player positions in a game."""
+        row = await self.conn.fetchrow(
+            """
+            UPDATE games
+            SET team1_p1 = $2, team1_p2 = $3, team2_p1 = $4, team2_p2 = $5, 
+                swapped = TRUE, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, event_id, round_index, court_index,
+                      team1_p1, team1_p2, team2_p1, team2_p2,
+                      score_team1, score_team2, result, swapped
+            """,
+            game_id,
+            team1_p1,
+            team1_p2,
+            team2_p1,
+            team2_p2,
+        )
+        return dict(row) if row else None
+
     async def get_teammate_pairs_from_event(self, event_id: UUID) -> List[tuple]:
         """Get all teammate pairs from an event."""
         rows = await self.conn.fetch(

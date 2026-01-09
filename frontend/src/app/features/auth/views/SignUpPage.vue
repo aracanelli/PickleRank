@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { getClerk } from '@/app/core/auth/clerk'
 import { useAuthStore } from '@/stores/auth'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
+import { Activity, Check, AlertTriangle } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -197,21 +198,21 @@ onUnmounted(() => {
       <!-- Left side - Branding -->
       <div class="signup-branding">
         <div class="brand-content">
-          <div class="brand-icon">🏓</div>
+          <div class="brand-icon"><Activity :size="48" /></div>
           <h1>PickleRank</h1>
           <p class="brand-tagline">Fair matchups. Real rankings.</p>
           
           <div class="brand-features">
             <div class="brand-feature">
-              <span class="feature-check">✓</span>
+              <Check class="feature-check" :size="16" />
               <span>Smart 2v2 matchmaking</span>
             </div>
             <div class="brand-feature">
-              <span class="feature-check">✓</span>
+              <Check class="feature-check" :size="16" />
               <span>ELO-based rankings</span>
             </div>
             <div class="brand-feature">
-              <span class="feature-check">✓</span>
+              <Check class="feature-check" :size="16" />
               <span>Track your progress</span>
             </div>
           </div>
@@ -245,7 +246,7 @@ onUnmounted(() => {
           <div v-show="clerkReady && authStore.isInitialized" ref="authContainer" class="auth-container"></div>
 
           <div v-if="authStore.isInitialized && !getClerk()" class="no-auth">
-            <div class="no-auth-icon">⚠️</div>
+            <AlertTriangle class="no-auth-icon" :size="32" />
             <p class="no-auth-title">Authentication not configured</p>
             <p class="no-auth-message">Please set <code>VITE_CLERK_PUBLISHABLE_KEY</code> in your environment variables.</p>
           </div>
@@ -333,7 +334,7 @@ onUnmounted(() => {
 }
 
 .brand-icon {
-  font-size: 3rem;
+  color: var(--color-primary);
   margin-bottom: var(--spacing-md);
 }
 
@@ -369,7 +370,7 @@ onUnmounted(() => {
 
 .feature-check {
   color: var(--color-primary);
-  font-weight: 600;
+  flex-shrink: 0;
 }
 
 /* Mini court decoration */
@@ -511,7 +512,7 @@ onUnmounted(() => {
 }
 
 .no-auth-icon {
-  font-size: 2rem;
+  color: var(--color-warning);
   margin-bottom: var(--spacing-md);
 }
 
@@ -588,13 +589,6 @@ onUnmounted(() => {
 
   .signup-header {
     margin-bottom: var(--spacing-lg);
-  }
-
-  .signup-header::before {
-    content: '🏓';
-    display: block;
-    font-size: 2.5rem;
-    margin-bottom: var(--spacing-md);
   }
 
   .auth-container {
