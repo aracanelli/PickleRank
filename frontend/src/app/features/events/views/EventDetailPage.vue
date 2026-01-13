@@ -637,6 +637,14 @@ async function exportAsImage() {
           </BaseCard>
         </div>
 
+        <!-- Export Button (shown during score entry) -->
+        <div v-if="event.status !== 'DRAFT' && event.games.length > 0" class="score-entry-actions">
+          <BaseButton variant="secondary" :loading="isExporting" @click="exportAsImage">
+            <Download :size="16" />
+            Export Schedule
+          </BaseButton>
+        </div>
+
       <!-- Round Tabs -->
       <div class="round-tabs">
         <button
@@ -947,6 +955,12 @@ async function exportAsImage() {
     min-width: 44px;
     min-height: 44px;
   }
+}
+
+.score-entry-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-lg);
 }
 
 .games-grid {
