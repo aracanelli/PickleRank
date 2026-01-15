@@ -36,34 +36,42 @@ export interface UpdateGroupSettingsRequest {
 
 export const groupsApi = {
   async list(): Promise<GroupListResponse> {
-    // Cache group list for 30 seconds
-    return api.getCached('/api/groups', 30000)
+    // Cache group list for 5 minutes (invalidated on mutations)
+    return api.getCached('/api/groups', 300000)
   },
 
   async listMemberGroups(): Promise<GroupListResponse> {
-    return api.get('/api/groups/member')
+    // Cache member groups for 5 minutes (invalidated on mutations)
+    return api.getCached('/api/groups/member', 300000)
   },
 
   async get(groupId: string): Promise<GroupDto> {
-    // Cache group details for 30 seconds
-    return api.getCached(`/api/groups/${groupId}`, 30000)
+    // Cache group details for 5 minutes (invalidated on mutations)
+    return api.getCached(`/api/groups/${groupId}`, 300000)
   },
 
   async create(data: CreateGroupRequest): Promise<GroupDto> {
-    return api.post('/api/groups', data)
+    const result = await api.post<GroupDto>('/api/groups', data)
+    api.invalidateCache('/api/groups')
+    return result
   },
 
   async updateSettings(groupId: string, data: UpdateGroupSettingsRequest): Promise<GroupDto> {
-    return api.patch(`/api/groups/${groupId}/settings`, data)
+    const result = await api.patch<GroupDto>(`/api/groups/${groupId}/settings`, data)
+    api.invalidateCache(`/api/groups/${groupId}`)
+    return result
   },
 
   async rename(groupId: string, name: string): Promise<GroupDto> {
-    return api.patch(`/api/groups/${groupId}`, { name })
+    const result = await api.patch<GroupDto>(`/api/groups/${groupId}`, { name })
+    api.invalidateCache('/api/groups')
+    api.invalidateCache(`/api/groups/${groupId}`)
+    return result
   },
 
   async getPlayers(groupId: string): Promise<GroupPlayerListResponse> {
-    // Cache player list for 30 seconds
-    return api.getCached(`/api/groups/${groupId}/players`, 30000)
+    // Cache player list for 5 minutes (invalidated on mutations)
+    return api.getCached(`/api/groups/${groupId}/players`, 300000)
   },
 
   async addPlayer(
@@ -73,16 +81,20 @@ export const groupsApi = {
     skillLevel?: SkillLevel,
     role: GroupRole = 'PLAYER'
   ): Promise<GroupPlayerDto> {
-    return api.post(`/api/groups/${groupId}/players`, {
+    const result = await api.post<GroupPlayerDto>(`/api/groups/${groupId}/players`, {
       playerId,
       membershipType,
       skillLevel,
       role
     })
+    api.invalidateCache(`/api/groups/${groupId}/players`)
+    return result
   },
 
   async bulkAddPlayers(groupId: string, data: BulkAddPlayersToGroupRequest): Promise<BulkAddPlayersToGroupResponse> {
-    return api.post(`/api/groups/${groupId}/players/bulk`, data)
+    const result = await api.post<BulkAddPlayersToGroupResponse>(`/api/groups/${groupId}/players/bulk`, data)
+    api.invalidateCache(`/api/groups/${groupId}/players`)
+    return result
   },
 
   async updateGroupPlayer(
@@ -94,11 +106,14 @@ export const groupsApi = {
       role?: GroupRole
     }
   ): Promise<GroupPlayerDto> {
-    return api.patch(`/api/groups/${groupId}/players/${groupPlayerId}`, params)
+    const result = await api.patch<GroupPlayerDto>(`/api/groups/${groupId}/players/${groupPlayerId}`, params)
+    api.invalidateCache(`/api/groups/${groupId}/players`)
+    return result
   },
 
   async removePlayer(groupId: string, groupPlayerId: string): Promise<void> {
-    return api.delete(`/api/groups/${groupId}/players/${groupPlayerId}`)
+    await api.delete(`/api/groups/${groupId}/players/${groupPlayerId}`)
+    api.invalidateCache(`/api/groups/${groupId}/players`)
   },
 
   async recalculateRatings(groupId: string): Promise<{
@@ -106,16 +121,28 @@ export const groupsApi = {
     playersUpdated: number
     topPlayers: Array<{ displayName: string, rating: number, wins: number, losses: number }>
   }> {
-    return api.post(`/api/groups/${groupId}/recalculate-ratings`)
+    const result = await api.post<{
+      eventsRecalculated: number
+      playersUpdated: number
+      topPlayers: Array<{ displayName: string, rating: number, wins: number, losses: number }>
+    }>(`/api/groups/${groupId}/recalculate-ratings`)
+    // Invalidate all group-related caches after recalculation
+    api.invalidateCache(`/api/groups/${groupId}`)
+    return result
   },
 
   async archive(groupId: string): Promise<GroupDto> {
-    return api.post(`/api/groups/${groupId}/archive`)
+    const result = await api.post<GroupDto>(`/api/groups/${groupId}/archive`)
+    api.invalidateCache('/api/groups')
+    api.invalidateCache(`/api/groups/${groupId}`)
+    return result
   },
 
 
   async duplicate(groupId: string): Promise<GroupDto> {
-    return api.post(`/api/groups/${groupId}/duplicate`)
+    const result = await api.post<GroupDto>(`/api/groups/${groupId}/duplicate`)
+    api.invalidateCache('/api/groups')
+    return result
   },
 
   async getPlayerStats(groupId: string, playerId: string): Promise<PlayerStats> {

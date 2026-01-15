@@ -27,6 +27,20 @@ CREATE INDEX IF NOT EXISTS idx_rating_updates_player_id ON rating_updates(group_
 CREATE INDEX IF NOT EXISTS idx_games_group_created ON games(event_id, created_at DESC);
 
 -- =====================================================
+-- NEW: Indexes for get_last_event_deltas optimization
+-- These speed up the rating delta calculation query
+-- =====================================================
+
+-- Composite index for faster event lookup by group, status, and date
+CREATE INDEX IF NOT EXISTS idx_events_group_status_date 
+ON events(group_id, status, starts_at DESC, created_at DESC);
+
+-- Composite index for rating_updates with event and player lookup
+CREATE INDEX IF NOT EXISTS idx_rating_updates_event_player 
+ON rating_updates(event_id, group_player_id, rating_before);
+
+-- =====================================================
 -- To verify indexes were created, run:
 -- SELECT indexname FROM pg_indexes WHERE schemaname = 'public';
 -- =====================================================
+

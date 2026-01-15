@@ -472,6 +472,65 @@ class GroupPlayersRepository:
         )
         return val is not None
 
+    async def check_players_exist(self, group_id: UUID, player_ids: List[UUID]) -> bool:
+        """
+        Check if all provided player IDs exist in the group.
+        Efficient check using count distinct.
+        """
+        if not player_ids:
+            return True
+
+        count = await self.conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT id)
+            FROM group_players
+            WHERE group_id = $1 AND id = ANY($2)
+            """,
+            group_id,
+            player_ids
+        )
+        return count == len(set(player_ids))
+
+    async def update_ratings_bulk(self, updates: List[Dict[str, Any]]) -> None:
+        """
+        Bulk update player ratings and stats.
+        
+        Args:
+            updates: List of dicts containing:
+                - id: group_player_id
+                - rating: new rating
+                - games_delta: change in games played
+                - wins_delta: change in wins
+                - losses_delta: change in losses
+                - ties_delta: change in ties
+        """
+        if not updates:
+            return
+
+        await self.conn.executemany(
+            """
+            UPDATE group_players
+            SET rating = $2,
+                games_played = games_played + $3,
+                wins = wins + $4,
+                losses = losses + $5,
+                ties = ties + $6,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            [
+                (
+                    u["id"],
+                    u["rating"],
+                    u["games_delta"],
+                    u["wins_delta"],
+                    u["losses_delta"],
+                    u["ties_delta"]
+                )
+                for u in updates
+            ]
+        )
+
 
 
 

@@ -11,6 +11,7 @@ from uuid import UUID
 from asyncpg import Connection
 from fastapi import UploadFile
 from fastapi import UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from app.api.schemas.events import (
     CompleteResponse,
@@ -180,11 +181,8 @@ class EventService:
             )
 
         # Verify all participants exist in group
-        group_players = await self.group_players_repo.list_by_group(group_id)
-        gp_ids = {gp["id"] for gp in group_players}
-        for pid in data.participant_ids:
-            if pid not in gp_ids:
-                raise BadRequestError(f"Player {pid} not found in group")
+        if not await self.group_players_repo.check_players_exist(group_id, data.participant_ids):
+             raise BadRequestError("One or more players not found in group")
 
         # Create event
         event = await self.events_repo.create(
@@ -396,7 +394,7 @@ class EventService:
             seed=seed,
         )
 
-        result = generator.generate()
+        result = await run_in_threadpool(generator.generate)
 
         if not result.success:
             raise MatchmakingError(result.error_message or "Failed to generate schedule")
@@ -761,14 +759,9 @@ class EventService:
             
             # Only update if player participated in at least one game
             if stats["games"] > 0:
-                await self.group_players_repo.update_rating(
-                    group_player_id=player_id,
-                    rating=rating_after,
-                    games_delta=stats["games"],
-                    wins_delta=stats["wins"],
-                    losses_delta=stats["losses"],
-                    ties_delta=stats["ties"],
-                )
+                # Prepare update for bulk execution
+                # await self.group_players_repo.update_rating(...) -> Moved to bulk update below
+                pass
 
                 rating_updates.append({
                     "event_id": event_id,
@@ -786,6 +779,25 @@ class EventService:
                     delta=delta,
                     display_name=player_info.get(player_id, "Unknown"),
                 )
+
+        # Apply bulk rating updates
+        player_updates = []
+        for player_id in participant_ids:
+            stats = player_stats.get(player_id, {"wins": 0, "losses": 0, "ties": 0, "games": 0})
+            if stats["games"] > 0:
+                rating_before = starting_ratings.get(player_id, 1000)
+                rating_after = current_ratings.get(player_id, rating_before)
+                player_updates.append({
+                    "id": player_id,
+                    "rating": rating_after,
+                    "games_delta": stats["games"],
+                    "wins_delta": stats["wins"],
+                    "losses_delta": stats["losses"],
+                    "ties_delta": stats["ties"]
+                })
+        
+        if player_updates:
+            await self.group_players_repo.update_ratings_bulk(player_updates)
 
         # Save rating updates audit trail
         await self.rating_updates_repo.create_many(rating_updates)

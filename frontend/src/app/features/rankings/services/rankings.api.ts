@@ -3,8 +3,8 @@ import type { RankingsResponse, MatchHistoryResponse } from '@/app/core/models/d
 
 export const rankingsApi = {
   async getRankings(groupId: string): Promise<RankingsResponse> {
-    // Cache rankings for 60 seconds - data changes infrequently
-    return api.getCached(`/api/groups/${groupId}/rankings`, 60000)
+    // Cache rankings for 5 minutes (invalidated when events complete)
+    return api.getCached(`/api/groups/${groupId}/rankings`, 300000)
   },
 
   async getHistory(

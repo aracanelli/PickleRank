@@ -53,8 +53,16 @@ export const eventsApi = {
     return api.patch(`/api/games/${gameId}/score`, data)
   },
 
-  async complete(eventId: string): Promise<CompleteResponse> {
-    return api.post(`/api/events/${eventId}/complete`)
+  async complete(eventId: string, groupId?: string): Promise<CompleteResponse> {
+    const result = await api.post<CompleteResponse>(`/api/events/${eventId}/complete`)
+    // Invalidate all caches related to rankings/players after event completion
+    if (groupId) {
+      api.invalidateCache(`/api/groups/${groupId}/players`)
+      api.invalidateCache(`/api/groups/${groupId}/rankings`)
+    }
+    // Also invalidate any pattern matching this group
+    api.invalidateCache('/api/groups')
+    return result
   },
 
   async delete(eventId: string): Promise<void> {
@@ -74,8 +82,14 @@ export const eventsApi = {
     team1P2: string
     team2P1: string
     team2P2: string
-  }): Promise<GameDto> {
-    return api.patch(`/api/games/${gameId}/players`, data)
+  }, groupId?: string): Promise<GameDto> {
+    const result = await api.patch<GameDto>(`/api/games/${gameId}/players`, data)
+    // Player swap can trigger ELO recalculation
+    if (groupId) {
+      api.invalidateCache(`/api/groups/${groupId}/players`)
+      api.invalidateCache(`/api/groups/${groupId}/rankings`)
+    }
+    return result
   }
 }
 

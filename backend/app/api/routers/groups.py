@@ -2,7 +2,7 @@ from typing import Optional
 from uuid import UUID
 
 from asyncpg import Connection
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.deps.auth import CurrentUser, get_current_user
 from app.api.deps.db import get_db
@@ -37,10 +37,12 @@ async def create_group(
 @limiter.limit(DEFAULT_RATE)
 async def list_groups(
     request: Request,
+    response: Response,
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
     """List all groups owned by the current user."""
+    response.headers["Cache-Control"] = "private, max-age=30"
     service = GroupService(db)
     groups = await service.list_groups(user.user_id)
     return GroupListResponse(groups=groups)
@@ -50,10 +52,12 @@ async def list_groups(
 @limiter.limit(DEFAULT_RATE)
 async def list_member_groups(
     request: Request,
+    response: Response,
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
     """List all groups where the current user is a member (via linked player)."""
+    response.headers["Cache-Control"] = "private, max-age=30"
     service = GroupService(db)
     groups = await service.list_member_groups(user.user_id)
     return GroupListResponse(groups=groups)
@@ -64,10 +68,12 @@ async def list_member_groups(
 async def get_group(
     request: Request,
     group_id: UUID,
+    response: Response,
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
     """Get a specific group."""
+    response.headers["Cache-Control"] = "private, max-age=30"
     service = GroupService(db)
     return await service.get_group(user.user_id, group_id)
 

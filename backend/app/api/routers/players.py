@@ -2,7 +2,7 @@ from typing import Optional
 from uuid import UUID
 
 from asyncpg import Connection
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.api.deps.auth import CurrentUser, get_current_user
 from app.api.deps.db import get_db
@@ -22,6 +22,7 @@ from app.api.schemas.players import (
     UpdateGroupPlayerRequest,
 )
 from app.application.services.player_service import PlayerService
+from app.infrastructure.cache import group_cache
 
 router = APIRouter()
 
@@ -160,13 +161,27 @@ async def bulk_add_players_to_group(
 async def list_group_players(
     request: Request,
     group_id: UUID,
+    response: Response,
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
     """List all players in a group with their ratings."""
+    # Set browser cache header (30 seconds)
+    response.headers["Cache-Control"] = "private, max-age=30"
+    
+    # Check server-side cache first
+    cache_key = f"group_players:{group_id}:{user.user_id}"
+    cached = await group_cache.get(cache_key)
+    if cached:
+        return cached
+    
     service = PlayerService(db)
     players = await service.list_group_players(user.user_id, group_id)
-    return GroupPlayerListResponse(players=players)
+    result = GroupPlayerListResponse(players=players)
+    
+    # Cache for 30 seconds
+    await group_cache.set(cache_key, result)
+    return result
 
 
 @router.patch(

@@ -7,9 +7,9 @@ import { ClipboardList, Users, Calendar, ArrowRight, Plus } from 'lucide-vue-nex
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
-import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import EmptyState from '@/app/core/ui/components/EmptyState.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
+import GroupCardSkeleton from '../components/GroupCardSkeleton.vue'
 
 const router = useRouter()
 const groups = ref<GroupListItemDto[]>([])
@@ -88,7 +88,13 @@ function formatDate(dateStr: string): string {
       </BaseButton>
     </div>
 
-    <LoadingSpinner v-if="isLoading" text="Loading groups..." />
+    <!-- Skeleton Loading State -->
+    <div v-if="isLoading" class="groups-container">
+      <section class="groups-section">
+        <div class="skeleton-section-title"></div>
+        <GroupCardSkeleton :count="3" />
+      </section>
+    </div>
 
     <div v-else-if="error" class="error-message">
       {{ error }}
@@ -293,6 +299,31 @@ function formatDate(dateStr: string): string {
   border-radius: var(--radius-md);
   color: var(--color-error);
   text-align: center;
+}
+
+.skeleton-section-title {
+  width: 150px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-md);
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 0%,
+    var(--color-bg-hover) 20%,
+    var(--color-bg-tertiary) 40%,
+    var(--color-bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @media (max-width: 768px) {
