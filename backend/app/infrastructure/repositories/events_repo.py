@@ -9,6 +9,18 @@ from asyncpg import Connection
 class EventsRepository:
     """Repository for event operations."""
 
+    # Allowlist of column names permitted for dynamic updates.
+    # This prevents SQL injection by ensuring only valid column names
+    # can be used in UPDATE queries.
+    ALLOWED_UPDATE_COLUMNS = frozenset({
+        "name",
+        "starts_at",
+        "courts",
+        "rounds",
+        "status",
+        "generation_meta",
+    })
+
     def __init__(self, conn: Connection):
         self.conn = conn
 
@@ -37,13 +49,31 @@ class EventsRepository:
         return dict(row) if row else None
 
     async def update(self, event_id: UUID, values: Dict[str, Any]) -> None:
-        """Update event fields."""
+        """Update event fields.
+        
+        Args:
+            event_id: The UUID of the event to update.
+            values: A dictionary mapping column names to new values.
+                    Only columns in ALLOWED_UPDATE_COLUMNS are permitted.
+        
+        Raises:
+            ValueError: If any key in values is not in ALLOWED_UPDATE_COLUMNS.
+        """
         if not values:
             return
+
+        # Validate all keys against the allowlist to prevent SQL injection
+        invalid_keys = set(values.keys()) - self.ALLOWED_UPDATE_COLUMNS
+        if invalid_keys:
+            raise ValueError(
+                f"Invalid column name(s) for update: {', '.join(sorted(invalid_keys))}. "
+                f"Allowed columns: {', '.join(sorted(self.ALLOWED_UPDATE_COLUMNS))}"
+            )
 
         set_clauses = []
         args = [event_id]
         for i, (key, value) in enumerate(values.items()):
+            # key is guaranteed to be in ALLOWED_UPDATE_COLUMNS at this point
             set_clauses.append(f"{key} = ${i + 2}")
             args.append(value)
         

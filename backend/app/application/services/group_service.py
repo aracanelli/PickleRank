@@ -180,13 +180,9 @@ class GroupService:
         settings = group["settings"]
         base_rating = settings.get("initialRating", 1000)
         
-        # Debug: Log the rating system settings being used
-        print(f"[DEBUG recalculate_ratings] Group ID: {group_id}")
-        print(f"[DEBUG recalculate_ratings] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
-        print(f"[DEBUG recalculate_ratings] K-Factor: {settings.get('kFactor', 32)}")
-        print(f"[DEBUG recalculate_ratings] ELO Const: {settings.get('eloConst')}")
-        print(f"[DEBUG recalculate_ratings] Full settings: {settings}")
-        
+        logger.debug("Recalculating ratings - Group ID: %s, Rating System: %s, K-Factor: %s, ELO Const: %s, Full settings: %s",
+                     group_id, settings.get('ratingSystem', 'SERIOUS_ELO'), settings.get('kFactor', 32),
+                     settings.get('eloConst'), settings)        
         # Get all players to calculate initial ratings based on skill level
         all_players = await self.conn.fetch(
             """
@@ -610,11 +606,10 @@ class GroupService:
             highest_rating = max(ratings)
             lowest_rating = min(ratings)
         else:
-            highest_rating = 0
-            lowest_rating = 0
-            
+            highest_rating = None
+            lowest_rating = None
+        
         # 2. Streaks
-        # Games are ordered by date, round_index
         current_win_streak = 0
         current_loss_streak = 0
         longest_win_streak = 0

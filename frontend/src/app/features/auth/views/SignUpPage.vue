@@ -2,6 +2,7 @@
 import { onMounted, ref, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getClerk } from '@/app/core/auth/clerk'
+import { getSafeRedirect, createNavigationWithRedirect } from '@/app/core/auth/redirectUtils'
 import { useAuthStore } from '@/stores/auth'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import { Activity, Check, AlertTriangle } from 'lucide-vue-next'
@@ -13,23 +14,20 @@ const clerkReady = ref(false)
 const authContainer = ref<HTMLElement>()
 
 function goToSignIn() {
-  const redirect = route.query.redirect as string
-  router.push({ name: 'login', query: redirect ? { redirect } : {} })
+  router.push(createNavigationWithRedirect('login', route.query.redirect))
 }
 
 // Watch for auth state changes - redirect when authenticated
 watch(() => authStore.isAuthenticated, (isAuth) => {
   if (isAuth) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(getSafeRedirect(route.query.redirect))
   }
 }, { immediate: true })
 
 onMounted(async () => {
   // If already authenticated, redirect
   if (authStore.isAuthenticated) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(getSafeRedirect(route.query.redirect))
     return
   }
 
@@ -38,8 +36,7 @@ onMounted(async () => {
 
   // Check again after auth is ready
   if (authStore.isAuthenticated) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(getSafeRedirect(route.query.redirect))
     return
   }
 
@@ -49,12 +46,10 @@ onMounted(async () => {
     return
   }
 
-  clerkReady.value = true
-
   // Mount Clerk sign-up component
   if (authContainer.value) {
     clerk.mountSignUp(authContainer.value, {
-      fallbackRedirectUrl: (route.query.redirect as string) || '/groups',
+      fallbackRedirectUrl: getSafeRedirect(route.query.redirect),
       signInFallbackRedirectUrl: '/groups',
       appearance: {
         baseTheme: undefined,
@@ -175,6 +170,7 @@ onMounted(async () => {
         },
       },
     })
+    clerkReady.value = true
   }
 })
 

@@ -88,9 +88,8 @@ def create_app() -> FastAPI:
         title="Pickleball Matchmaking API",
         description="API for pickleball event matchmaking and ranking",
         version="1.0.0",
-        docs_url="/docs" if (settings and not settings.is_production) else None,
-        redoc_url="/redoc" if (settings and not settings.is_production) else None,
-        lifespan=lifespan,
+        docs_url="/docs" if (not settings or not settings.is_production) else None,
+        redoc_url="/redoc" if (not settings or not settings.is_production) else None,        lifespan=lifespan,
     )
 
     # Rate limiting
@@ -98,8 +97,8 @@ def create_app() -> FastAPI:
         app.state.limiter = limiter
         app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     except Exception as e:
-        logger.warning(f"Failed to setup rate limiting: {e}")
-
+        logger.error(f"Failed to setup rate limiting - API may be unprotected: {e}")
+        # Consider: raise if rate limiting is critical for your use case
     # CORS - must be added BEFORE other middleware
     cors_origins = settings.cors_origins if settings else ["*"]
     app.add_middleware(
@@ -162,9 +161,17 @@ except Exception as e:
     
     @app.get("/")
     async def error_root():
-        return {"error": "Application failed to initialize", "detail": str(e)}
+        logger.error(f"Root endpoint accessed during failed state: {e}", exc_info=True)
+        return JSONResponse(
+            content={"error": "Application failed to initialize"},
+            status_code=500
+        )
     
     @app.get("/api/health")
     async def error_health():
-        return {"status": "error", "detail": "Application initialization failed"}
+        logger.error(f"Health check accessed during failed state: {e}", exc_info=True)
+        return JSONResponse(
+            content={"status": "error", "detail": "Service unavailable"},
+            status_code=503
+        )
 

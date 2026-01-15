@@ -2,6 +2,7 @@
 import { onMounted, ref, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getClerk } from '@/app/core/auth/clerk'
+import { getSafeRedirect, createNavigationWithRedirect } from '@/app/core/auth/redirectUtils'
 import { useAuthStore } from '@/stores/auth'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import { Activity, Check, AlertTriangle } from 'lucide-vue-next'
@@ -15,16 +16,14 @@ const authContainer = ref<HTMLElement>()
 // Watch for auth state changes - redirect when authenticated
 watch(() => authStore.isAuthenticated, (isAuth) => {
   if (isAuth) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(getSafeRedirect(route.query.redirect))
   }
 }, { immediate: true })
 
 onMounted(async () => {
   // If already authenticated, redirect
   if (authStore.isAuthenticated) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(getSafeRedirect(route.query.redirect))
     return
   }
 
@@ -33,8 +32,7 @@ onMounted(async () => {
 
   // Check again after auth is ready
   if (authStore.isAuthenticated) {
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/groups')
+    router.push(getSafeRedirect(route.query.redirect))
     return
   }
 
@@ -49,7 +47,7 @@ onMounted(async () => {
   // Mount Clerk sign-in component
   if (authContainer.value) {
     clerk.mountSignIn(authContainer.value, {
-      fallbackRedirectUrl: (route.query.redirect as string) || '/groups',
+      fallbackRedirectUrl: getSafeRedirect(route.query.redirect),
       signUpFallbackRedirectUrl: '/groups',
       appearance: {
         baseTheme: undefined,
@@ -174,8 +172,7 @@ onUnmounted(() => {
 })
 
 function goToSignUp() {
-  const redirect = route.query.redirect as string
-  router.push({ name: 'signup', query: redirect ? { redirect } : {} })
+  router.push(createNavigationWithRedirect('signup', route.query.redirect))
 }
 </script>
 

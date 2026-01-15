@@ -11,12 +11,13 @@ from app.api.schemas.players import (
     BulkAddPlayersToGroupRequest,
     BulkAddPlayersToGroupResponse,
     BulkPlayerCreate,
-    BulkPlayerCreateResponse,
+    BulkPlayerCreateResponseWithToken,
     GroupPlayerResponse,
     GroupRole,
     MembershipType,
     PlayerCreate,
     PlayerResponse,
+    PlayerResponseWithToken,
     PlayerUpdate,
     SkillLevel,
     UpdateGroupPlayerRequest,
@@ -40,7 +41,7 @@ class PlayerService:
         self.groups_repo = GroupsRepository(conn)
         self.rating_updates_repo = RatingUpdatesRepository(conn)
 
-    async def create_player(self, user_id: str, data: PlayerCreate) -> PlayerResponse:
+    async def create_player(self, user_id: str, data: PlayerCreate) -> PlayerResponseWithToken:
         """Create a new global player."""
         player = await self.players_repo.create(
             owner_user_id=user_id,
@@ -48,11 +49,11 @@ class PlayerService:
             notes=data.notes,
         )
 
-        return self._to_player_response(player)
+        return self._to_player_response_with_token(player)
 
     async def bulk_create_players(
         self, user_id: str, data: BulkPlayerCreate
-    ) -> BulkPlayerCreateResponse:
+    ) -> BulkPlayerCreateResponseWithToken:
         """Create multiple players at once."""
         # Clean and deduplicate names
         names = list(dict.fromkeys([n.strip() for n in data.names if n.strip()]))
@@ -68,9 +69,9 @@ class PlayerService:
             names=names,
         )
 
-        return BulkPlayerCreateResponse(
+        return BulkPlayerCreateResponseWithToken(
             created=[
-                self._to_player_response(p)
+                self._to_player_response_with_token(p)
                 for p in created_players
             ],
             skipped=skipped_names,
@@ -79,16 +80,16 @@ class PlayerService:
 
     async def list_players(
         self, user_id: str, search: Optional[str] = None
-    ) -> List[PlayerResponse]:
-        """List all global players for a user."""
+    ) -> List[PlayerResponseWithToken]:
+        """List all global players for a user (with tokens for authorized access)."""
         players = await self.players_repo.list_by_owner(user_id, search)
         return [
-            self._to_player_response(p)
+            self._to_player_response_with_token(p)
             for p in players
         ]
 
-    async def get_player(self, user_id: str, player_id: UUID) -> PlayerResponse:
-        """Get a specific player."""
+    async def get_player(self, user_id: str, player_id: UUID) -> PlayerResponseWithToken:
+        """Get a specific player (with token for authorized access)."""
         player = await self.players_repo.get_by_id(player_id)
 
         if not player:
@@ -97,12 +98,12 @@ class PlayerService:
         if str(player["owner_user_id"]) != user_id:
             raise ForbiddenError("You don't own this player")
 
-        return self._to_player_response(player)
+        return self._to_player_response_with_token(player)
 
     async def update_player(
         self, user_id: str, player_id: UUID, data: PlayerUpdate
-    ) -> PlayerResponse:
-        """Update a player."""
+    ) -> PlayerResponseWithToken:
+        """Update a player (with token for authorized access)."""
         # Verify ownership
         player = await self.players_repo.get_by_id(player_id)
 
@@ -119,7 +120,7 @@ class PlayerService:
             notes=data.notes,
         )
 
-        return self._to_player_response(updated)
+        return self._to_player_response_with_token(updated)
 
     async def add_player_to_group(
         self,
@@ -405,14 +406,24 @@ class PlayerService:
         )
 
     def _to_player_response(self, player: dict) -> PlayerResponse:
-        """Convert a player dict to a response."""
+        """Convert a player dict to a response (without invite token)."""
         return PlayerResponse(
             id=player["id"],
             displayName=player["display_name"],
             notes=player["notes"],
             userId=player.get("user_id"),
-            inviteToken=player.get("invite_token"),
             created_at=player["created_at"],
+        )
+
+    def _to_player_response_with_token(self, player: dict) -> PlayerResponseWithToken:
+        """Convert a player dict to a response including invite token (for authorized access)."""
+        return PlayerResponseWithToken(
+            id=player["id"],
+            displayName=player["display_name"],
+            notes=player["notes"],
+            userId=player.get("user_id"),
+            created_at=player["created_at"],
+            inviteToken=player.get("invite_token"),
         )
 
     async def generate_invite(self, user_id: str, player_id: UUID) -> str:

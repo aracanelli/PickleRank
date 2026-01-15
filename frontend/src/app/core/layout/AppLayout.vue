@@ -78,18 +78,22 @@ async function navigateToStats() {
   try {
     const { groupsApi } = await import('@/app/features/groups/services/groups.api')
     const response = await groupsApi.getPlayers(groupId.value)
-    const myPlayer = response.players.find((p: any) => p.userId === authStore.userId)
+    const myPlayer = response.players.find((p) => p.userId === authStore.userId)
     if (myPlayer) {
       // Cache for future use
       sessionStorage.setItem(`myPlayerId_${groupId.value}`, myPlayer.id)
       cachedPlayerId.value = myPlayer.id
       router.push(`/groups/${groupId.value}/players/${myPlayer.id}`)
+    } else {
+      // User is not a player in this group - navigate to rankings instead
+      router.push(`/groups/${groupId.value}/rankings`)
     }
   } catch (e) {
     console.error('Failed to load player data for stats navigation', e)
+    // Fallback to rankings on error
+    router.push(`/groups/${groupId.value}/rankings`)
   }
-}
-function navigateToDash() {
+}function navigateToDash() {
   if (groupId.value) router.push(`/groups/${groupId.value}`)
 }
 
@@ -267,7 +271,7 @@ const navItems = [
     </main>
 
     <!-- Footer -->
-    <footer class="footer">
+    <footer class="footer" :class="{ 'hidden-mobile': showBottomNav }">
       <div class="container">
         <p>&copy; {{ new Date().getFullYear() }} PickleRank. Built for pickleball enthusiasts.</p>
       </div>
@@ -701,8 +705,8 @@ const navItems = [
     padding-bottom: 100px; /* Space for bottom nav */
   }
 
-  .footer {
-    display: none; /* Hide footer on mobile when bottom nav is visible */
+  .hidden-mobile {
+    display: none; /* Hide element on mobile when bottom nav is visible */
   }
 }
 

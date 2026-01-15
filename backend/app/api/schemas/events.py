@@ -38,7 +38,7 @@ class GameResponse(BaseModel):
     """Game response."""
 
     id: UUID
-    round_index: int = Field(alias="roundIndex")
+    round_index: int = Field(ge=0, alias="roundIndex")
     court_index: int = Field(alias="courtIndex")
     team1: List[PlayerInfo]
     team2: List[PlayerInfo]
@@ -111,7 +111,6 @@ class EventCreate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     starts_at: datetime = Field(default_factory=datetime.now, alias="startsAt")
-    courts: int = Field(ge=1, le=10)
     rounds: int = Field(ge=1, le=20)
     participant_ids: List[UUID] = Field(alias="participantIds")
 

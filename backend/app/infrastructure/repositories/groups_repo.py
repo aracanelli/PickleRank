@@ -65,12 +65,15 @@ class GroupsRepository:
             """
             SELECT 
                 g.id, g.name, g.sport, g.created_at, g.is_archived,
-                COUNT(gp2.id) as player_count
+                COUNT(gp.id) as player_count
             FROM groups g
-            JOIN group_players gp ON gp.group_id = g.id
-            JOIN players p ON p.id = gp.player_id
-            LEFT JOIN group_players gp2 ON gp2.group_id = g.id
-            WHERE p.user_id = $1 AND g.is_archived = FALSE
+            LEFT JOIN group_players gp ON gp.group_id = g.id
+            WHERE g.is_archived = FALSE
+              AND EXISTS (
+                  SELECT 1 FROM group_players gp_member
+                  JOIN players p ON p.id = gp_member.player_id
+                  WHERE gp_member.group_id = g.id AND p.user_id = $1
+              )
             GROUP BY g.id
             ORDER BY g.created_at DESC
             """,

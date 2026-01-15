@@ -31,6 +31,11 @@ const savedGameIds = ref<Set<string>>(new Set()) // Track recently saved for che
 const pendingSaves = ref<Map<string, number>>(new Map()) // game id -> timeout id for debounce
 const queuedSaves = ref<Map<string, { score1?: number, score2?: number }>>(new Map()) // game id -> next scores to save
 
+// Retry configuration for exponential backoff
+const RETRY_BASE_DELAY_MS = 1000 // Base delay: 1 second
+const MAX_RETRIES = 5 // Stop retrying after 5 attempts
+const retryMetadata = ref<Map<string, { count: number, timeoutId?: number }>>(new Map()) // game id -> retry state
+
 const showCompletedModal = ref(false)
 const ratingUpdates = ref<RatingUpdateDto[]>([])
 const showPreview = ref(false)
@@ -86,17 +91,13 @@ async function saveName() {
 // Debounce delay in milliseconds
 const DEBOUNCE_DELAY = 500
 
-// Cleanup pending timeouts on unmount
 // Cleanup pending timeouts and save immediately on unmount
 onUnmounted(() => {
+  // Clear pending debounce saves
   pendingSaves.value.forEach((timeoutId, gameId) => {
     clearTimeout(timeoutId)
-    // We can't use performSave directly easily because we don't have the scores handy 
-    // in this simplified map. But we do have them in event.games if we search...
-    // Actually, `debouncedSave` only sets the timeout. The scores are in the input refs if we are editing.
-    // BUT onUnmounted happens when leaving. Editing might be active.
+    // If we are currently editing this game, save it now.
     if (editingGameId.value === gameId) {
-       // If we are currently editing this game, save it now.
        const game = event.value?.games.find(g => g.id === gameId)
        const s1 = parseFloat(editingScoreTeam1.value)
        const s2 = parseFloat(editingScoreTeam2.value)
@@ -104,8 +105,16 @@ onUnmounted(() => {
     }
   })
   pendingSaves.value.clear()
+  
+  // Clear pending retry timeouts
+  retryMetadata.value.forEach((meta) => {
+    if (meta.timeoutId) {
+      clearTimeout(meta.timeoutId)
+    }
+  })
+  retryMetadata.value.clear()
+  queuedSaves.value.clear()
 })
-
 onMounted(async () => {
   await loadEvent()
 })
@@ -251,24 +260,60 @@ async function performSave(gameId: string, score1?: number, score2?: number) {
     }
     
   } catch (e: any) {
-    // If we have a queued save, looking at this error might be premature, 
-    // but usually we want to know. 
-    // However, if we're going to retry immediately with new data, maybe suppress?
-    // Use safe approach: show error unless we are about to overwrite it.
-    if (!queuedSaves.value.has(gameId)) {
-        error.value = e.message || 'Failed to save score'
-        // Reload to reset state on error
-        await loadEvent()
+    // Track retry metadata on failure
+    const meta = retryMetadata.value.get(gameId) || { count: 0 }
+    meta.count++
+    retryMetadata.value.set(gameId, meta)
+    
+    // If we have a queued save and haven't exceeded max retries, schedule retry with backoff
+    if (queuedSaves.value.has(gameId) && meta.count < MAX_RETRIES) {
+      // Don't show error yet - will retry with backoff
+      console.warn(`Save failed for game ${gameId}, retry ${meta.count}/${MAX_RETRIES}`)
+    } else if (!queuedSaves.value.has(gameId) || meta.count >= MAX_RETRIES) {
+      // No queued save or max retries exceeded - show error
+      const retryInfo = meta.count >= MAX_RETRIES ? ` (after ${meta.count} attempts)` : ''
+      error.value = (e.message || 'Failed to save score') + retryInfo
+      // Reset retry count and reload to reset state on error
+      retryMetadata.value.delete(gameId)
+      queuedSaves.value.delete(gameId)
+      await loadEvent()
     }
   } finally {
     savingGameIds.value.delete(gameId)
     
-    // Determine if we need to process a queued save
+    // Determine if we need to process a queued save with exponential backoff
     if (queuedSaves.value.has(gameId)) {
-        const next = queuedSaves.value.get(gameId)
-        queuedSaves.value.delete(gameId)
-        // Process next save
+      const next = queuedSaves.value.get(gameId)
+      queuedSaves.value.delete(gameId)
+      
+      const meta = retryMetadata.value.get(gameId) || { count: 0 }
+      
+      // Check if we've exceeded max retries
+      if (meta.count >= MAX_RETRIES) {
+        console.error(`Max retries (${MAX_RETRIES}) exceeded for game ${gameId}, stopping retry attempts`)
+        retryMetadata.value.delete(gameId)
+        return
+      }
+      
+      // Calculate exponential backoff delay: baseDelay * 2^retryCount
+      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, meta.count)
+      
+      // Clear any existing timeout for this game
+      if (meta.timeoutId) {
+        clearTimeout(meta.timeoutId)
+      }
+      
+      // Schedule next save with exponential backoff
+      const timeoutId = window.setTimeout(() => {
         performSave(gameId, next?.score1, next?.score2)
+      }, delay)
+      
+      // Store timeout ID so we can cancel if needed
+      meta.timeoutId = timeoutId
+      retryMetadata.value.set(gameId, meta)
+    } else {
+      // Success path - reset retry count for this game
+      retryMetadata.value.delete(gameId)
     }
   }
 }
@@ -454,6 +499,8 @@ async function exportAsImage() {
     if (isIOS) {
       // Open image in new window - user can long-press to save
       window.open(url, '_blank')
+      // Revoke after a delay to allow the new window to load
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
     } else {
       // Standard download for desktop
       const a = document.createElement('a')
@@ -463,8 +510,7 @@ async function exportAsImage() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-    }
-  } catch (e) {
+    }  } catch (e) {
     console.error('Failed to export image:', e)
     error.value = 'Failed to export image'
   } finally {

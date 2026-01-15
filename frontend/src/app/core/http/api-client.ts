@@ -56,6 +56,14 @@ class ApiCache {
       }
     }
   }
+
+  /**
+   * Clear all cache entries.
+   * Call this when auth state changes to prevent user data leakage.
+   */
+  clear(): void {
+    this.cache.clear()
+  }
 }
 
 class ApiClient {
@@ -118,7 +126,8 @@ class ApiClient {
       // If unauthorized, might need to refresh or re-auth
       if (response.status === 401) {
         error.message = 'Please sign in to continue'
-        // Clear auth state on 401
+        // Clear auth state and cache on 401 to prevent user data leakage
+        this.apiCache.clear()
         if (this.authStore) {
           this.authStore.clearAuth()
         }

@@ -38,6 +38,9 @@ const filterPlayerId = ref<string>('')
 const filterSecondaryPlayerId = ref<string>('')
 const filterRelationship = ref<'teammate' | 'opponent'>('teammate')
 
+// Initialization flag to prevent duplicate loadHistory during setup
+const isInitializing = ref(false)
+
 // Check if current user is the group owner or has ORGANIZER role
 const isOrganizer = computed(() => {
   // First check if user is the group owner
@@ -53,6 +56,8 @@ const isOrganizer = computed(() => {
 })
 
 onMounted(async () => {
+  isInitializing.value = true
+  
   await Promise.all([loadGroup(), loadPlayers(), loadEvents()])
   
   // Check for playerId query param first
@@ -67,11 +72,15 @@ onMounted(async () => {
     }
   }
   
+  isInitializing.value = false
   await loadHistory()
 })
 
 // Watch for filter changes
 watch([filterEventId, filterPlayerId, filterSecondaryPlayerId, filterRelationship], () => {
+  // Skip if still initializing to avoid duplicate loadHistory
+  if (isInitializing.value) return
+  
   // If primary player is cleared, clear secondary too
   if (!filterPlayerId.value) {
     filterSecondaryPlayerId.value = ''

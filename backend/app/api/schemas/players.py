@@ -50,13 +50,12 @@ class PlayerUpdate(BaseModel):
 
 
 class PlayerResponse(BaseModel):
-    """Player response."""
+    """Player response (without sensitive invite token)."""
 
     id: UUID
     display_name: str = Field(alias="displayName")
     notes: Optional[str] = None
     user_id: Optional[UUID] = Field(None, alias="userId")
-    invite_token: Optional[str] = Field(None, alias="inviteToken")
     created_at: datetime
 
     class Config:
@@ -64,10 +63,22 @@ class PlayerResponse(BaseModel):
         populate_by_name = True
 
 
+class PlayerResponseWithToken(PlayerResponse):
+    """Player response including invite token (only for authorized access)."""
+
+    invite_token: Optional[str] = Field(None, alias="inviteToken")
+
+
 class PlayerListResponse(BaseModel):
-    """Response for listing players."""
+    """Response for listing players (without invite tokens)."""
 
     players: list[PlayerResponse]
+
+
+class PlayerListResponseWithToken(BaseModel):
+    """Response for listing players including invite tokens (for authorized access)."""
+
+    players: list[PlayerResponseWithToken]
 
 
 class BulkPlayerCreate(BaseModel):
@@ -80,9 +91,20 @@ class BulkPlayerCreate(BaseModel):
 
 
 class BulkPlayerCreateResponse(BaseModel):
-    """Response for bulk player creation."""
+    """Response for bulk player creation (without invite tokens)."""
 
     created: list[PlayerResponse] = Field(default_factory=list, description="Successfully created players")
+    skipped: list[str] = Field(default_factory=list, description="Names that were skipped (duplicates)")
+    errors: list[str] = Field(default_factory=list, description="Names that failed to create")
+
+    class Config:
+        populate_by_name = True
+
+
+class BulkPlayerCreateResponseWithToken(BaseModel):
+    """Response for bulk player creation including invite tokens (for authorized access)."""
+
+    created: list[PlayerResponseWithToken] = Field(default_factory=list, description="Successfully created players")
     skipped: list[str] = Field(default_factory=list, description="Names that were skipped (duplicates)")
     errors: list[str] = Field(default_factory=list, description="Names that failed to create")
 

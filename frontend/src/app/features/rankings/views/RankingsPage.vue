@@ -207,6 +207,8 @@ async function exportAsImage() {
     if (isIOS) {
       // Open image in new window - user can long-press to save
       window.open(url, '_blank')
+      // Revoke blob URL after a short delay to allow the new window to fetch the blob
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     } else {
       // Standard download for desktop
       const a = document.createElement('a')

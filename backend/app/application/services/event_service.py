@@ -76,10 +76,9 @@ class EventService:
 
         # Check access
         group = await self.groups_repo.get_by_id(event["group_id"])
-        if not await self._is_owner_or_organizer(user_id, group) and not await self.groups_repo.is_member(user_id, group["id"]):
-             # Allow members to view history too, similar to player stats
-             pass
-
+        is_authorized = await self._is_owner_or_organizer(user_id, group) or await self.groups_repo.is_member(user_id, group["id"])
+        if not is_authorized:
+            raise ForbiddenError("Only group members can view rating history")
         # Get actual known starting ratings and end ratings from DB
         updates = await self.rating_updates_repo.list_by_event(event_id)
         # Map player_id -> rating_before
@@ -182,8 +181,7 @@ class EventService:
 
         # Verify all participants exist in group
         if not await self.group_players_repo.check_players_exist(group_id, data.participant_ids):
-             raise BadRequestError("One or more players not found in group")
-
+            raise BadRequestError("One or more players not found in group")
         # Create event
         event = await self.events_repo.create(
             group_id=group_id,
@@ -880,13 +878,16 @@ class EventService:
 
         # Debug: Log the group settings being used for import
         settings = group["settings"]
-        print(f"[DEBUG import_history] Group ID: {group_id}")
-        print(f"[DEBUG import_history] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
-        print(f"[DEBUG import_history] K-Factor: {settings.get('kFactor', 32)}")
-        print(f"[DEBUG import_history] ELO Const: {settings.get('eloConst')}")
-        print(f"[DEBUG import_history] Full settings: {settings}")
-
-        # Read and parse CSV
+        logger.debug(
+            "import_history settings",
+            extra={
+                "group_id": str(group_id),
+                "rating_system": settings.get("ratingSystem", "SERIOUS_ELO"),
+                "k_factor": settings.get("kFactor", 32),
+                "elo_const": settings.get("eloConst"),
+                "settings": settings,
+            }
+        )        # Read and parse CSV
         contents = await file.read()
         if not contents:
             logger.warning("CSV file is empty")

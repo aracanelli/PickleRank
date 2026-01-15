@@ -87,7 +87,8 @@ function getDisplayScore(match: MatchHistoryEntryDto, team: 1 | 2): number | und
 
 // Update pending score
 function updateScore(match: MatchHistoryEntryDto, team: 1 | 2, value: string) {
-  const numValue = value === '' ? undefined : parseFloat(value)
+  const parsed = parseFloat(value)
+  const numValue = value === '' ? undefined : (Number.isNaN(parsed) ? undefined : parsed)
   const existing = pendingChanges.value.get(match.gameId) || {
     scoreTeam1: match.scoreTeam1,
     scoreTeam2: match.scoreTeam2
@@ -107,15 +108,14 @@ function updateScore(match: MatchHistoryEntryDto, team: 1 | 2, value: string) {
     pendingChanges.value.delete(match.gameId)
   }
 }
-
 // Delete a game
 function deleteGame(gameId: string) {
   if (confirm('Are you sure you want to delete this game? This action cannot be undone after saving.')) {
     deletedGameIds.value.add(gameId)
     pendingChanges.value.delete(gameId)
+    pendingSwaps.value.delete(gameId)
   }
 }
-
 // Undo delete
 function undoDelete(gameId: string) {
   deletedGameIds.value.delete(gameId)
@@ -273,32 +273,73 @@ async function saveChanges() {
   isSaving.value = true
   error.value = ''
   
-  try {
-    // Apply game deletions first
-    for (const gameId of deletedGameIds.value) {
+  // Track failures: { gameId, operation, message }
+  const failures: Array<{ gameId: string; operation: string; message: string }> = []
+  
+  // 1. Apply game deletions sequentially
+  for (const gameId of deletedGameIds.value) {
+    try {
       await eventsApi.deleteGame(gameId)
+    } catch (e: any) {
+      failures.push({ gameId, operation: 'delete', message: e.message || 'Delete failed' })
     }
-    
-    // Apply score updates
-    for (const [gameId, changes] of pendingChanges.value) {
-      await eventsApi.updateScore(gameId, {
-        scoreTeam1: changes.scoreTeam1,
-        scoreTeam2: changes.scoreTeam2
+  }
+  
+  // 2. Run score updates and player swaps in parallel
+  const scoreUpdatePromises = Array.from(pendingChanges.value.entries()).map(
+    async ([gameId, changes]) => {
+      try {
+        await eventsApi.updateScore(gameId, {
+          scoreTeam1: changes.scoreTeam1,
+          scoreTeam2: changes.scoreTeam2
+        })
+        return { gameId, success: true as const }
+      } catch (e: any) {
+        return { gameId, success: false as const, message: e.message || 'Score update failed' }
+      }
+    }
+  )
+  
+  const swapPromises = Array.from(pendingSwaps.value.entries()).map(
+    async ([gameId, players]) => {
+      try {
+        await eventsApi.updateGamePlayers(gameId, {
+          team1P1: players.team1P1,
+          team1P2: players.team1P2,
+          team2P1: players.team2P1,
+          team2P2: players.team2P2
+        })
+        return { gameId, success: true as const }
+      } catch (e: any) {
+        return { gameId, success: false as const, message: e.message || 'Player swap failed' }
+      }
+    }
+  )
+  
+  const parallelResults = await Promise.all([...scoreUpdatePromises, ...swapPromises])
+  
+  // Collect failures from parallel operations
+  for (const result of parallelResults) {
+    if (!result.success) {
+      failures.push({ 
+        gameId: result.gameId, 
+        operation: 'update', 
+        message: result.message 
       })
     }
-    
-    // Apply player swaps
-    for (const [gameId, players] of pendingSwaps.value) {
-      await eventsApi.updateGamePlayers(gameId, {
-        team1P1: players.team1P1,
-        team1P2: players.team1P2,
-        team2P1: players.team2P1,
-        team2P2: players.team2P2
-      })
-    }
-    
-    // Recalculation is handled by backend on each change,
-    // but we trigger one final recalculation to ensure consistency
+  }
+  
+  // 3. If any failures, set error and do NOT proceed with success flow
+  if (failures.length > 0) {
+    const failedIds = [...new Set(failures.map(f => f.gameId.slice(0, 8)))]
+    error.value = `Failed operations for games: ${failedIds.join(', ')}. Check console for details.`
+    console.error('Save failures:', failures)
+    isSaving.value = false
+    return
+  }
+  
+  // 4. Only recalculate and emit success if no failures
+  try {
     if (pendingChanges.value.size > 0 || pendingSwaps.value.size > 0 || deletedGameIds.value.size > 0) {
       await groupsApi.recalculateRatings(props.groupId)
     }
@@ -307,7 +348,7 @@ async function saveChanges() {
     emit('saved')
     emit('close')
   } catch (e: any) {
-    error.value = e.message || 'Failed to save changes'
+    error.value = e.message || 'Failed to recalculate ratings'
   } finally {
     isSaving.value = false
   }
@@ -320,6 +361,22 @@ function handleBeforeUnload(e: BeforeUnloadEvent) {
     e.returnValue = ''
   }
 }
+
+// Watch for event changes to set activeRoundIndex to a valid round
+watch(
+  () => props.event?.matches,
+  (matches) => {
+    if (!matches || matches.length === 0) {
+      activeRoundIndex.value = 0
+      return
+    }
+    // Compute sorted unique round indices
+    const rounds = [...new Set(matches.map(m => m.roundIndex))].sort((a, b) => a - b)
+    // Set to first available round, fallback to 0
+    activeRoundIndex.value = rounds.length > 0 ? rounds[0] : 0
+  },
+  { immediate: true }
+)
 
 // Watch for open changes to manage body scroll
 watch(() => props.open, (isOpen) => {

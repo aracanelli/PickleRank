@@ -12,12 +12,13 @@ from app.api.schemas.players import (
     BulkAddPlayersToGroupRequest,
     BulkAddPlayersToGroupResponse,
     BulkPlayerCreate,
-    BulkPlayerCreateResponse,
+    BulkPlayerCreateResponseWithToken,
     GroupPlayerListResponse,
     GroupPlayerResponse,
     PlayerCreate,
-    PlayerListResponse,
+    PlayerListResponseWithToken,
     PlayerResponse,
+    PlayerResponseWithToken,
     PlayerUpdate,
     UpdateGroupPlayerRequest,
 )
@@ -27,7 +28,7 @@ from app.infrastructure.cache import group_cache
 router = APIRouter()
 
 
-@router.post("/players", response_model=PlayerResponse, status_code=201)
+@router.post("/players", response_model=PlayerResponseWithToken, status_code=201)
 @limiter.limit(DEFAULT_RATE)
 async def create_player(
     request: Request,
@@ -40,7 +41,7 @@ async def create_player(
     return await service.create_player(user.user_id, data)
 
 
-@router.post("/players/bulk", response_model=BulkPlayerCreateResponse, status_code=201)
+@router.post("/players/bulk", response_model=BulkPlayerCreateResponseWithToken, status_code=201)
 @limiter.limit(DEFAULT_RATE)
 async def bulk_create_players(
     request: Request,
@@ -53,7 +54,7 @@ async def bulk_create_players(
     return await service.bulk_create_players(user.user_id, data)
 
 
-@router.get("/players", response_model=PlayerListResponse)
+@router.get("/players", response_model=PlayerListResponseWithToken)
 @limiter.limit(DEFAULT_RATE)
 async def list_players(
     request: Request,
@@ -64,10 +65,10 @@ async def list_players(
     """List all global players owned by the user."""
     service = PlayerService(db)
     players = await service.list_players(user.user_id, search)
-    return PlayerListResponse(players=players)
+    return PlayerListResponseWithToken(players=players)
 
 
-@router.get("/players/{player_id}", response_model=PlayerResponse)
+@router.get("/players/{player_id}", response_model=PlayerResponseWithToken)
 @limiter.limit(DEFAULT_RATE)
 async def get_player(
     request: Request,
@@ -80,7 +81,7 @@ async def get_player(
     return await service.get_player(user.user_id, player_id)
 
 
-@router.patch("/players/{player_id}", response_model=PlayerResponse)
+@router.patch("/players/{player_id}", response_model=PlayerResponseWithToken)
 @limiter.limit(DEFAULT_RATE)
 async def update_player(
     request: Request,

@@ -49,7 +49,7 @@ const sortedHistory = computed(() => {
       // Map drill down history to the format expected by the chart
       return drillDownHistory.value.map(h => ({
           rating: h.rating,
-          createdAt: new Date().toISOString(), // Dummy date, we use labels
+          createdAt: undefined, // No date for drill-down entries
           eventName: h.label,
           delta: h.delta || 0,
           eventId: undefined, // No further drill down
@@ -67,9 +67,7 @@ const sortedHistory = computed(() => {
   if (history.length > 0) {
       const first = history[0]
       // rating_before = rating_after - delta
-      const startRating = first.rating - first.delta
-      
-      // Create a "start" point slightly before the first event
+      const startRating = first.rating - (first.delta ?? 0)      // Create a "start" point slightly before the first event
       const startDate = new Date(first.createdAt)
       startDate.setMinutes(startDate.getMinutes() - 1) 
 
@@ -93,7 +91,7 @@ const chartData = computed(() => {
         if (isDrillDown.value) {
             return h.eventName // Use label (e.g., "Round 1")
         }
-        const date = new Date(h.createdAt);
+        const date = h.createdAt ? new Date(h.createdAt) : new Date();
         return date.toLocaleDateString();
     }),
     datasets: [
@@ -138,6 +136,10 @@ const chartOptions = computed(() => ({
         title: function(context: any) {
              const index = context[0].dataIndex;
              const historyItem = sortedHistory.value[index];
+             // Skip date for drill-down entries or when createdAt is missing
+             if ((historyItem as any).isDrillDown || !historyItem.createdAt) {
+                 return historyItem.eventName || '';
+             }
              const date = new Date(historyItem.createdAt).toLocaleDateString();
              return historyItem.eventName ? `${historyItem.eventName} (${date})` : date;
         },
@@ -194,6 +196,7 @@ const isDrillDown = ref(false)
 const isChartLoading = ref(false)
 const drillDownHistory = ref<any[]>([])
 const drillDownEventName = ref('')
+const drillDownError = ref('')
 
 async function handleChartClick(item: any) {
     if (isDrillDown.value || isChartLoading.value) return 
@@ -201,6 +204,7 @@ async function handleChartClick(item: any) {
     if (item && item.eventId) {
         try {
             isChartLoading.value = true
+            drillDownError.value = '' // Clear any previous error
             drillDownEventName.value = item.eventName || 'Event'
             
             // Fetch detailed history
@@ -211,8 +215,9 @@ async function handleChartClick(item: any) {
                 drillDownHistory.value = playerHistory
                 isDrillDown.value = true
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Failed to load event history", e)
+            drillDownError.value = e?.message || 'Failed to load event history'
         } finally {
             isChartLoading.value = false
         }
@@ -223,6 +228,7 @@ function exitDrillDown() {
     isDrillDown.value = false
     drillDownHistory.value = []
     drillDownEventName.value = ''
+    drillDownError.value = ''
 }
 
 onMounted(async () => {
@@ -330,6 +336,9 @@ function formatRating(rating: number): string {
                               Back
                           </BaseButton>
                       </div>
+                  </div>
+                  <div v-if="drillDownError" class="drill-down-error">
+                      {{ drillDownError }}
                   </div>
                   <div class="chart-area">
                       <Line :data="chartData" :options="chartOptions as any" />
@@ -593,6 +602,17 @@ function formatRating(rating: number): string {
     align-items: center;
     justify-content: center;
     backdrop-filter: blur(2px);
+}
+
+.drill-down-error {
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: var(--radius-md);
+    color: var(--color-error);
+    font-size: 0.875rem;
+    text-align: center;
 }
 
 .chart-area {
