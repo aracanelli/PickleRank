@@ -803,6 +803,15 @@ class EventService:
         # Update event status
         await self.events_repo.update_status(event_id, "COMPLETED")
 
+        # Charge subs if payment tracking is enabled
+        try:
+            from app.application.services.payment_service import PaymentService
+            payment_service = PaymentService(self.conn)
+            await payment_service.charge_subs_for_event(event_id, event["group_id"], user_id)
+        except Exception as e:
+            # Log but don't fail event completion if payment charging fails
+            print(f"[WARNING] Failed to charge subs for event {event_id}: {e}")
+
         return CompleteResponse(
             status=EventStatus.COMPLETED,
             ratingUpdates=[

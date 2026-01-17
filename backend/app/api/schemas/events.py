@@ -111,6 +111,7 @@ class EventCreate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     starts_at: datetime = Field(default_factory=datetime.now, alias="startsAt")
+    courts: int = Field(ge=1, le=10)
     rounds: int = Field(ge=1, le=20)
     participant_ids: List[UUID] = Field(alias="participantIds")
 

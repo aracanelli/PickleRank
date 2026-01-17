@@ -32,6 +32,11 @@ export interface UpdateGroupSettingsRequest {
   autoRelaxStep?: number
   autoRelaxMaxEloDiff?: number
   defaultRounds?: number
+  paymentSettings?: {
+    trackPayments: boolean
+    subFeePerAttendance: number
+    currency: string
+  }
 }
 
 export const groupsApi = {

@@ -14,6 +14,31 @@ class RatingSystem(str, Enum):
     RACS_ELO = "RACS_ELO"
 
 
+class PaymentSettings(BaseModel):
+    """Payment tracking settings for sub players."""
+
+    track_payments: bool = Field(
+        default=False, 
+        alias="trackPayments",
+        description="Whether to track sub player payments"
+    )
+    sub_fee_per_attendance: float = Field(
+        default=5.0, 
+        ge=0, 
+        le=1000,
+        alias="subFeePerAttendance",
+        description="Amount charged per sub attendance"
+    )
+    currency: str = Field(
+        default="USD", 
+        max_length=3,
+        description="Currency code (e.g., USD, EUR)"
+    )
+
+    class Config:
+        populate_by_name = True
+
+
 class GroupSettings(BaseModel):
     """Group configuration settings."""
 
@@ -31,6 +56,7 @@ class GroupSettings(BaseModel):
     auto_relax_step: float = Field(default=0.01, ge=0.005, le=0.1, alias="autoRelaxStep")
     auto_relax_max_elo_diff: float = Field(default=0.25, ge=0.1, le=0.5, alias="autoRelaxMaxEloDiff")
     default_rounds: int = Field(default=1, ge=1, le=10, alias="defaultRounds")
+    payment_settings: Optional[PaymentSettings] = Field(default=None, alias="paymentSettings")
 
     class Config:
         populate_by_name = True
@@ -67,6 +93,7 @@ class GroupSettingsUpdate(BaseModel):
     auto_relax_step: Optional[float] = Field(None, ge=0.005, le=0.1, alias="autoRelaxStep")
     auto_relax_max_elo_diff: Optional[float] = Field(None, ge=0.1, le=0.5, alias="autoRelaxMaxEloDiff")
     default_rounds: Optional[int] = Field(None, ge=1, le=10, alias="defaultRounds")
+    payment_settings: Optional[PaymentSettings] = Field(None, alias="paymentSettings")
 
     class Config:
         populate_by_name = True

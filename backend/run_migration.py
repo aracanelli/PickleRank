@@ -76,6 +76,33 @@ async def run_migrations():
             ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE
         """)
         
+        # 6. Create sub_payments table for payment tracking
+        print("Creating sub_payments table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS sub_payments (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                group_player_id UUID NOT NULL REFERENCES group_players(id) ON DELETE CASCADE,
+                amount NUMERIC(10, 2) NOT NULL,
+                event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+                payment_type TEXT NOT NULL CHECK (payment_type IN ('ATTENDANCE', 'PAYMENT', 'ADJUSTMENT')),
+                notes TEXT,
+                created_by UUID REFERENCES users(id),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        
+        # Indexes for sub_payments
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_payments_group ON sub_payments(group_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_payments_player ON sub_payments(group_player_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sub_payments_event ON sub_payments(event_id)
+        """)
+        
         print("Migrations complete.")
 
     await pool.close()

@@ -6,7 +6,7 @@ import type { GroupDto } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import { ArrowLeft, Target, PartyPopper, Rocket, AlertTriangle, RefreshCw, Copy, Archive } from 'lucide-vue-next'
+import { ArrowLeft, Target, PartyPopper, Rocket, AlertTriangle, RefreshCw, Copy, Archive, DollarSign } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -33,6 +33,11 @@ const autoRelaxEloDiff = ref(true)
 const autoRelaxStep = ref(0.01)
 const autoRelaxMaxEloDiff = ref(0.25)
 const defaultRounds = ref(1)
+
+// Payment settings
+const trackPayments = ref(false)
+const subFeePerAttendance = ref(5.0)
+const paymentCurrency = ref('USD')
 
 onMounted(async () => {
   await loadGroup()
@@ -62,6 +67,12 @@ async function loadGroup() {
     autoRelaxStep.value = s.autoRelaxStep
     autoRelaxMaxEloDiff.value = s.autoRelaxMaxEloDiff
     defaultRounds.value = s.defaultRounds || 1
+    // Load payment settings
+    if (s.paymentSettings) {
+      trackPayments.value = s.paymentSettings.trackPayments || false
+      subFeePerAttendance.value = s.paymentSettings.subFeePerAttendance || 5.0
+      paymentCurrency.value = s.paymentSettings.currency || 'USD'
+    }
   } catch (e: any) {
     error.value = e.message || 'Failed to load group'
   } finally {
@@ -130,7 +141,12 @@ async function saveSettings() {
       autoRelaxEloDiff: autoRelaxEloDiff.value,
       autoRelaxStep: autoRelaxStep.value,
       autoRelaxMaxEloDiff: autoRelaxMaxEloDiff.value,
-      defaultRounds: defaultRounds.value
+      defaultRounds: defaultRounds.value,
+      paymentSettings: {
+        trackPayments: trackPayments.value,
+        subFeePerAttendance: subFeePerAttendance.value,
+        currency: paymentCurrency.value
+      }
     })
     success.value = 'Settings saved successfully!'
     setTimeout(() => success.value = '', 3000)
@@ -353,6 +369,41 @@ async function duplicateGroup() {
             <div class="form-group">
               <label class="label">Max ELO Diff</label>
               <input type="number" v-model.number="autoRelaxMaxEloDiff" class="input" min="0.1" max="0.5" step="0.05" />
+            </div>
+          </div>
+        </BaseCard>
+
+        <!-- Payment Settings -->
+        <BaseCard title="Payment Tracking">
+          <div class="payment-header">
+            <DollarSign :size="20" class="payment-icon" />
+            <p class="payment-desc">Track sub player attendance fees and payments.</p>
+          </div>
+          
+          <div class="toggle-group">
+            <label class="toggle">
+              <input type="checkbox" v-model="trackPayments" />
+              <span class="toggle-label">Enable payment tracking for subs</span>
+            </label>
+          </div>
+
+          <div v-if="trackPayments" class="payment-fields">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="label">Fee per Attendance</label>
+                <input type="number" v-model.number="subFeePerAttendance" class="input" min="0" max="1000" step="0.50" />
+                <span class="hint">Amount charged each time a sub attends an event</span>
+              </div>
+              <div class="form-group">
+                <label class="label">Currency</label>
+                <select v-model="paymentCurrency" class="input">
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="CAD">CAD ($)</option>
+                  <option value="AUD">AUD ($)</option>
+                </select>
+              </div>
             </div>
           </div>
         </BaseCard>
@@ -667,6 +718,30 @@ form > * {
   flex-shrink: 0;
   position: relative;
   z-index: 2;
+}
+
+/* Payment Settings */
+.payment-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.payment-icon {
+  color: var(--color-primary);
+}
+
+.payment-desc {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.payment-fields {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
 }
 </style>
 

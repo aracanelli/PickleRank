@@ -1,4 +1,10 @@
 // Group DTOs
+export interface PaymentSettings {
+  trackPayments: boolean
+  subFeePerAttendance: number
+  currency: string
+}
+
 export interface GroupSettings {
   ratingSystem: 'SERIOUS_ELO' | 'CATCH_UP' | 'RACS_ELO'
   initialRating: number
@@ -12,6 +18,7 @@ export interface GroupSettings {
   autoRelaxStep: number
   autoRelaxMaxEloDiff: number
   defaultRounds?: number
+  paymentSettings?: PaymentSettings
 }
 
 export interface GroupDto {
@@ -256,5 +263,47 @@ export interface PlayerStats {
   advanced?: AdvancedStats
 }
 
+// Payment DTOs
+export type PaymentType = 'ATTENDANCE' | 'PAYMENT' | 'ADJUSTMENT'
 
+export interface SubBalanceDto {
+  groupPlayerId: string
+  playerId: string
+  displayName: string
+  membershipType: MembershipType
+  totalAttendances: number
+  totalCharges: number
+  totalPayments: number
+  balance: number
+  lastPaymentDate?: string
+}
 
+export interface SubBalanceListResponse {
+  balances: SubBalanceDto[]
+  totalOwed: number
+}
+
+export interface PaymentHistoryItemDto {
+  id: string
+  amount: number
+  paymentType: PaymentType
+  eventId?: string
+  eventName?: string
+  notes?: string
+  createdAt: string
+}
+
+export interface PaymentHistoryResponse {
+  groupPlayerId: string
+  displayName: string
+  history: PaymentHistoryItemDto[]
+  currentBalance: number
+}
+
+export interface PaymentResponseDto {
+  id: string
+  amount: number
+  paymentType: PaymentType
+  newBalance: number
+  createdAt: string
+}

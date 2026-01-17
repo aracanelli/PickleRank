@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { 
   ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
-  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity
+  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity, DollarSign
 } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -308,6 +308,12 @@ function viewPlayerHistory(player: GroupPlayerDto) {
           <div class="quick-action">
             <div class="qa-icon icon-container icon-container-lg"><Upload :size="28" /></div>
             <span class="qa-label">Import History</span>
+          </div>
+        </BaseCard>
+        <BaseCard v-if="isOrganizer && group.settings.paymentSettings?.trackPayments" clickable @click="router.push(`/groups/${groupId}/payments`)">
+          <div class="quick-action">
+            <div class="qa-icon icon-container icon-container-lg"><DollarSign :size="28" /></div>
+            <span class="qa-label">Payments</span>
           </div>
         </BaseCard>
         <BaseCard v-if="isOrganizer" clickable @click="router.push(`/groups/${groupId}/events/new`)">

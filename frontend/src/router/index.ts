@@ -79,6 +79,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/groups/:groupId/payments',
+      name: 'payments',
+      component: () => import('@/app/features/payments/views/PaymentsPage.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/link-player',
       name: 'link-player',
       component: () => import('@/app/features/players/views/LinkPlayerPage.vue'),
