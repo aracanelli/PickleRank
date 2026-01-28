@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { 
   ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
-  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity, DollarSign
+  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity, DollarSign, RefreshCw
 } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
+import { api } from '@/app/core/http/api-client'
 import type { GroupDto, GroupPlayerDto, EventListItemDto } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
@@ -33,6 +34,7 @@ const showImportModal = ref(false)
 const importFile = ref<File | null>(null)
 const isImporting = ref(false)
 const importResult = ref<{ eventsCreated: number; gamesImported: number } | null>(null)
+const isRefreshing = ref(false)
 
 onMounted(async () => {
   await Promise.all([loadGroup(), loadPlayers(), loadPendingEvents()])
@@ -235,6 +237,20 @@ function closeImportModal() {
 function viewPlayerHistory(player: GroupPlayerDto) {
   router.push(`/groups/${groupId.value}/players/${player.id}`)
 }
+
+// Refresh all data with cache invalidation
+async function refreshAllData() {
+  isRefreshing.value = true
+  try {
+    // Invalidate all cached data for this group
+    api.invalidateCache(`/api/groups/${groupId.value}`)
+    api.invalidateCache(`/api/groups/${groupId.value}/players`)
+    api.invalidateCache(`/api/groups/${groupId.value}/rankings`)
+    await Promise.all([loadGroup(), loadPlayers(), loadPendingEvents()])
+  } finally {
+    isRefreshing.value = false
+  }
+}
 </script>
 
 <template>
@@ -250,16 +266,28 @@ function viewPlayerHistory(player: GroupPlayerDto) {
             <router-link to="/groups" class="back-link">
               <ArrowLeft :size="16" /><span class="back-text">Back</span>
             </router-link>
-            <div class="header-actions" v-if="isOrganizer">
-              <button class="glass-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
-                <Settings :size="18" />
+            <div class="header-actions">
+              <button 
+                class="glass-btn" 
+                :class="{ 'spinning': isRefreshing }"
+                :disabled="isRefreshing"
+                @click="refreshAllData" 
+                title="Refresh"
+              >
+                <RefreshCw :size="18" />
               </button>
-              <button class="new-event-btn" @click="router.push(`/groups/${groupId}/events/new`)">
-                <Plus :size="16" />
-                <span>New Event</span>
-              </button>
+              <template v-if="isOrganizer">
+                <button class="glass-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
+                  <Settings :size="18" />
+                </button>
+                <button class="new-event-btn" @click="router.push(`/groups/${groupId}/events/new`)">
+                  <Plus :size="16" />
+                  <span>New Event</span>
+                </button>
+              </template>
             </div>
           </div>
+
           <!-- Desktop: original back link -->
           <router-link to="/groups" class="back-link desktop-only">
             <ArrowLeft :size="16" /> Back to All Groups
@@ -298,6 +326,15 @@ function viewPlayerHistory(player: GroupPlayerDto) {
             <span class="qa-label">History</span>
           </div>
         </BaseCard>
+        <BaseCard clickable :class="{ 'refreshing': isRefreshing }" @click="refreshAllData">
+          <div class="quick-action">
+            <div class="qa-icon icon-container icon-container-lg" :class="{ 'spinning': isRefreshing }">
+              <RefreshCw :size="28" />
+            </div>
+            <span class="qa-label">{{ isRefreshing ? 'Refreshing...' : 'Refresh' }}</span>
+          </div>
+        </BaseCard>
+
         <BaseCard v-if="myPlayer" clickable @click="router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
           <div class="quick-action">
             <div class="qa-icon icon-container icon-container-lg"><Activity :size="28" /></div>
@@ -584,6 +621,26 @@ function viewPlayerHistory(player: GroupPlayerDto) {
 .quick-action:active .qa-label {
   color: var(--color-text-primary);
 }
+
+/* Refresh spinning animation */
+.qa-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+.qa-icon.spinning svg {
+  animation: none; /* Prevent double animation */
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.refreshing {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 
 .section {
   margin-bottom: var(--spacing-xl);

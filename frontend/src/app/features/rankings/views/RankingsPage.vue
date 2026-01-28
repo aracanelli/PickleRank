@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ArrowLeft, Trophy, Medal, Download, TrendingUp, TrendingDown, ChevronUp, ChevronDown, Minus } from 'lucide-vue-next'
+import { ArrowLeft, Trophy, Medal, Download, TrendingUp, TrendingDown, ChevronUp, ChevronDown, Minus, RefreshCw } from 'lucide-vue-next'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
+import { api } from '@/app/core/http/api-client'
 import type { RankingEntryDto, GroupDto, GroupPlayerDto } from '@/app/core/models/dto'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
@@ -34,6 +35,7 @@ const filterType = ref<'permanent' | 'all'>('permanent')
 
 // Export functionality
 const isExporting = ref(false)
+const isRefreshing = ref(false)
 const shareableRef = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
@@ -58,9 +60,18 @@ async function loadData() {
   }
 }
 
-// Refresh function for pull-to-refresh
+// Refresh function for pull-to-refresh and manual refresh button
 async function refreshData() {
-  await loadData()
+  isRefreshing.value = true
+  try {
+    // Invalidate all cached data for this group
+    api.invalidateCache(`/api/groups/${groupId.value}`)
+    api.invalidateCache(`/api/groups/${groupId.value}/rankings`)
+    api.invalidateCache(`/api/groups/${groupId.value}/players`)
+    await loadData()
+  } finally {
+    isRefreshing.value = false
+  }
 }
 
 // Helper to get rating delta for a player
@@ -251,23 +262,35 @@ async function exportAsImage() {
       </div>
     </div>
 
-    <!-- Filter Tabs -->
-    <div class="filter-tabs" v-if="!isLoading && rankings.length > 0">
+    <!-- Filter Tabs with Refresh Button -->
+    <div class="filter-bar" v-if="!isLoading && rankings.length > 0">
+      <div class="filter-tabs">
+        <button 
+          class="filter-tab" 
+          :class="{ active: filterType === 'permanent' }"
+          @click="filterType = 'permanent'"
+        >
+          Permanent
+        </button>
+        <button 
+          class="filter-tab" 
+          :class="{ active: filterType === 'all' }"
+          @click="filterType = 'all'"
+        >
+          All Players
+        </button>
+      </div>
       <button 
-        class="filter-tab" 
-        :class="{ active: filterType === 'permanent' }"
-        @click="filterType = 'permanent'"
+        class="refresh-btn mobile-only"
+        :class="{ spinning: isRefreshing }"
+        :disabled="isRefreshing"
+        @click="refreshData"
+        title="Refresh rankings"
       >
-        Permanent
-      </button>
-      <button 
-        class="filter-tab" 
-        :class="{ active: filterType === 'all' }"
-        @click="filterType = 'all'"
-      >
-        All Players
+        <RefreshCw :size="18" />
       </button>
     </div>
+
 
     <!-- Mobile: Skeleton Loader, Desktop: Spinner -->
     <SkeletonLoader v-if="isLoading" :rows="5" class="mobile-skeleton" />
@@ -479,11 +502,19 @@ async function exportAsImage() {
 .text-slate-400 { color: #94a3b8; }
 .text-amber-700 { color: #b45309; }
 
+/* Filter Bar (contains tabs + refresh button) */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
 /* Filter Tabs */
 .filter-tabs {
   display: flex;
   gap: var(--spacing-xs);
-  margin-bottom: var(--spacing-lg);
+  flex: 1;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   padding: 4px;
@@ -509,6 +540,43 @@ async function exportAsImage() {
   background: var(--color-primary);
   color: white;
 }
+
+/* Refresh Button */
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.refresh-btn.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 
 .error-message {
   padding: var(--spacing-lg);
@@ -853,11 +921,21 @@ async function exportAsImage() {
   display: none;
 }
 
+/* Mobile-only utility: hidden on desktop, visible on mobile */
+.mobile-only {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .mobile-skeleton {
     display: block;
   }
+  
+  .mobile-only {
+    display: flex;
+  }
 }
+
 
 /* Hidden container for export - positioned off-screen but still renderable */
 .export-hidden-container {

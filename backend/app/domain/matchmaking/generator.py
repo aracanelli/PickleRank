@@ -58,20 +58,25 @@ class ScheduleGenerator:
         """Generate a random seed."""
         return hashlib.sha256(str(time.time()).encode()).hexdigest()[:12]
 
+    # Maximum seed retries for hard constraint failures before giving up
+    MAX_SEED_RETRIES = 3
+
     def generate(self) -> GenerationResult:
         """
         Generate a complete schedule.
 
         Uses iterative relaxation if rating constraint cannot be satisfied.
+        Also retries with different seeds for hard constraint failures.
         """
         start_time = time.time()
         attempts = 0
         relax_iterations = 0
+        seed_retries = 0
         current_elo_diff = self.config.elo_diff
 
         while True:
-            # Set seed for reproducibility
-            random.seed(f"{self.seed}_{relax_iterations}")
+            # Set seed for reproducibility, incorporating retry count for variety
+            random.seed(f"{self.seed}_{relax_iterations}_{seed_retries}")
 
             games, success, failure_reason = self._try_generate(current_elo_diff)
             attempts += 1
@@ -86,6 +91,7 @@ class ScheduleGenerator:
                         "elo_diff_configured": self.config.elo_diff,
                         "elo_diff_used": current_elo_diff,
                         "relax_iterations": relax_iterations,
+                        "seed_retries": seed_retries,
                         "attempts": attempts,
                         "duration_ms": duration_ms,
                         "constraint_toggles": {
@@ -101,6 +107,7 @@ class ScheduleGenerator:
             if self.config.auto_relax_elo_diff and failure_reason == 'rating':
                 current_elo_diff += self.config.auto_relax_step
                 relax_iterations += 1
+                seed_retries = 0  # Reset seed retries when relaxing ELO
 
                 if current_elo_diff > self.config.auto_relax_max_elo_diff:
                     duration_ms = int((time.time() - start_time) * 1000)
@@ -112,6 +119,7 @@ class ScheduleGenerator:
                             "elo_diff_configured": self.config.elo_diff,
                             "elo_diff_used": current_elo_diff,
                             "relax_iterations": relax_iterations,
+                            "seed_retries": seed_retries,
                             "attempts": attempts,
                             "duration_ms": duration_ms,
                             "constraint_toggles": {
@@ -122,8 +130,12 @@ class ScheduleGenerator:
                         },
                         error_message=f"Could not generate schedule within rating constraints. Max elo diff {self.config.auto_relax_max_elo_diff} exceeded.",
                     )
+            elif failure_reason == 'hard_constraints' and seed_retries < self.MAX_SEED_RETRIES:
+                # Retry with different seed before giving up on hard constraints
+                seed_retries += 1
+                continue
             else:
-                # Failure due to hard constraints or auto-relax disabled
+                # Failure due to hard constraints (after retries) or auto-relax disabled
                 duration_ms = int((time.time() - start_time) * 1000)
                 error_msg = "Could not generate schedule with current constraints."
                 if failure_reason == 'hard_constraints':
@@ -139,6 +151,7 @@ class ScheduleGenerator:
                         "elo_diff_configured": self.config.elo_diff,
                         "elo_diff_used": current_elo_diff,
                         "relax_iterations": relax_iterations,
+                        "seed_retries": seed_retries,
                         "attempts": attempts,
                         "duration_ms": duration_ms,
                         "constraint_toggles": {

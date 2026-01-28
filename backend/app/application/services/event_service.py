@@ -379,8 +379,8 @@ class EventService:
             auto_relax_max_elo_diff=settings.get("autoRelaxMaxEloDiff", 0.25),
         )
 
-        # Generate seed
-        seed = None if new_seed else str(event_id)
+        # Always use random seed for variety - regenerate is just for getting different games
+        seed = None
 
         # Generate schedule
         generator = ScheduleGenerator(
