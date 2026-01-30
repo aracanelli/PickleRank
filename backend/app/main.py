@@ -89,7 +89,8 @@ def create_app() -> FastAPI:
         description="API for pickleball event matchmaking and ranking",
         version="1.0.0",
         docs_url="/docs" if (not settings or not settings.is_production) else None,
-        redoc_url="/redoc" if (not settings or not settings.is_production) else None,        lifespan=lifespan,
+        redoc_url="/redoc" if (not settings or not settings.is_production) else None,
+        lifespan=lifespan,
     )
 
     # Rate limiting
