@@ -49,6 +49,11 @@ export const playersApi = {
 
   async linkPlayer(token: string): Promise<PlayerDto> {
     return api.post(`/api/players/link?token=${encodeURIComponent(token)}`, {})
+  },
+
+  async unlinkPlayer(playerId: string, regenerateToken: boolean = true): Promise<PlayerDto> {
+    const params = new URLSearchParams({ regenerate_token: String(regenerateToken) })
+    return api.post(`/api/players/${playerId}/unlink?${params}`, {})
   }
 }
 

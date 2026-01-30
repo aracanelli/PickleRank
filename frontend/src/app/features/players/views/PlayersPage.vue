@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { playersApi } from '../services/players.api'
 import type { PlayerDto } from '@/app/core/models/dto'
-import { Users, Search, Plus, FileText, Link, UserPlus, Copy, Check } from 'lucide-vue-next'
+import { Users, Search, Plus, FileText, Link, Copy, Check, Unlink } from 'lucide-vue-next'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import BaseInput from '@/app/core/ui/components/BaseInput.vue'
@@ -30,6 +30,11 @@ const showInviteModal = ref(false)
 const inviteLink = ref('')
 const invitingPlayerName = ref('')
 const copySuccess = ref(false)
+
+// Unlink state
+const showUnlinkModal = ref(false)
+const unlinkingPlayer = ref<PlayerDto | null>(null)
+const isUnlinking = ref(false)
 
 onMounted(async () => {
   await loadPlayers()
@@ -105,6 +110,35 @@ function handleSearch() {
   searchTimeout = setTimeout(() => loadPlayers(), 300)
 }
 
+function confirmUnlink(player: PlayerDto) {
+  unlinkingPlayer.value = player
+  showUnlinkModal.value = true
+}
+
+async function unlinkPlayer() {
+  if (!unlinkingPlayer.value) return
+  
+  isUnlinking.value = true
+  try {
+    const updatedPlayer = await playersApi.unlinkPlayer(unlinkingPlayer.value.id)
+    
+    // Manually update local state
+    const idx = players.value.findIndex(p => p.id === updatedPlayer.id)
+    if (idx !== -1) {
+      players.value[idx] = updatedPlayer
+    }
+
+    showUnlinkModal.value = false
+    unlinkingPlayer.value = null
+    // We can skip full reload if we just updated the specific player
+    // await loadPlayers() 
+  } catch (e: any) {
+    error.value = e.message || 'Failed to unlink player'
+  } finally {
+    isUnlinking.value = false
+  }
+}
+
 
 </script>
 
@@ -174,9 +208,14 @@ function handleSearch() {
                 <span class="player-date">Added {{ formatDate(player.createdAt) }}</span>
                 
                 <div class="link-actions">
-                    <span v-if="player.userId" class="status-badge linked" title="Linked to user">
-                        <UserPlus :size="12"/> Linked
-                    </span>
+                    <button 
+                        v-if="player.userId" 
+                        @click="confirmUnlink(player)" 
+                        class="unlink-btn" 
+                        title="Unlink User"
+                    >
+                        <Unlink :size="12" /> Unlink
+                    </button>
                     <button v-else @click="generateInvite(player)" class="link-btn" title="Generate Link">
                         <Link :size="12" /> Link
                     </button>
@@ -234,6 +273,29 @@ function handleSearch() {
       </div>
       <template #footer>
         <BaseButton @click="showInviteModal = false">Close</BaseButton>
+      </template>
+    </Modal>
+
+    <!-- Unlink Confirmation Modal -->
+    <Modal :open="showUnlinkModal" title="Unlink Player" @close="showUnlinkModal = false">
+      <div class="unlink-content">
+        <div class="unlink-icon-container">
+          <Unlink :size="32" class="unlink-icon" />
+        </div>
+        <p class="unlink-message">
+          Are you sure you want to unlink <strong>{{ unlinkingPlayer?.displayName }}</strong> from their user account?
+        </p>
+        <p class="unlink-note">
+          A new invite link will be generated so they can re-link if needed.
+        </p>
+      </div>
+      <template #footer>
+        <BaseButton variant="secondary" @click="showUnlinkModal = false" :disabled="isUnlinking">
+          Cancel
+        </BaseButton>
+        <BaseButton variant="danger" @click="unlinkPlayer" :loading="isUnlinking">
+          <Unlink :size="16" /> Unlink
+        </BaseButton>
       </template>
     </Modal>
   </div>
@@ -502,6 +564,79 @@ function handleSearch() {
   color: var(--color-text-primary);
   font-family: var(--font-mono);
   font-size: 0.875rem;
+}
+
+/* Unlink button and modal styles */
+.unlink-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--color-primary);
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid var(--color-primary);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.unlink-btn:hover {
+    background: rgba(16, 185, 129, 0.2);
+}
+
+.unlink-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+}
+
+.unlink-icon-container {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-full);
+}
+
+.unlink-icon {
+  color: var(--color-error);
+}
+
+.unlink-message {
+  font-size: 1rem;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+.unlink-note {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  line-height: 1.5;
+}
+
+/* Mobile-first responsive adjustments */
+@media (max-width: 480px) {
+  .unlink-content {
+    padding: var(--spacing-sm) 0;
+  }
+  
+  .unlink-icon-container {
+    width: 56px;
+    height: 56px;
+  }
+  
+  .unlink-message {
+    font-size: 0.9375rem;
+  }
 }
 </style>
 

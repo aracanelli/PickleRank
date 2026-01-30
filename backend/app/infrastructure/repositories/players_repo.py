@@ -145,6 +145,56 @@ class PlayersRepository:
         )
         return result == "DELETE 1"
 
+    async def clear_user_link(self, player_id: UUID, regenerate_token: bool = True) -> Optional[Dict[str, Any]]:
+        """Clear the user_id link from a player and optionally regenerate invite token."""
+        import secrets
+        new_token = secrets.token_urlsafe(16) if regenerate_token else None
+        
+        if regenerate_token:
+            row = await self.conn.fetchrow(
+                """
+                UPDATE players
+                SET user_id = NULL, invite_token = $2, updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, owner_user_id, display_name, notes, user_id, invite_token, created_at, updated_at
+                """,
+                player_id,
+                new_token,
+            )
+        else:
+            row = await self.conn.fetchrow(
+                """
+                UPDATE players
+                SET user_id = NULL, updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, owner_user_id, display_name, notes, user_id, invite_token, created_at, updated_at
+                """,
+                player_id,
+            )
+        return dict(row) if row else None
+
+    async def get_players_by_user_in_groups(
+        self, user_id: str, group_ids: List[UUID]
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all players linked to a user that are members of specific groups.
+        Used to check for conflicts when linking a user to a new player.
+        """
+        if not group_ids:
+            return []
+        
+        rows = await self.conn.fetch(
+            """
+            SELECT DISTINCT p.id, p.display_name, gp.group_id
+            FROM players p
+            JOIN group_players gp ON gp.player_id = p.id
+            WHERE p.user_id = $1 AND gp.group_id = ANY($2)
+            """,
+            UUID(user_id),
+            group_ids,
+        )
+        return [dict(row) for row in rows]
+
     async def create_bulk(
         self, owner_user_id: str, names: List[str]
     ) -> tuple[List[Dict[str, Any]], List[str]]:
@@ -456,6 +506,16 @@ class GroupPlayersRepository:
             UUID(user_id)
         )
         return val is not None
+
+    async def get_groups_for_player(self, player_id: UUID) -> List[UUID]:
+        """Get all group IDs that a player belongs to."""
+        rows = await self.conn.fetch(
+            """
+            SELECT group_id FROM group_players WHERE player_id = $1
+            """,
+            player_id,
+        )
+        return [row["group_id"] for row in rows]
 
     async def is_organizer(self, user_id: str, group_id: UUID) -> bool:
         """Check if a user is an organizer in a group (has ORGANIZER role)."""

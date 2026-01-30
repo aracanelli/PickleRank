@@ -453,10 +453,48 @@ class PlayerService:
                  return self._to_player_response(player)
              else:
                  raise ConflictError("Player already linked to a user")
+        
+        # Check for conflicts: is user already linked to another player in any group this player belongs to?
+        player_groups = await self.group_players_repo.get_groups_for_player(player["id"])
+        if player_groups:
+            conflicts = await self.players_repo.get_players_by_user_in_groups(user_id, player_groups)
+            if conflicts:
+                # User is already linked to another player in one of these groups
+                conflict_names = [c["display_name"] for c in conflicts]
+                raise ConflictError(
+                    f"You are already linked to player(s) '{', '.join(conflict_names)}' in this group. "
+                    "A user can only be linked to one player per group."
+                )
              
         updated = await self.players_repo.update(player["id"], user_id=user_id, invite_token=None)
         
         return self._to_player_response(updated)
+
+    async def unlink_player(
+        self, user_id: str, player_id: UUID, regenerate_token: bool = True
+    ) -> PlayerResponseWithToken:
+        """
+        Unlink a user from a player.
+        Only the owner of the player can unlink.
+        Optionally regenerates the invite token for re-linking.
+        """
+        # Verify ownership
+        player = await self.players_repo.get_by_id(player_id)
+        
+        if not player:
+            raise NotFoundError("Player", str(player_id))
+        
+        if str(player["owner_user_id"]) != user_id:
+            raise ForbiddenError("You don't own this player")
+        
+        # Check if player is linked
+        if not player["user_id"]:
+            raise BadRequestError("Player is not linked to any user")
+        
+        # Clear the link and optionally regenerate token
+        updated = await self.players_repo.clear_user_link(player_id, regenerate_token)
+        
+        return self._to_player_response_with_token(updated)
 
 
 

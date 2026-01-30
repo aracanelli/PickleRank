@@ -9,7 +9,7 @@ import BaseCard from '@/app/core/ui/components/BaseCard.vue'
 import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
 import Modal from '@/app/core/ui/components/Modal.vue'
 import BulkPlayerCreateModal from '@/app/features/players/components/BulkPlayerCreateModal.vue'
-import { Shield, UserPlus, Link, Copy, Check, FileText, ArrowLeft, CheckCircle } from 'lucide-vue-next'
+import { Shield, Link, Copy, Check, FileText, ArrowLeft, CheckCircle, Unlink } from 'lucide-vue-next'
 
 const route = useRoute()
 const groupId = computed(() => route.params.groupId as string)
@@ -38,6 +38,11 @@ const updatingPlayerId = ref<string | null>(null)
 
 // Bulk Create
 const showBulkModal = ref(false)
+
+// Unlink state
+const showUnlinkModal = ref(false)
+const unlinkingPlayer = ref<GroupPlayerDto | null>(null)
+const isUnlinking = ref(false)
 
 onMounted(async () => {
   await loadData()
@@ -235,6 +240,39 @@ async function handleBulkSuccess() {
   await loadData()
   successMessage.value = 'Players created successfully! You can now add them to the group.'
 }
+
+function confirmUnlink(player: GroupPlayerDto) {
+  unlinkingPlayer.value = player
+  showUnlinkModal.value = true
+}
+
+async function unlinkPlayer() {
+  if (!unlinkingPlayer.value) return
+  
+  isUnlinking.value = true
+  try {
+    const updatedPlayer = await playersApi.unlinkPlayer(unlinkingPlayer.value.playerId)
+    
+    // Manually update existingPlayers state immediately to ensure UI reflects change
+    // even if loadData() returns cached or stale data
+    const idx = existingPlayers.value.findIndex(p => p.playerId === updatedPlayer.id)
+    if (idx !== -1) {
+      existingPlayers.value[idx] = {
+        ...existingPlayers.value[idx],
+        userId: undefined // Clear the userId so the button switches back to 'Link'
+      }
+    }
+
+    showUnlinkModal.value = false
+    unlinkingPlayer.value = null
+    await loadData()
+    successMessage.value = 'Player unlinked successfully. A new invite link can be generated.'
+  } catch (e: any) {
+    error.value = e.message || 'Failed to unlink player'
+  } finally {
+    isUnlinking.value = false
+  }
+}
 </script>
 
 <template>
@@ -291,7 +329,14 @@ async function handleBulkSuccess() {
                 >
                     <Link :size="14" />
                 </button>
-                <div v-else class="linked-indicator" title="Linked to User"><UserPlus :size="14" /></div>
+                <button 
+                    v-else
+                    class="action-btn unlink"
+                    @click="confirmUnlink(player)"
+                    title="Unlink User"
+                >
+                    <Unlink :size="14" />
+                </button>
 
                 <button 
                     class="action-btn role"
@@ -353,7 +398,14 @@ async function handleBulkSuccess() {
                 >
                     <Link :size="14" />
                 </button>
-                <div v-else class="linked-indicator" title="Linked to User"><UserPlus :size="14" /></div>
+                <button 
+                    v-else
+                    class="action-btn unlink"
+                    @click="confirmUnlink(player)"
+                    title="Unlink User"
+                >
+                    <Unlink :size="14" />
+                </button>
 
                 <button 
                     class="action-btn role"
@@ -493,6 +545,29 @@ async function handleBulkSuccess() {
       </div>
       <template #footer>
         <BaseButton @click="showInviteModal = false">Close</BaseButton>
+      </template>
+    </Modal>
+
+    <!-- Unlink Confirmation Modal -->
+    <Modal :open="showUnlinkModal" title="Unlink Player" @close="showUnlinkModal = false">
+      <div class="unlink-content">
+        <div class="unlink-icon-container">
+          <Unlink :size="32" class="unlink-icon" />
+        </div>
+        <p class="unlink-message">
+          Are you sure you want to unlink <strong>{{ unlinkingPlayer?.displayName }}</strong> from their user account?
+        </p>
+        <p class="unlink-note">
+          This will disconnect the player from their login. A new invite link will be generated so they can re-link if needed.
+        </p>
+      </div>
+      <template #footer>
+        <BaseButton variant="secondary" @click="showUnlinkModal = false" :disabled="isUnlinking">
+          Cancel
+        </BaseButton>
+        <BaseButton variant="danger" @click="unlinkPlayer" :loading="isUnlinking">
+          <Unlink :size="16" /> Unlink Player
+        </BaseButton>
       </template>
     </Modal>
 
@@ -887,6 +962,71 @@ async function handleBulkSuccess() {
 .invite-note {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
+}
+
+/* Unlink button and modal styles */
+.action-btn.unlink {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.action-btn.unlink:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.unlink-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+}
+
+.unlink-icon-container {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-full);
+}
+
+.unlink-icon {
+  color: var(--color-error);
+}
+
+.unlink-message {
+  font-size: 1rem;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+.unlink-note {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  line-height: 1.5;
+}
+
+/* Mobile-first responsive adjustments for unlink */
+@media (max-width: 480px) {
+  .unlink-content {
+    padding: var(--spacing-sm) 0;
+  }
+  
+  .unlink-icon-container {
+    width: 56px;
+    height: 56px;
+  }
+  
+  .unlink-message {
+    font-size: 0.9375rem;
+  }
 }
 </style>
 

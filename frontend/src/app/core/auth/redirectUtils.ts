@@ -17,6 +17,7 @@ const ALLOWED_PATH_PREFIXES = [
     '/profile',
     '/settings',
     '/admin',
+    '/link-player',
 ]
 
 /**
@@ -73,7 +74,9 @@ export function getSafeRedirect(
 
     // Check that the path starts with one of the allowed prefixes
     const isAllowed = ALLOWED_PATH_PREFIXES.some(
-        prefix => normalizedPath === prefix || normalizedPath.startsWith(prefix + '/')
+        prefix => normalizedPath === prefix ||
+            normalizedPath.startsWith(prefix + '/') ||
+            normalizedPath.startsWith(prefix + '?')
     )
 
     if (!isAllowed) {
