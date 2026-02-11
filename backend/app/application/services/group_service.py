@@ -21,6 +21,9 @@ from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRep
 from app.infrastructure.repositories.games_repo import GamesRepository
 from app.infrastructure.repositories.players_repo import GroupPlayersRepository
 from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class GroupService:
