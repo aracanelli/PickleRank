@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { eventsApi } from '../services/events.api'
+import { scoreSyncService } from '../services/score-sync'
 import type { EventDto, GameDto, RatingUpdateDto, GameResult } from '@/app/core/models/dto'
 import BaseButton from '@/app/core/ui/components/BaseButton.vue'
 import BaseCard from '@/app/core/ui/components/BaseCard.vue'
@@ -27,14 +28,7 @@ const editingGameId = ref<string | null>(null)
 const editingScoreTeam1 = ref<string>('')
 const editingScoreTeam2 = ref<string>('')
 const savingGameIds = ref<Set<string>>(new Set())
-const savedGameIds = ref<Set<string>>(new Set()) // Track recently saved for checkmark animation
-const pendingSaves = ref<Map<string, number>>(new Map()) // game id -> timeout id for debounce
-const queuedSaves = ref<Map<string, { score1?: number, score2?: number }>>(new Map()) // game id -> next scores to save
-
-// Retry configuration for exponential backoff
-const RETRY_BASE_DELAY_MS = 1000 // Base delay: 1 second
-const MAX_RETRIES = 5 // Stop retrying after 5 attempts
-const retryMetadata = ref<Map<string, { count: number, timeoutId?: number }>>(new Map()) // game id -> retry state
+const savedGameIds = ref<Set<string>>(new Set())
 
 const showCompletedModal = ref(false)
 const ratingUpdates = ref<RatingUpdateDto[]>([])
@@ -64,7 +58,7 @@ function cancelEditName() {
 
 async function saveName() {
   if (!event.value || !tempEventName.value.trim()) return
-  
+
   const newName = tempEventName.value.trim()
   if (newName === event.value.name) {
     isEditingName.value = false
@@ -75,7 +69,7 @@ async function saveName() {
   const oldName = event.value.name
   event.value.name = newName
   isEditingName.value = false
-  
+
   isSavingName.value = true
   try {
     await eventsApi.update(event.value.id, { name: newName })
@@ -88,33 +82,29 @@ async function saveName() {
   }
 }
 
-// Debounce delay in milliseconds
-const DEBOUNCE_DELAY = 500
+// Initialize score sync service with status callback
+scoreSyncService.init((gameId, status, errorMsg) => {
+  if (status === 'saving') {
+    savingGameIds.value.add(gameId)
+  } else if (status === 'saved') {
+    savingGameIds.value.delete(gameId)
+    savedGameIds.value.add(gameId)
+    setTimeout(() => savedGameIds.value.delete(gameId), 1500)
 
-// Cleanup pending timeouts and save immediately on unmount
-onUnmounted(() => {
-  // Clear pending debounce saves
-  pendingSaves.value.forEach((timeoutId, gameId) => {
-    clearTimeout(timeoutId)
-    // If we are currently editing this game, save it now.
-    if (editingGameId.value === gameId) {
-       const game = event.value?.games.find(g => g.id === gameId)
-       const s1 = parseFloat(editingScoreTeam1.value)
-       const s2 = parseFloat(editingScoreTeam2.value)
-       if (game) performSave(gameId, isNaN(s1) ? undefined : s1, isNaN(s2) ? undefined : s2)
+    // Update event status if needed
+    if (event.value?.status === 'GENERATED') {
+      event.value.status = 'IN_PROGRESS'
     }
-  })
-  pendingSaves.value.clear()
-  
-  // Clear pending retry timeouts
-  retryMetadata.value.forEach((meta) => {
-    if (meta.timeoutId) {
-      clearTimeout(meta.timeoutId)
-    }
-  })
-  retryMetadata.value.clear()
-  queuedSaves.value.clear()
+  } else if (status === 'error') {
+    savingGameIds.value.delete(gameId)
+    error.value = errorMsg || 'Failed to save score'
+  }
 })
+
+onUnmounted(() => {
+  scoreSyncService.destroy()
+})
+
 onMounted(async () => {
   await loadEvent()
 })
@@ -126,6 +116,22 @@ async function loadEvent() {
     // Show preview if games are generated but not yet accepted
     if (event.value.status === 'GENERATED' && event.value.games.length > 0) {
       showPreview.value = true
+    }
+
+    // Apply any locally-persisted scores that haven't synced yet.
+    // This covers the case where the user entered scores, closed the app,
+    // and came back before the server sync completed.
+    const pending = scoreSyncService.getPendingForEvent(eventId.value)
+    for (const p of pending) {
+      const idx = event.value.games.findIndex(g => g.id === p.gameId)
+      if (idx !== -1) {
+        event.value.games[idx] = {
+          ...event.value.games[idx],
+          scoreTeam1: p.score1,
+          scoreTeam2: p.score2,
+          result: getResultFromScores(p.score1, p.score2),
+        }
+      }
     }
   } catch (e: any) {
     error.value = e.message || 'Failed to load event'
@@ -180,9 +186,9 @@ const allScoresEntered = computed(() => {
 })
 
 function startEditing(game: GameDto, teamIndex: 1 | 2 = 1) {
-  // Cancel any pending save for previous game
+  // Immediately sync any pending save for the previous game
   if (editingGameId.value && editingGameId.value !== game.id) {
-    flushPendingSave(editingGameId.value)
+    scoreSyncService.saveNow(editingGameId.value)
   }
   
   editingGameId.value = game.id
@@ -202,152 +208,11 @@ function startEditing(game: GameDto, teamIndex: 1 | 2 = 1) {
 
 function cancelEditing() {
   if (editingGameId.value) {
-    // Cancel any pending debounced save
-    const timeoutId = pendingSaves.value.get(editingGameId.value)
-    if (timeoutId) {
-      clearTimeout(timeoutId)
-      pendingSaves.value.delete(editingGameId.value)
-    }
+    scoreSyncService.cancel(editingGameId.value)
   }
   editingGameId.value = null
   editingScoreTeam1.value = ''
   editingScoreTeam2.value = ''
-}
-
-// Immediate save that flushes any pending debounced save
-function flushPendingSave(gameId: string) {
-  const timeoutId = pendingSaves.value.get(gameId)
-  if (timeoutId) {
-    clearTimeout(timeoutId)
-    pendingSaves.value.delete(gameId)
-  }
-}
-
-// Perform the actual save to the server
-// Perform the actual save to the server
-async function performSave(gameId: string, score1?: number, score2?: number) {
-  if (!event.value) return
-  
-  // If already saving, queue this update to run after the current one finishes
-  if (savingGameIds.value.has(gameId)) {
-    queuedSaves.value.set(gameId, { score1, score2 })
-    return
-  }
-  
-  savingGameIds.value.add(gameId)
-  
-  try {
-    const updated = await eventsApi.updateScore(gameId, {
-      scoreTeam1: score1,
-      scoreTeam2: score2
-    })
-    
-    // Update local state with server response ONLY if no newer save is queued
-    // If a save is queued, we want to keep the optimistic state (or current state) 
-    // until that queued save completes, to avoid flickering back to an old state.
-    if (!queuedSaves.value.has(gameId)) {
-        const idx = event.value.games.findIndex(g => g.id === updated.id)
-        if (idx !== -1) {
-          event.value.games[idx] = updated
-        }
-        if (event.value.status === 'GENERATED') {
-          event.value.status = 'IN_PROGRESS'
-        }
-        
-        // Show brief success indicator
-        savedGameIds.value.add(gameId)
-        setTimeout(() => savedGameIds.value.delete(gameId), 1500)
-    }
-    
-  } catch (e: any) {
-    // Track retry metadata on failure
-    const meta = retryMetadata.value.get(gameId) || { count: 0 }
-    meta.count++
-    retryMetadata.value.set(gameId, meta)
-    
-    // If we have a queued save and haven't exceeded max retries, schedule retry with backoff
-    if (queuedSaves.value.has(gameId) && meta.count < MAX_RETRIES) {
-      // Don't show error yet - will retry with backoff
-      console.warn(`Save failed for game ${gameId}, retry ${meta.count}/${MAX_RETRIES}`)
-    } else if (!queuedSaves.value.has(gameId) || meta.count >= MAX_RETRIES) {
-      // No queued save or max retries exceeded - show error
-      const retryInfo = meta.count >= MAX_RETRIES ? ` (after ${meta.count} attempts)` : ''
-      error.value = (e.message || 'Failed to save score') + retryInfo
-      // Reset retry count and reload to reset state on error
-      retryMetadata.value.delete(gameId)
-      queuedSaves.value.delete(gameId)
-      await loadEvent()
-    }
-  } finally {
-    savingGameIds.value.delete(gameId)
-    
-    // Determine if we need to process a queued save with exponential backoff
-    if (queuedSaves.value.has(gameId)) {
-      const next = queuedSaves.value.get(gameId)
-      queuedSaves.value.delete(gameId)
-      
-      const meta = retryMetadata.value.get(gameId) || { count: 0 }
-      
-      // Check if we've exceeded max retries
-      if (meta.count >= MAX_RETRIES) {
-        console.error(`Max retries (${MAX_RETRIES}) exceeded for game ${gameId}, stopping retry attempts`)
-        retryMetadata.value.delete(gameId)
-        return
-      }
-      
-      // Calculate exponential backoff delay: baseDelay * 2^retryCount
-      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, meta.count)
-      
-      // Clear any existing timeout for this game
-      if (meta.timeoutId) {
-        clearTimeout(meta.timeoutId)
-      }
-      
-      // Schedule next save with exponential backoff
-      const timeoutId = window.setTimeout(() => {
-        performSave(gameId, next?.score1, next?.score2)
-      }, delay)
-      
-      // Store timeout ID so we can cancel if needed
-      meta.timeoutId = timeoutId
-      retryMetadata.value.set(gameId, meta)
-    } else {
-      // Success path - reset retry count for this game
-      retryMetadata.value.delete(gameId)
-    }
-  }
-}
-
-// Debounced save - schedules a save after delay
-function debouncedSave(game: GameDto) {
-  if (!event.value) return
-  
-  const score1Str = String(editingScoreTeam1.value ?? '').trim()
-  const score2Str = String(editingScoreTeam2.value ?? '').trim()
-  const score1 = score1Str ? parseFloat(score1Str) : undefined
-  const score2 = score2Str ? parseFloat(score2Str) : undefined
-  
-  // Optimistic UI update - update immediately in local state
-  const idx = event.value.games.findIndex(g => g.id === game.id)
-  if (idx !== -1) {
-    event.value.games[idx] = {
-      ...event.value.games[idx],
-      scoreTeam1: score1,
-      scoreTeam2: score2,
-      result: getResultFromScores(score1, score2)
-    }
-  }
-  
-  // Cancel existing debounce timer
-  flushPendingSave(game.id)
-  
-  // Schedule new save
-  const timeoutId = window.setTimeout(() => {
-    pendingSaves.value.delete(game.id)
-    performSave(game.id, score1, score2)
-  }, DEBOUNCE_DELAY)
-  
-  pendingSaves.value.set(game.id, timeoutId)
 }
 
 function getResultFromScores(score1?: number, score2?: number): GameResult {
@@ -359,46 +224,57 @@ function getResultFromScores(score1?: number, score2?: number): GameResult {
   return 'TIE'
 }
 
-// Save immediately (on Enter or explicit save)
-// Save immediately (on Enter or explicit save)
-async function saveScoreNow(game: GameDto, shouldClose = true) {
+function parseScores(): { score1?: number, score2?: number } {
+  const s1 = String(editingScoreTeam1.value ?? '').trim()
+  const s2 = String(editingScoreTeam2.value ?? '').trim()
+  return {
+    score1: s1 ? parseFloat(s1) : undefined,
+    score2: s2 ? parseFloat(s2) : undefined,
+  }
+}
+
+/** Optimistically update the local game list with the entered scores. */
+function applyOptimistic(gameId: string, score1?: number, score2?: number) {
   if (!event.value) return
-  
-  // Cancel any pending debounced save
-  flushPendingSave(game.id)
-  
-  const score1Str = String(editingScoreTeam1.value ?? '').trim()
-  const score2Str = String(editingScoreTeam2.value ?? '').trim()
-  const score1 = score1Str ? parseFloat(score1Str) : undefined
-  const score2 = score2Str ? parseFloat(score2Str) : undefined
-  
-  // Optimistic update
-  const idx = event.value.games.findIndex(g => g.id === game.id)
+  const idx = event.value.games.findIndex(g => g.id === gameId)
   if (idx !== -1) {
     event.value.games[idx] = {
       ...event.value.games[idx],
       scoreTeam1: score1,
       scoreTeam2: score2,
-      result: getResultFromScores(score1, score2)
+      result: getResultFromScores(score1, score2),
     }
   }
-  
+}
+
+// Handle input changes - debounced save via sync service
+function handleScoreInput(game: GameDto) {
+  if (!event.value) return
+  const { score1, score2 } = parseScores()
+  applyOptimistic(game.id, score1, score2)
+  scoreSyncService.save(game.id, eventId.value, score1, score2)
+}
+
+// Save immediately (on Enter or blur)
+function saveScoreNow(game: GameDto, shouldClose = true) {
+  if (!event.value) return
+  const { score1, score2 } = parseScores()
+  applyOptimistic(game.id, score1, score2)
+
+  // Persist to localStorage + trigger immediate server sync
+  scoreSyncService.save(game.id, eventId.value, score1, score2)
+  scoreSyncService.saveNow(game.id)
+
   if (shouldClose) {
     editingGameId.value = null
   }
-  
-  // Perform save
-  await performSave(game.id, score1, score2)
 }
 
 function handleScoreBlur(game: GameDto, evt: FocusEvent) {
-  // Check if we are moving focus to the other input of the same game
   const relatedTarget = evt.relatedTarget as HTMLElement
   if (relatedTarget && relatedTarget.classList.contains(`game-input-${game.id}`)) {
-    // Just save, don't close
     saveScoreNow(game, false)
   } else {
-    // Save and close
     saveScoreNow(game, true)
   }
 }
@@ -409,11 +285,6 @@ function handleScoreKeyup(game: GameDto, evt: KeyboardEvent) {
   } else if (evt.key === 'Escape') {
     cancelEditing()
   }
-}
-
-// Handle input changes - triggers debounced save
-function handleScoreInput(game: GameDto) {
-  debouncedSave(game)
 }
 
 async function completeEvent() {
@@ -781,7 +652,7 @@ async function exportAsImage() {
               <div v-else-if="savedGameIds.has(game.id)" class="saved-indicator">
                 <Check :size="12" /> Saved
               </div>
-              <div v-else-if="pendingSaves.has(game.id)" class="pending-indicator">
+              <div v-else-if="scoreSyncService.isPending(game.id)" class="pending-indicator">
                 Auto-saving...
               </div>
               <div v-else-if="event.status !== 'COMPLETED'" class="edit-hint">
