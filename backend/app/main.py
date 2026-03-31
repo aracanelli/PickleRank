@@ -178,28 +178,33 @@ def create_app() -> FastAPI:
     return app
 
 
-# Create the app instance
-try:
-    app = create_app()
-    logger.info("FastAPI application created successfully")
-except Exception as e:
-    logger.error(f"Failed to create FastAPI application: {e}", exc_info=True)
-    # Create a minimal app for error reporting
-    app = FastAPI(title="Pickleball Matchmaking API")
-    
-    @app.get("/")
-    async def error_root():
-        logger.error(f"Root endpoint accessed during failed state: {e}", exc_info=True)
-        return JSONResponse(
-            content={"error": "Application failed to initialize"},
-            status_code=500
-        )
-    
-    @app.get("/api/health")
-    async def error_health():
-        logger.error(f"Health check accessed during failed state: {e}", exc_info=True)
-        return JSONResponse(
-            content={"status": "error", "detail": "Service unavailable"},
-            status_code=503
-        )
+def _create_app_safe() -> FastAPI:
+    """Create the FastAPI app, falling back to a minimal error app on failure."""
+    try:
+        instance = create_app()
+        logger.info("FastAPI application created successfully")
+        return instance
+    except Exception as e:
+        logger.error(f"Failed to create FastAPI application: {e}", exc_info=True)
+        fallback = FastAPI(title="Pickleball Matchmaking API")
+
+        @fallback.get("/")
+        async def error_root():
+            return JSONResponse(
+                content={"error": "Application failed to initialize"},
+                status_code=500,
+            )
+
+        @fallback.get("/api/health")
+        async def error_health():
+            return JSONResponse(
+                content={"status": "error", "detail": "Service unavailable"},
+                status_code=503,
+            )
+
+        return fallback
+
+
+# Top-level assignment required by Vercel's static scanner
+app = _create_app_safe()
 
