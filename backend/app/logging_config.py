@@ -7,9 +7,11 @@ from app.config import get_settings
 
 def setup_logging(level: Optional[str] = None) -> None:
     """Configure application logging."""
-    settings = get_settings()
-
-    log_level = level or ("DEBUG" if settings.debug else "INFO")
+    try:
+        settings = get_settings()
+        log_level = level or ("DEBUG" if settings.debug else "INFO")
+    except Exception:
+        log_level = level or "INFO"
 
     logging.basicConfig(
         level=log_level,
