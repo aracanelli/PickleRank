@@ -186,10 +186,6 @@ const allScoresEntered = computed(() => {
 })
 
 function startEditing(game: GameDto, teamIndex: 1 | 2 = 1) {
-  // Immediately sync any pending save for the previous game
-  if (editingGameId.value && editingGameId.value !== game.id) {
-    scoreSyncService.saveNow(editingGameId.value)
-  }
   
   editingGameId.value = game.id
   editingScoreTeam1.value = game.scoreTeam1?.toString() || ''
@@ -247,41 +243,31 @@ function applyOptimistic(gameId: string, score1?: number, score2?: number) {
   }
 }
 
-// Handle input changes - debounced save via sync service
-function handleScoreInput(game: GameDto) {
+// Handle any score change — persist locally, let drain loop sync to server
+function commitScore(game: GameDto, shouldClose = true) {
   if (!event.value) return
   const { score1, score2 } = parseScores()
   applyOptimistic(game.id, score1, score2)
   scoreSyncService.save(game.id, eventId.value, score1, score2)
-}
-
-// Save immediately (on Enter or blur)
-function saveScoreNow(game: GameDto, shouldClose = true) {
-  if (!event.value) return
-  const { score1, score2 } = parseScores()
-  applyOptimistic(game.id, score1, score2)
-
-  // Persist to localStorage + trigger immediate server sync
-  scoreSyncService.save(game.id, eventId.value, score1, score2)
-  scoreSyncService.saveNow(game.id)
 
   if (shouldClose) {
     editingGameId.value = null
   }
 }
 
+function handleScoreInput(game: GameDto) {
+  commitScore(game, false)
+}
+
 function handleScoreBlur(game: GameDto, evt: FocusEvent) {
   const relatedTarget = evt.relatedTarget as HTMLElement
-  if (relatedTarget && relatedTarget.classList.contains(`game-input-${game.id}`)) {
-    saveScoreNow(game, false)
-  } else {
-    saveScoreNow(game, true)
-  }
+  const movingWithinSameGame = relatedTarget?.classList.contains(`game-input-${game.id}`)
+  commitScore(game, !movingWithinSameGame)
 }
 
 function handleScoreKeyup(game: GameDto, evt: KeyboardEvent) {
   if (evt.key === 'Enter') {
-    saveScoreNow(game)
+    commitScore(game)
   } else if (evt.key === 'Escape') {
     cancelEditing()
   }

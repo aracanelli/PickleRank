@@ -3,13 +3,19 @@ import { eventsApi } from './events.api'
 /**
  * Persistent score sync service.
  *
- * Scores are written to localStorage immediately on input so they survive
- * browser/app closes, navigation, and network failures.  A background
- * process drains the queue to the server with debounce + retry.
+ * Scores are written to localStorage instantly on every input so the UI
+ * feels immediate.  A background drain loop wakes up every SYNC_INTERVAL_MS,
+ * picks up whatever has accumulated, and pushes it to the server one game
+ * at a time.  On success the entry is removed from localStorage; on failure
+ * it stays for the next cycle (with exponential back-off per game).
+ *
+ * The user never waits on the network — they can blaze through all the
+ * scores and the background process catches up quietly.
  */
 
 const STORAGE_KEY = 'picklerank_pending_scores'
-const DEBOUNCE_MS = 500
+/** How often the background loop wakes up to drain the queue. */
+const SYNC_INTERVAL_MS = 3000
 const MAX_RETRIES = 5
 const BASE_RETRY_MS = 1000
 /** Discard pending scores older than 24 hours – they're likely from
@@ -27,6 +33,8 @@ export interface PendingScore {
   updatedAt: string
   /** Number of failed server sync attempts */
   retries: number
+  /** Timestamp (ms) before which we shouldn't retry (back-off). */
+  retryAfter?: number
 }
 
 type SyncCallback = (gameId: string, status: 'saving' | 'saved' | 'error', errorMsg?: string) => void
@@ -39,7 +47,6 @@ function readQueue(): Map<string, PendingScore> {
     if (!raw) return new Map()
     const arr: PendingScore[] = JSON.parse(raw)
     const now = Date.now()
-    // Drop entries older than STALE_THRESHOLD_MS
     const fresh = arr.filter(p => now - new Date(p.updatedAt).getTime() < STALE_THRESHOLD_MS)
     return new Map(fresh.map(p => [p.gameId, p]))
   } catch {
@@ -59,29 +66,24 @@ function writeQueue(queue: Map<string, PendingScore>): void {
 
 class ScoreSyncService {
   private queue: Map<string, PendingScore> = new Map()
-  private timers: Map<string, number> = new Map()
   private inflight: Set<string> = new Set()
   private callback: SyncCallback | null = null
+  private drainTimer: number | null = null
   private boundBeforeUnload: (() => void) | null = null
   private boundVisChange: (() => void) | null = null
 
-  /** Restore any scores that were persisted before the app last closed. */
+  /** Start the service: restore any leftover scores and begin draining. */
   init(cb: SyncCallback): void {
     this.callback = cb
     this.queue = readQueue()
     this.registerGlobalListeners()
-    // Flush anything left over from a previous session
-    this.flushAll()
+    this.startDrainLoop()
   }
 
   destroy(): void {
-    // Cancel timers
-    for (const t of this.timers.values()) clearTimeout(t)
-    this.timers.clear()
-
+    this.stopDrainLoop()
     // Persist remaining queue so the next session can pick it up
     writeQueue(this.queue)
-
     this.unregisterGlobalListeners()
     this.callback = null
   }
@@ -89,8 +91,8 @@ class ScoreSyncService {
   // ── Public API ─────────────────────────────────────────────────────
 
   /**
-   * Enqueue a score change.  Persists to localStorage immediately, then
-   * debounces the server sync.
+   * Record a score change.  Persists to localStorage instantly.
+   * The background drain loop will push it to the server.
    */
   save(gameId: string, eventId: string, score1?: number, score2?: number): void {
     const entry: PendingScore = {
@@ -103,20 +105,10 @@ class ScoreSyncService {
     }
     this.queue.set(gameId, entry)
     writeQueue(this.queue)
-    this.scheduleSave(gameId, DEBOUNCE_MS)
   }
 
-  /** Immediately sync a specific game (e.g. on Enter / blur). */
-  saveNow(gameId: string): void {
-    this.cancelTimer(gameId)
-    if (this.queue.has(gameId)) {
-      this.performSave(gameId)
-    }
-  }
-
-  /** Cancel a pending save (e.g. user pressed Escape). */
+  /** Cancel a pending save (e.g. user pressed Escape to discard). */
   cancel(gameId: string): void {
-    this.cancelTimer(gameId)
     this.queue.delete(gameId)
     writeQueue(this.queue)
   }
@@ -126,15 +118,12 @@ class ScoreSyncService {
     return this.inflight.has(gameId)
   }
 
-  /** True if a save is queued (debounce pending or retrying). */
+  /** True if a save is queued but not yet confirmed by the server. */
   isPending(gameId: string): boolean {
     return this.queue.has(gameId)
   }
 
-  /**
-   * Return the locally-persisted score if one exists (so we can restore
-   * optimistic state after remount / navigation).
-   */
+  /** Return the locally-persisted score (for restoring optimistic state after remount). */
   getPending(gameId: string): PendingScore | undefined {
     return this.queue.get(gameId)
   }
@@ -148,39 +137,42 @@ class ScoreSyncService {
   clearEvent(eventId: string): void {
     for (const [gameId, entry] of this.queue) {
       if (entry.eventId === eventId) {
-        this.cancelTimer(gameId)
         this.queue.delete(gameId)
       }
     }
     writeQueue(this.queue)
   }
 
-  // ── Internals ──────────────────────────────────────────────────────
+  // ── Background drain loop ─────────────────────────────────────────
 
-  private scheduleSave(gameId: string, delayMs: number): void {
-    this.cancelTimer(gameId)
-    const t = window.setTimeout(() => {
-      this.timers.delete(gameId)
-      this.performSave(gameId)
-    }, delayMs)
-    this.timers.set(gameId, t)
+  private startDrainLoop(): void {
+    if (this.drainTimer != null) return
+    // Run immediately on start, then every SYNC_INTERVAL_MS
+    this.drain()
+    this.drainTimer = window.setInterval(() => this.drain(), SYNC_INTERVAL_MS)
   }
 
-  private cancelTimer(gameId: string): void {
-    const t = this.timers.get(gameId)
-    if (t != null) {
-      clearTimeout(t)
-      this.timers.delete(gameId)
+  private stopDrainLoop(): void {
+    if (this.drainTimer != null) {
+      clearInterval(this.drainTimer)
+      this.drainTimer = null
     }
   }
 
-  private async performSave(gameId: string): Promise<void> {
-    const entry = this.queue.get(gameId)
-    if (!entry) return
+  /**
+   * One pass of the drain loop.  Picks up every queued entry that isn't
+   * already in-flight or waiting on a back-off timer, and syncs it.
+   */
+  private drain(): void {
+    const now = Date.now()
+    for (const [gameId, entry] of this.queue) {
+      if (this.inflight.has(gameId)) continue
+      if (entry.retryAfter && now < entry.retryAfter) continue
+      this.syncOne(gameId, entry)
+    }
+  }
 
-    // If already in-flight, the completion handler will pick up the latest queue state
-    if (this.inflight.has(gameId)) return
-
+  private async syncOne(gameId: string, entry: PendingScore): Promise<void> {
     this.inflight.add(gameId)
     this.callback?.(gameId, 'saving')
 
@@ -190,16 +182,15 @@ class ScoreSyncService {
         scoreTeam2: entry.score2,
       })
 
-      // Check if the score was updated again while we were saving
+      // If the user changed the score again while we were saving, keep the
+      // newer value in the queue — it'll be picked up next cycle.
       const current = this.queue.get(gameId)
       if (current && current.updatedAt !== entry.updatedAt) {
-        // A newer value was queued while we were saving – re-sync
         this.inflight.delete(gameId)
-        this.scheduleSave(gameId, 0)
         return
       }
 
-      // Success – remove from queue
+      // Success – remove from queue and persist
       this.queue.delete(gameId)
       writeQueue(this.queue)
       this.inflight.delete(gameId)
@@ -207,26 +198,19 @@ class ScoreSyncService {
     } catch (e: any) {
       this.inflight.delete(gameId)
       entry.retries++
-      this.queue.set(gameId, entry)
-      writeQueue(this.queue)
 
       if (entry.retries < MAX_RETRIES) {
+        // Exponential back-off: 1s, 2s, 4s, 8s, 16s
         const delay = BASE_RETRY_MS * Math.pow(2, entry.retries - 1)
+        entry.retryAfter = Date.now() + delay
+        this.queue.set(gameId, entry)
+        writeQueue(this.queue)
         console.warn(`Score sync failed for ${gameId}, retry ${entry.retries}/${MAX_RETRIES} in ${delay}ms`)
-        this.scheduleSave(gameId, delay)
       } else {
         console.error(`Score sync failed for ${gameId} after ${MAX_RETRIES} attempts`)
         this.callback?.(gameId, 'error', e.message || 'Failed to save score')
-        // Keep in queue so next session can try again
-      }
-    }
-  }
-
-  /** Try to flush every pending item right now. */
-  private flushAll(): void {
-    for (const gameId of this.queue.keys()) {
-      if (!this.inflight.has(gameId) && !this.timers.has(gameId)) {
-        this.performSave(gameId)
+        // Keep in queue so next session can try again (retries reset on read
+        // since we don't persist retryAfter beyond the stale threshold).
       }
     }
   }
@@ -235,10 +219,7 @@ class ScoreSyncService {
 
   private registerGlobalListeners(): void {
     this.boundBeforeUnload = () => {
-      // Persist the queue one last time (timers won't fire after this)
       writeQueue(this.queue)
-
-      // Best-effort sync via sendBeacon for any pending saves
       for (const entry of this.queue.values()) {
         this.trySendBeacon(entry)
       }
@@ -247,6 +228,8 @@ class ScoreSyncService {
 
     this.boundVisChange = () => {
       if (document.visibilityState === 'hidden') {
+        // App going to background — persist and attempt beacon
+        this.stopDrainLoop()
         writeQueue(this.queue)
         for (const entry of this.queue.values()) {
           if (!this.inflight.has(entry.gameId)) {
@@ -254,9 +237,9 @@ class ScoreSyncService {
           }
         }
       } else if (document.visibilityState === 'visible') {
-        // Coming back – re-flush anything that didn't sync
+        // Coming back — pick up any leftovers and resume draining
         this.queue = readQueue()
-        this.flushAll()
+        this.startDrainLoop()
       }
     }
     document.addEventListener('visibilitychange', this.boundVisChange)
@@ -274,8 +257,9 @@ class ScoreSyncService {
   }
 
   /**
-   * Use navigator.sendBeacon as a last-resort fire-and-forget sync.
-   * This survives page unload where fetch/XHR would be cancelled.
+   * Best-effort fire-and-forget via sendBeacon.  Survives page unload
+   * where fetch would be cancelled.  Won't have auth headers so the
+   * server will likely reject it, but localStorage has the backup.
    */
   private trySendBeacon(entry: PendingScore): void {
     try {
@@ -285,12 +269,9 @@ class ScoreSyncService {
         scoreTeam1: entry.score1,
         scoreTeam2: entry.score2,
       })
-      // sendBeacon doesn't support custom headers (auth), so this is
-      // best-effort. The queue persists in localStorage regardless, so
-      // if beacon fails the next session will retry.
       navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))
     } catch {
-      // Best-effort – queue is already persisted in localStorage
+      // Best-effort – queue is already persisted
     }
   }
 }
