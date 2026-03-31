@@ -45,6 +45,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning(f"Error closing database pool: {e}")
 
 
+MAX_REQUEST_BODY_SIZE = 2 * 1024 * 1024  # 2 MB
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose Content-Length exceeds the allowed maximum."""
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_REQUEST_BODY_SIZE:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request payload too large. Maximum size is 2 MB."},
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header."},
+                )
+        return await call_next(request)
+
+
 class CORSErrorMiddleware(BaseHTTPMiddleware):
     """Middleware to ensure CORS headers are added even on errors."""
     
@@ -116,6 +139,9 @@ def create_app() -> FastAPI:
 
     # GZip compression for responses > 500 bytes
     app.add_middleware(GZipMiddleware, minimum_size=500)
+
+    # Reject oversized request bodies (must come after GZip, evaluated in reverse)
+    app.add_middleware(RequestSizeLimitMiddleware)
 
     # Security headers middleware
     @app.middleware("http")

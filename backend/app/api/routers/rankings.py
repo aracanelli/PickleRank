@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 from uuid import UUID
 
@@ -11,6 +12,12 @@ from app.api.deps.rate_limit import DEFAULT_RATE, limiter
 from app.api.schemas.rankings import MatchHistoryResponse, RankingsResponse
 from app.application.services.ranking_service import RankingService
 from app.infrastructure.cache import rankings_cache
+
+
+class PlayerRelationship(str, Enum):
+    TEAMMATE = "teammate"
+    OPPONENT = "opponent"
+
 
 router = APIRouter()
 
@@ -52,7 +59,7 @@ async def get_match_history(
     to_date: Optional[datetime] = Query(None, alias="to"),
     player_id: Optional[UUID] = Query(None, alias="playerId"),
     secondary_player_id: Optional[UUID] = Query(None, alias="secondaryPlayerId"),
-    relationship: Optional[str] = Query("teammate", alias="relationship"),
+    relationship: PlayerRelationship = Query(PlayerRelationship.TEAMMATE, alias="relationship"),
     event_id: Optional[UUID] = Query(None, alias="eventId"),
     limit: Optional[int] = Query(None, ge=1, le=100),
     offset: Optional[int] = Query(None, ge=0),

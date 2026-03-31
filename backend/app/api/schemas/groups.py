@@ -1,9 +1,10 @@
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RatingSystem(str, Enum):
@@ -18,22 +19,32 @@ class PaymentSettings(BaseModel):
     """Payment tracking settings for sub players."""
 
     track_payments: bool = Field(
-        default=False, 
+        default=False,
         alias="trackPayments",
         description="Whether to track sub player payments"
     )
     sub_fee_per_attendance: float = Field(
-        default=5.0, 
-        ge=0, 
+        default=5.0,
+        ge=0,
         le=1000,
         alias="subFeePerAttendance",
         description="Amount charged per sub attendance"
     )
     currency: str = Field(
-        default="USD", 
+        default="USD",
+        min_length=3,
         max_length=3,
         description="Currency code (e.g., USD, EUR)"
     )
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def validate_currency(cls, v: str) -> str:
+        if isinstance(v, str):
+            v = v.strip().upper()
+            if not re.fullmatch(r"[A-Z]{3}", v):
+                raise ValueError("Currency must be a 3-letter ISO 4217 code (e.g., USD, EUR)")
+        return v
 
     class Config:
         populate_by_name = True
@@ -69,11 +80,21 @@ class GroupCreate(BaseModel):
     sport: str = Field(default="pickleball", max_length=50)
     settings: Optional[GroupSettings] = None
 
+    @field_validator("name", "sport", mode="before")
+    @classmethod
+    def strip_strings(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
 
 class GroupUpdate(BaseModel):
     """Request to update a group."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
 
 
 class GroupSettingsUpdate(BaseModel):

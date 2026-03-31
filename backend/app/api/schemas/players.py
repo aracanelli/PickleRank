@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MembershipType(str, Enum):
@@ -35,6 +35,16 @@ class PlayerCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100, alias="displayName")
     notes: Optional[str] = Field(None, max_length=500)
 
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def strip_display_name(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def strip_notes(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
+
     class Config:
         populate_by_name = True
 
@@ -44,6 +54,16 @@ class PlayerUpdate(BaseModel):
 
     display_name: Optional[str] = Field(None, min_length=1, max_length=100, alias="displayName")
     notes: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def strip_display_name(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def strip_notes(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
 
     class Config:
         populate_by_name = True
@@ -85,6 +105,23 @@ class BulkPlayerCreate(BaseModel):
     """Request to create multiple players at once."""
 
     names: list[str] = Field(..., min_length=1, max_length=100, description="List of player names to create")
+
+    @field_validator("names", mode="before")
+    @classmethod
+    def validate_names(cls, v: list) -> list:
+        if not isinstance(v, list):
+            return v
+        sanitized = []
+        for name in v:
+            if not isinstance(name, str):
+                raise ValueError("Each name must be a string")
+            stripped = name.strip()
+            if len(stripped) < 1:
+                raise ValueError("Player names cannot be empty or whitespace only")
+            if len(stripped) > 100:
+                raise ValueError(f"Player name '{stripped[:20]}...' exceeds 100 characters")
+            sanitized.append(stripped)
+        return sanitized
 
     class Config:
         populate_by_name = True

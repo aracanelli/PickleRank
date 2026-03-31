@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class EventStatus(str, Enum):
@@ -114,6 +114,11 @@ class EventCreate(BaseModel):
     courts: int = Field(ge=1, le=10)
     rounds: int = Field(ge=1, le=20)
     participant_ids: List[UUID] = Field(alias="participantIds")
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
 
     class Config:
         populate_by_name = True

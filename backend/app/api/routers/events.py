@@ -10,6 +10,9 @@ from fastapi.responses import Response
 from app.api.deps.auth import CurrentUser, get_current_user
 from app.api.deps.db import get_db
 from app.api.deps.rate_limit import DEFAULT_RATE, STRICT_RATE, limiter
+from app.exceptions import BadRequestError
+
+MAX_CSV_SIZE = 5 * 1024 * 1024  # 5 MB
 from app.api.schemas.events import (
     CompleteResponse,
     EventCreate,
@@ -198,6 +201,19 @@ async def import_history(
     db: Connection = Depends(get_db),
 ):
     """Import historical game data from CSV."""
+    if file.content_type not in ("text/csv", "text/plain", "application/csv", "application/octet-stream"):
+        raise BadRequestError("Only CSV files are accepted")
+
+    # Read the file once and enforce size limit before processing
+    contents = await file.read()
+    if len(contents) > MAX_CSV_SIZE:
+        raise BadRequestError("CSV file exceeds the 5 MB size limit")
+
+    # Re-wrap in a SpooledTemporaryFile-compatible object for the service
+    import io
+    file.file = io.BytesIO(contents)
+    await file.seek(0)
+
     service = EventService(db)
     return await service.import_history(user.user_id, group_id, file)
 

@@ -1,10 +1,11 @@
 """Pydantic schemas for payment tracking."""
+import re
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PaymentType(str, Enum):
@@ -16,24 +17,34 @@ class PaymentType(str, Enum):
 
 class PaymentSettings(BaseModel):
     """Payment tracking settings for a group."""
-    
+
     sub_fee_per_attendance: float = Field(
-        default=5.0, 
-        ge=0, 
+        default=5.0,
+        ge=0,
         le=1000,
         alias="subFeePerAttendance",
         description="Amount charged per sub attendance"
     )
     currency: str = Field(
-        default="USD", 
+        default="USD",
+        min_length=3,
         max_length=3,
         description="Currency code (e.g., USD, EUR)"
     )
     track_payments: bool = Field(
-        default=False, 
+        default=False,
         alias="trackPayments",
         description="Whether payment tracking is enabled for this group"
     )
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def validate_currency(cls, v: str) -> str:
+        if isinstance(v, str):
+            v = v.strip().upper()
+            if not re.fullmatch(r"[A-Z]{3}", v):
+                raise ValueError("Currency must be a 3-letter ISO 4217 code (e.g., USD, EUR)")
+        return v
 
     class Config:
         populate_by_name = True
@@ -70,10 +81,15 @@ class SubBalanceListResponse(BaseModel):
 
 class RecordPaymentRequest(BaseModel):
     """Request to record a payment from a sub player."""
-    
+
     group_player_id: UUID = Field(alias="groupPlayerId")
     amount: float = Field(gt=0, le=10000, description="Payment amount (positive)")
     notes: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def strip_notes(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
 
     class Config:
         populate_by_name = True
@@ -81,12 +97,19 @@ class RecordPaymentRequest(BaseModel):
 
 class RecordAdjustmentRequest(BaseModel):
     """Request to record an adjustment (credit or debit)."""
-    
+
     group_player_id: UUID = Field(alias="groupPlayerId")
     amount: float = Field(
+        ge=-10000,
+        le=10000,
         description="Adjustment amount. Positive = credit, Negative = debit"
     )
     notes: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def strip_notes(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v
 
     class Config:
         populate_by_name = True

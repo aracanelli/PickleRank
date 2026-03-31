@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.api.deps.auth import CurrentUser, get_current_user
 from app.api.deps.db import get_db
-from app.api.deps.rate_limit import DEFAULT_RATE, limiter
+from app.api.deps.rate_limit import AUTH_RATE, DEFAULT_RATE, limiter
 from app.api.schemas.players import (
     AddPlayerToGroupRequest,
     BulkAddPlayersToGroupRequest,
@@ -96,7 +96,7 @@ async def update_player(
 
 
 @router.post("/players/{player_id}/invite", response_model=str)
-@limiter.limit(DEFAULT_RATE)
+@limiter.limit(AUTH_RATE)
 async def generate_invite(
     request: Request,
     player_id: UUID,
@@ -109,10 +109,10 @@ async def generate_invite(
 
 
 @router.post("/players/link", response_model=PlayerResponse)
-@limiter.limit(DEFAULT_RATE)
+@limiter.limit(AUTH_RATE)
 async def link_player(
     request: Request,
-    token: str = Query(..., min_length=1),
+    token: str = Query(..., min_length=1, max_length=512),
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):

@@ -1,7 +1,10 @@
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+_INSECURE_SECRET_DEFAULT = "dev-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
@@ -17,11 +20,30 @@ class Settings(BaseSettings):
 
     # Security
     allowed_origins: str = "http://localhost:5173"
-    secret_key: str = "dev-secret-key-change-in-production"
+    secret_key: Optional[str] = None
 
     # Environment
     environment: str = "development"
     debug: bool = False
+
+    @model_validator(mode="after")
+    def validate_secrets(self) -> "Settings":
+        is_prod = self.environment.lower() == "production"
+
+        if not self.secret_key or self.secret_key == _INSECURE_SECRET_DEFAULT:
+            if is_prod:
+                raise ValueError(
+                    "SECRET_KEY must be set to a strong random value in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                )
+
+        if is_prod and not self.supabase_db_url:
+            raise ValueError("SUPABASE_DB_URL must be set in production.")
+
+        if is_prod and not self.clerk_jwks_url:
+            raise ValueError("CLERK_JWKS_URL must be set in production.")
+
+        return self
 
     @property
     def cors_origins(self) -> List[str]:
