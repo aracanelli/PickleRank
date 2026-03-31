@@ -294,6 +294,7 @@ async function completeEvent() {
   error.value = ''
   try {
     const result = await eventsApi.complete(eventId.value)
+    scoreSyncService.clearEvent(eventId.value)
     event.value = { ...event.value!, status: result.status }
     ratingUpdates.value = result.ratingUpdates
     

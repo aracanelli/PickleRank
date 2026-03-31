@@ -12,6 +12,9 @@ const STORAGE_KEY = 'picklerank_pending_scores'
 const DEBOUNCE_MS = 500
 const MAX_RETRIES = 5
 const BASE_RETRY_MS = 1000
+/** Discard pending scores older than 24 hours – they're likely from
+ *  a deleted or completed event and would just cause 404s. */
+const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -35,7 +38,10 @@ function readQueue(): Map<string, PendingScore> {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return new Map()
     const arr: PendingScore[] = JSON.parse(raw)
-    return new Map(arr.map(p => [p.gameId, p]))
+    const now = Date.now()
+    // Drop entries older than STALE_THRESHOLD_MS
+    const fresh = arr.filter(p => now - new Date(p.updatedAt).getTime() < STALE_THRESHOLD_MS)
+    return new Map(fresh.map(p => [p.gameId, p]))
   } catch {
     return new Map()
   }
@@ -136,6 +142,17 @@ class ScoreSyncService {
   /** Return all pending scores for a given event. */
   getPendingForEvent(eventId: string): PendingScore[] {
     return [...this.queue.values()].filter(p => p.eventId === eventId)
+  }
+
+  /** Remove all pending scores for an event (e.g. after completing it). */
+  clearEvent(eventId: string): void {
+    for (const [gameId, entry] of this.queue) {
+      if (entry.eventId === eventId) {
+        this.cancelTimer(gameId)
+        this.queue.delete(gameId)
+      }
+    }
+    writeQueue(this.queue)
   }
 
   // ── Internals ──────────────────────────────────────────────────────
