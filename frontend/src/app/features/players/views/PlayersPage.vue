@@ -104,7 +104,7 @@ function formatDate(dateStr: string): string {
   })
 }
 
-let searchTimeout: number
+let searchTimeout: ReturnType<typeof setTimeout>
 function handleSearch() {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => loadPlayers(), 300)

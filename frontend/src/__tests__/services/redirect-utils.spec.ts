@@ -7,7 +7,7 @@ describe('getSafeRedirect', () => {
   })
 
   it('returns fallback for undefined input', () => {
-    expect(getSafeRedirect(undefined)).toBe('/groups')
+    expect(getSafeRedirect(undefined as unknown as string)).toBe('/groups')
   })
 
   it('returns fallback for empty string', () => {
