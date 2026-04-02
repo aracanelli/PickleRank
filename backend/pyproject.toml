@@ -18,7 +18,7 @@ dependencies = [
 
   # Auth
   "PyJWT==2.10.1",
-  "cryptography==44.0.0",
+  "cryptography==46.0.6",
   "httpx==0.28.1",
 
   # Utilities
