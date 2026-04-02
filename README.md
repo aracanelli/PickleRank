@@ -1,5 +1,8 @@
 # Pickleball Event Matchmaking & Ranking Platform
 
+[![CI](https://github.com/aracanelli/PickleRank/actions/workflows/ci.yml/badge.svg)](https://github.com/aracanelli/PickleRank/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A web application for organizing 2v2 pickleball matchups, managing events, tracking ratings, and maintaining rankings across multiple groups/leagues.
 
 ## Tech Stack
@@ -115,13 +118,13 @@ The application is designed to be deployed on Vercel:
 
 Once running, visit `http://localhost:8000/docs` for interactive API documentation.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
 ## License
 
 MIT
-
-
-
-
 
 
 
