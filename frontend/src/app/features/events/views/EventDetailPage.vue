@@ -285,32 +285,31 @@ async function performSave(gameId: string, score1?: number, score2?: number) {
     if (queuedSaves.value.has(gameId)) {
       const next = queuedSaves.value.get(gameId)
       queuedSaves.value.delete(gameId)
-      
+
       const meta = retryMetadata.value.get(gameId) || { count: 0 }
-      
+
       // Check if we've exceeded max retries
       if (meta.count >= MAX_RETRIES) {
         console.error(`Max retries (${MAX_RETRIES}) exceeded for game ${gameId}, stopping retry attempts`)
         retryMetadata.value.delete(gameId)
-        return
+      } else {
+        // Calculate exponential backoff delay: baseDelay * 2^retryCount
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, meta.count)
+
+        // Clear any existing timeout for this game
+        if (meta.timeoutId) {
+          clearTimeout(meta.timeoutId)
+        }
+
+        // Schedule next save with exponential backoff
+        const timeoutId = window.setTimeout(() => {
+          performSave(gameId, next?.score1, next?.score2)
+        }, delay)
+
+        // Store timeout ID so we can cancel if needed
+        meta.timeoutId = timeoutId
+        retryMetadata.value.set(gameId, meta)
       }
-      
-      // Calculate exponential backoff delay: baseDelay * 2^retryCount
-      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, meta.count)
-      
-      // Clear any existing timeout for this game
-      if (meta.timeoutId) {
-        clearTimeout(meta.timeoutId)
-      }
-      
-      // Schedule next save with exponential backoff
-      const timeoutId = window.setTimeout(() => {
-        performSave(gameId, next?.score1, next?.score2)
-      }, delay)
-      
-      // Store timeout ID so we can cancel if needed
-      meta.timeoutId = timeoutId
-      retryMetadata.value.set(gameId, meta)
     } else {
       // Success path - reset retry count for this game
       retryMetadata.value.delete(gameId)
