@@ -15,24 +15,27 @@ jobs:
         working-directory: ./backend
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install ruff mypy
-      
+
       - name: Run Ruff linter
         run: ruff check .
-      
+
       - name: Run Ruff formatter check
         run: ruff format --check .
+
+      - name: Run mypy type check
+        run: mypy app/ --ignore-missing-imports || echo "::warning::mypy found type errors — fix these to enable strict type checking"
 
   backend-test:
     name: Backend Tests
@@ -42,23 +45,31 @@ jobs:
         working-directory: ./backend
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov
-      
+
       - name: Run tests
-        run: pytest --cov=app --cov-report=xml -v
+        run: pytest --cov=app --cov-report=xml --cov-report=term-missing -v
         env:
           TESTING: "true"
+
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
 
   frontend-lint:
     name: Frontend Lint & Type Check
@@ -68,22 +79,44 @@ jobs:
         working-directory: ./frontend
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: './frontend/package-lock.json'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run ESLint
         run: npm run lint
 
       - name: Run TypeScript check
         run: npx vue-tsc --noEmit
+
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npx vitest run
 
   frontend-build:
     name: Frontend Build
@@ -93,17 +126,17 @@ jobs:
         working-directory: ./frontend
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: './frontend/package-lock.json'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Build
         run: npm run build
         env:
