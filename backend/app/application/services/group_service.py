@@ -260,18 +260,18 @@ class GroupService:
                 games = await self.conn.fetch(
                     """
                     SELECT g.id, g.round_index, g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
-                           g.score_team1, g.score_team2, g.result,
+                           g.score_team1, g.score_team2, g.result, g.game_type,
                            p1.display_name as t1p1_name, p2.display_name as t1p2_name,
                            p3.display_name as t2p1_name, p4.display_name as t2p2_name
                     FROM games g
                     JOIN group_players gp1 ON gp1.id = g.team1_p1
-                    JOIN group_players gp2 ON gp2.id = g.team1_p2
+                    LEFT JOIN group_players gp2 ON gp2.id = g.team1_p2
                     JOIN group_players gp3 ON gp3.id = g.team2_p1
-                    JOIN group_players gp4 ON gp4.id = g.team2_p2
+                    LEFT JOIN group_players gp4 ON gp4.id = g.team2_p2
                     JOIN players p1 ON p1.id = gp1.player_id
-                    JOIN players p2 ON p2.id = gp2.player_id
+                    LEFT JOIN players p2 ON p2.id = gp2.player_id
                     JOIN players p3 ON p3.id = gp3.player_id
-                    JOIN players p4 ON p4.id = gp4.player_id
+                    LEFT JOIN players p4 ON p4.id = gp4.player_id
                     WHERE g.event_id = $1
                     ORDER BY g.round_index, g.court_index
                     """,
@@ -285,7 +285,12 @@ class GroupService:
                 # Get all players involved in this event's games
                 event_players = set()
                 for game in games:
-                    event_players.update([game["team1_p1"], game["team1_p2"], game["team2_p1"], game["team2_p2"]])
+                    event_players.add(game["team1_p1"])
+                    event_players.add(game["team2_p1"])
+                    if game["team1_p2"] is not None:
+                        event_players.add(game["team1_p2"])
+                    if game["team2_p2"] is not None:
+                        event_players.add(game["team2_p2"])
                 
                 ratings_before_event = {
                     player_id: current_ratings.get(player_id, base_rating)
@@ -307,14 +312,30 @@ class GroupService:
                     games_for_rating = []
                     for game in round_games:
                         t1p1_rating = current_ratings.get(game["team1_p1"], base_rating)
-                        t1p2_rating = current_ratings.get(game["team1_p2"], base_rating)
                         t2p1_rating = current_ratings.get(game["team2_p1"], base_rating)
-                        t2p2_rating = current_ratings.get(game["team2_p2"], base_rating)
-                        
-                        # Calculate team ELOs (average of players)
-                        team1_elo = (t1p1_rating + t1p2_rating) / 2
-                        team2_elo = (t2p1_rating + t2p2_rating) / 2
-                        
+
+                        # Build team1 (handles nullable team1_p2)
+                        t1p1 = PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"])
+                        t1p2 = None
+                        if game["team1_p2"] is not None:
+                            t1p2_rating = current_ratings.get(game["team1_p2"], base_rating)
+                            t1p2 = PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"])
+
+                        # Build team2 (handles nullable team2_p2)
+                        t2p1 = PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"])
+                        t2p2 = None
+                        if game["team2_p2"] is not None:
+                            t2p2_rating = current_ratings.get(game["team2_p2"], base_rating)
+                            t2p2 = PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"])
+
+                        # Calculate team ELOs
+                        team1_elo = t1p1_rating
+                        if t1p2 is not None:
+                            team1_elo = (t1p1_rating + t1p2.rating) / 2
+                        team2_elo = t2p1_rating
+                        if t2p2 is not None:
+                            team2_elo = (t2p1_rating + t2p2.rating) / 2
+
                         # Store team ELO in the games table
                         await self.conn.execute(
                             """
@@ -324,19 +345,14 @@ class GroupService:
                             team2_elo,
                             game["id"]
                         )
-                        
+
                         games_for_rating.append(GameForRating(
-                            team1=(
-                                PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
-                                PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
-                            ),
-                            team2=(
-                                PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
-                                PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
-                            ),
+                            team1=(t1p1, t1p2),
+                            team2=(t2p1, t2p2),
                             result=DomainGameResult(game["result"]),
                             score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
                             score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
+                            game_type=game.get("game_type", "2v2"),
                         ))
                     
                     # Calculate deltas for all games in this round together
@@ -348,10 +364,16 @@ class GroupService:
                     
                     # Track wins/losses/ties for all players in this round
                     for game in round_games:
-                        for player_id, team in [
-                            (game["team1_p1"], 1), (game["team1_p2"], 1),
-                            (game["team2_p1"], 2), (game["team2_p2"], 2)
-                        ]:
+                        game_player_teams = [
+                            (game["team1_p1"], 1),
+                            (game["team2_p1"], 2),
+                        ]
+                        if game["team1_p2"] is not None:
+                            game_player_teams.append((game["team1_p2"], 1))
+                        if game["team2_p2"] is not None:
+                            game_player_teams.append((game["team2_p2"], 2))
+
+                        for player_id, team in game_player_teams:
                             if player_id not in player_stats:
                                 player_stats[player_id] = {"wins": 0, "losses": 0, "ties": 0, "games": 0}
                             
@@ -625,7 +647,7 @@ class GroupService:
         for game in games:
             # Determine my team and result
             my_team = 0
-            if game["team1_p1"] == player_id or game["team1_p2"] == player_id:
+            if game["team1_p1"] == player_id or game.get("team1_p2") == player_id:
                 my_team = 1
             else:
                 my_team = 2
@@ -656,21 +678,21 @@ class GroupService:
                 current_win_streak = 0
                 longest_loss_streak = max(longest_loss_streak, current_loss_streak)
                 
-            # Teammate Stats
+            # Teammate Stats (may be None in 1v1/2v1 solo side)
             teammate_id = None
             teammate_name = None
-            
+
             if my_team == 1:
                 if game["team1_p1"] == player_id:
-                    teammate_id = game["team1_p2"]
-                    teammate_name = game["t1p2_name"]
+                    teammate_id = game.get("team1_p2")
+                    teammate_name = game.get("t1p2_name")
                 else:
                     teammate_id = game["team1_p1"]
                     teammate_name = game["t1p1_name"]
             else:
                 if game["team2_p1"] == player_id:
-                    teammate_id = game["team2_p2"]
-                    teammate_name = game["t2p2_name"]
+                    teammate_id = game.get("team2_p2")
+                    teammate_name = game.get("t2p2_name")
                 else:
                     teammate_id = game["team2_p1"]
                     teammate_name = game["t2p1_name"]
@@ -685,15 +707,13 @@ class GroupService:
             # Opponent Stats (Nemesis / Pigeon)
             opponents = []
             if my_team == 1:
-                opponents = [
-                    (game["team2_p1"], game["t2p1_name"]), 
-                    (game["team2_p2"], game["t2p2_name"])
-                ]
+                opponents = [(game["team2_p1"], game["t2p1_name"])]
+                if game.get("team2_p2") is not None:
+                    opponents.append((game["team2_p2"], game["t2p2_name"]))
             else:
-                opponents = [
-                    (game["team1_p1"], game["t1p1_name"]), 
-                    (game["team1_p2"], game["t1p2_name"])
-                ]
+                opponents = [(game["team1_p1"], game["t1p1_name"])]
+                if game.get("team1_p2") is not None:
+                    opponents.append((game["team1_p2"], game["t1p2_name"]))
                 
             for opp_id, opp_name in opponents:
                 stats = opponent_stats[opp_id]

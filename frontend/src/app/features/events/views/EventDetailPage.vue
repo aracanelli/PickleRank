@@ -707,8 +707,11 @@ async function exportAsImage() {
       <!-- Games Grid -->
       <div class="games-grid">
         <BaseCard v-for="game in gamesByRound[selectedRound]" :key="game.id">
-          <div class="game-card">
-            <div class="court-label">Court {{ game.courtIndex + 1 }}</div>
+          <div class="game-card" :class="{ 'game-2v1': game.gameType === '2v1', 'game-1v1': game.gameType === '1v1' }">
+            <div class="court-label">
+              Court {{ game.courtIndex + 1 }}
+              <span v-if="game.gameType && game.gameType !== '2v2'" class="game-type-badge">{{ game.gameType }}</span>
+            </div>
             
             <div class="teams">
               <div class="team" :class="{ winner: game.result === 'TEAM1_WIN' }">
@@ -1026,6 +1029,21 @@ async function exportAsImage() {
   text-transform: uppercase;
   color: var(--color-text-muted);
   letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.game-type-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .teams {

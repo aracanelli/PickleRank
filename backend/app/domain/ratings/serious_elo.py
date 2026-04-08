@@ -18,7 +18,7 @@ class SeriousEloRating(RatingSystem):
     """
     Standard ELO rating system for competitive play.
 
-    Team rating is the average of both players.
+    Team rating is the average of both players (or individual rating for solo).
     Each player on a team receives the same delta.
     """
 
@@ -38,7 +38,7 @@ class SeriousEloRating(RatingSystem):
                 continue  # Skip games without scores
 
             # Store player info
-            for p in [*game.team1, *game.team2]:
+            for p in game.all_players():
                 if p.player_id not in player_info:
                     player_info[p.player_id] = p
                     player_deltas[p.player_id] = 0.0
@@ -57,12 +57,15 @@ class SeriousEloRating(RatingSystem):
             delta_team1 = self.k_factor * (actual_team1 - expected_team1)
             delta_team2 = -delta_team1
 
-            # Apply delta to each player
-            for p in game.team1:
-                player_deltas[p.player_id] += delta_team1
+            # Apply delta to each player on team1
+            player_deltas[game.team1[0].player_id] += delta_team1
+            if game.team1[1] is not None:
+                player_deltas[game.team1[1].player_id] += delta_team1
 
-            for p in game.team2:
-                player_deltas[p.player_id] += delta_team2
+            # Apply delta to each player on team2
+            player_deltas[game.team2[0].player_id] += delta_team2
+            if game.team2[1] is not None:
+                player_deltas[game.team2[1].player_id] += delta_team2
 
         # Build result
         result: Dict[UUID, RatingDelta] = {}
@@ -79,10 +82,3 @@ class SeriousEloRating(RatingSystem):
             )
 
         return result
-
-
-
-
-
-
-

@@ -144,17 +144,105 @@ class TestGeneratorValidation:
             for i in range(count)
         ]
 
-    def test_player_count_validation(self):
-        """Test that invalid player count raises error."""
-        players = self.create_players(7)  # Not divisible by 4
+    def test_player_count_validation_too_few(self):
+        """Test that too few players raises error."""
+        players = self.create_players(5)  # 2 courts needs 6-8 players
 
-        with pytest.raises(ValueError, match="must equal courts"):
+        with pytest.raises(ValueError, match="must be between"):
             ScheduleGenerator(
                 players=players,
                 courts=2,
                 rounds=2,
                 config=self.config,
             )
+
+    def test_player_count_validation_too_many(self):
+        """Test that too many players raises error."""
+        players = self.create_players(9)  # 2 courts needs 6-8 players
+
+        with pytest.raises(ValueError, match="must be between"):
+            ScheduleGenerator(
+                players=players,
+                courts=2,
+                rounds=2,
+                config=self.config,
+            )
+
+    def test_one_short_generates_2v1(self):
+        """Test that courts*4-1 players generates one 2v1 game per round."""
+        players = self.create_players(7)  # 2 courts, 1 short
+
+        gen = ScheduleGenerator(
+            players=players,
+            courts=2,
+            rounds=2,
+            config=self.config,
+        )
+        result = gen.generate()
+
+        assert result.success
+        assert result.metadata["court_mode"] == "one_short"
+
+        for round_idx in range(2):
+            round_games = [g for g in result.games if g.round_index == round_idx]
+            game_types = [g.game_type for g in round_games]
+            assert "2v1" in game_types
+            assert game_types.count("2v2") == 1
+            assert game_types.count("2v1") == 1
+
+    def test_two_short_generates_1v1(self):
+        """Test that courts*4-2 players generates one 1v1 game per round."""
+        players = self.create_players(6)  # 2 courts, 2 short
+
+        gen = ScheduleGenerator(
+            players=players,
+            courts=2,
+            rounds=2,
+            config=self.config,
+        )
+        result = gen.generate()
+
+        assert result.success
+        assert result.metadata["court_mode"] == "two_short"
+
+        for round_idx in range(2):
+            round_games = [g for g in result.games if g.round_index == round_idx]
+            game_types = [g.game_type for g in round_games]
+            assert "1v1" in game_types
+            assert game_types.count("2v2") == 1
+            assert game_types.count("1v1") == 1
+
+    def test_2v1_solo_is_highest_rated(self):
+        """Test that in 2v1, the solo player is the highest rated of the 3."""
+        players = [
+            Player(id=uuid4(), rating=1200, display_name="High"),
+            Player(id=uuid4(), rating=1100, display_name="Mid"),
+            Player(id=uuid4(), rating=1000, display_name="Low"),
+            Player(id=uuid4(), rating=1050, display_name="P4"),
+            Player(id=uuid4(), rating=1050, display_name="P5"),
+            Player(id=uuid4(), rating=1050, display_name="P6"),
+            Player(id=uuid4(), rating=1050, display_name="P7"),
+        ]
+        player_ratings = {p.id: p.rating for p in players}
+
+        gen = ScheduleGenerator(
+            players=players,
+            courts=2,
+            rounds=1,
+            config=self.config,
+        )
+        result = gen.generate()
+
+        assert result.success
+        for game in result.games:
+            if game.game_type == "2v1":
+                # team2 is the solo side (team2[1] is None)
+                solo_id = game.team2[0]
+                duo_ids = [game.team1[0], game.team1[1]]
+                solo_rating = player_ratings[solo_id]
+                for duo_id in duo_ids:
+                    assert solo_rating >= player_ratings[duo_id], \
+                        "Solo player should be highest rated in 2v1"
 
     def test_generates_correct_game_count(self):
         """Test that correct number of games are generated."""

@@ -122,24 +122,29 @@ class EventService:
             # Prepare games for calculation using LOCALLY simulated current_ratings
             games_for_rating = []
             for game in round_games:
-                # We use the ratings we are tracking, falling back to what's in the game record if missing (shouldn't happen for participants)
+                # Build team1 tuple (handles nullable team1_p2)
                 t1p1_rating = current_ratings.get(game["team1_p1"], float(game["t1p1_rating"]))
-                t1p2_rating = current_ratings.get(game["team1_p2"], float(game["t1p2_rating"]))
+                t1p1 = PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"])
+                t1p2 = None
+                if game["team1_p2"] is not None:
+                    t1p2_rating = current_ratings.get(game["team1_p2"], float(game["t1p2_rating"]))
+                    t1p2 = PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"])
+
+                # Build team2 tuple (handles nullable team2_p2)
                 t2p1_rating = current_ratings.get(game["team2_p1"], float(game["t2p1_rating"]))
-                t2p2_rating = current_ratings.get(game["team2_p2"], float(game["t2p2_rating"]))
+                t2p1 = PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"])
+                t2p2 = None
+                if game["team2_p2"] is not None:
+                    t2p2_rating = current_ratings.get(game["team2_p2"], float(game["t2p2_rating"]))
+                    t2p2 = PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"])
 
                 games_for_rating.append(GameForRating(
-                    team1=(
-                        PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
-                        PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
-                    ),
-                    team2=(
-                        PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
-                        PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
-                    ),
+                    team1=(t1p1, t1p2),
+                    team2=(t2p1, t2p2),
                     result=DomainGameResult(game["result"]),
                     score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
                     score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
+                    game_type=game.get("game_type", "2v2"),
                 ))
 
             # Calculate deltas
@@ -172,11 +177,14 @@ class EventService:
         if not await self._is_owner_or_organizer(user_id, group):
             raise ForbiddenError("Only owners and organizers can create events")
 
-        # Validate participant count
-        required_players = data.courts * 4
-        if len(data.participant_ids) != required_players:
+        # Validate participant count: allow courts*4, courts*4-1, or courts*4-2
+        max_players = data.courts * 4
+        min_players = data.courts * 4 - 2
+        num_players = len(data.participant_ids)
+        if num_players < min_players or num_players > max_players:
             raise BadRequestError(
-                f"Event requires exactly {required_players} participants for {data.courts} courts"
+                f"Event requires {min_players} to {max_players} participants for {data.courts} courts "
+                f"(got {num_players})"
             )
 
         # Verify all participants exist in group
@@ -405,20 +413,26 @@ class EventService:
 
         games_to_create = []
         for g in result.games:
-            # Calculate team ELO as average of player ratings
-            team1_elo = (player_ratings[g.team1[0]] + player_ratings[g.team1[1]]) / 2
-            team2_elo = (player_ratings[g.team2[0]] + player_ratings[g.team2[1]]) / 2
-            
+            # Calculate team ELO as average of player ratings (handles 1-player teams)
+            team1_elo = player_ratings[g.team1[0]]
+            if g.team1[1] is not None:
+                team1_elo = (team1_elo + player_ratings[g.team1[1]]) / 2
+
+            team2_elo = player_ratings[g.team2[0]]
+            if g.team2[1] is not None:
+                team2_elo = (team2_elo + player_ratings[g.team2[1]]) / 2
+
             games_to_create.append({
                 "event_id": event_id,
                 "round_index": g.round_index,
                 "court_index": g.court_index,
                 "team1_p1": g.team1[0],
-                "team1_p2": g.team1[1],
+                "team1_p2": g.team1[1],  # None for 1v1
                 "team2_p1": g.team2[0],
-                "team2_p2": g.team2[1],
+                "team2_p2": g.team2[1],  # None for 2v1/1v1
                 "team1_elo": team1_elo,
                 "team2_elo": team2_elo,
+                "game_type": g.game_type,
             })
 
         await self.games_repo.create_many(games_to_create)
@@ -700,22 +714,29 @@ class EventService:
             games_for_rating = []
             for game in round_games:
                 t1p1_rating = current_ratings.get(game["team1_p1"], float(game["t1p1_rating"]))
-                t1p2_rating = current_ratings.get(game["team1_p2"], float(game["t1p2_rating"]))
                 t2p1_rating = current_ratings.get(game["team2_p1"], float(game["t2p1_rating"]))
-                t2p2_rating = current_ratings.get(game["team2_p2"], float(game["t2p2_rating"]))
+
+                # Build team1 tuple (handles 1v1 where team1_p2 is None)
+                t1p1 = PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"])
+                t1p2 = None
+                if game["team1_p2"] is not None:
+                    t1p2_rating = current_ratings.get(game["team1_p2"], float(game["t1p2_rating"]))
+                    t1p2 = PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"])
+
+                # Build team2 tuple (handles 2v1/1v1 where team2_p2 is None)
+                t2p1 = PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"])
+                t2p2 = None
+                if game["team2_p2"] is not None:
+                    t2p2_rating = current_ratings.get(game["team2_p2"], float(game["t2p2_rating"]))
+                    t2p2 = PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"])
 
                 games_for_rating.append(GameForRating(
-                    team1=(
-                        PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
-                        PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
-                    ),
-                    team2=(
-                        PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
-                        PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
-                    ),
+                    team1=(t1p1, t1p2),
+                    team2=(t2p1, t2p2),
                     result=DomainGameResult(game["result"]),
                     score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
                     score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
+                    game_type=game.get("game_type", "2v2"),
                 ))
 
             # Calculate deltas for all games in this round together
@@ -727,10 +748,16 @@ class EventService:
 
             # Track wins/losses/ties for all players in this round's games
             for game in round_games:
-                for player_id, team in [
-                    (game["team1_p1"], 1), (game["team1_p2"], 1),
-                    (game["team2_p1"], 2), (game["team2_p2"], 2)
-                ]:
+                game_players = [
+                    (game["team1_p1"], 1),
+                    (game["team2_p1"], 2),
+                ]
+                if game["team1_p2"] is not None:
+                    game_players.append((game["team1_p2"], 1))
+                if game["team2_p2"] is not None:
+                    game_players.append((game["team2_p2"], 2))
+
+                for player_id, team in game_players:
                     if player_id in player_stats:
                         player_stats[player_id]["games"] += 1
                         if game["result"] == "TIE":
@@ -845,32 +872,48 @@ class EventService:
         """Get all games for an event with player details."""
         games = await self.games_repo.list_by_event_with_players(event_id)
 
-        return [
-            GameResponse(
+        result = []
+        for g in games:
+            # Build team1 player list (1 or 2 players)
+            team1 = [PlayerInfo(id=g["team1_p1"], displayName=g["t1p1_name"])]
+            if g["team1_p2"] is not None:
+                team1.append(PlayerInfo(id=g["team1_p2"], displayName=g["t1p2_name"]))
+
+            # Build team2 player list (1 or 2 players)
+            team2 = [PlayerInfo(id=g["team2_p1"], displayName=g["t2p1_name"])]
+            if g["team2_p2"] is not None:
+                team2.append(PlayerInfo(id=g["team2_p2"], displayName=g["t2p2_name"]))
+
+            # Calculate team ELO (use stored or compute from current ratings)
+            if g.get("team1_elo") is not None:
+                team1_elo = float(g["team1_elo"])
+            else:
+                team1_elo = float(g["t1p1_rating"])
+                if g["team1_p2"] is not None:
+                    team1_elo = (team1_elo + float(g["t1p2_rating"])) / 2
+
+            if g.get("team2_elo") is not None:
+                team2_elo = float(g["team2_elo"])
+            else:
+                team2_elo = float(g["t2p1_rating"])
+                if g["team2_p2"] is not None:
+                    team2_elo = (team2_elo + float(g["t2p2_rating"])) / 2
+
+            result.append(GameResponse(
                 id=g["id"],
                 roundIndex=g["round_index"],
                 courtIndex=g["court_index"],
-                team1=[
-                    PlayerInfo(id=g["team1_p1"], displayName=g["t1p1_name"]),
-                    PlayerInfo(id=g["team1_p2"], displayName=g["t1p2_name"]),
-                ],
-                team2=[
-                    PlayerInfo(id=g["team2_p1"], displayName=g["t2p1_name"]),
-                    PlayerInfo(id=g["team2_p2"], displayName=g["t2p2_name"]),
-                ],
+                team1=team1,
+                team2=team2,
                 scoreTeam1=float(g["score_team1"]) if g["score_team1"] is not None else None,
                 scoreTeam2=float(g["score_team2"]) if g["score_team2"] is not None else None,
-                # Use stored team ELO (historical) or calculate from current ratings
-                team1Elo=float(g["team1_elo"]) if g.get("team1_elo") is not None else (
-                    (float(g["t1p1_rating"]) + float(g["t1p2_rating"])) / 2
-                ),
-                team2Elo=float(g["team2_elo"]) if g.get("team2_elo") is not None else (
-                    (float(g["t2p1_rating"]) + float(g["t2p2_rating"])) / 2
-                ),
+                team1Elo=team1_elo,
+                team2Elo=team2_elo,
                 result=GameResult(g["result"]),
-            )
-            for g in games
-        ]
+                gameType=g.get("game_type", "2v2"),
+            ))
+
+        return result
 
     async def import_history(
         self, user_id: str, group_id: UUID, file: UploadFile

@@ -28,13 +28,29 @@ class PlayerRating:
 
 @dataclass
 class GameForRating:
-    """Game data needed for rating calculation."""
+    """Game data needed for rating calculation.
 
-    team1: Tuple[PlayerRating, PlayerRating]
-    team2: Tuple[PlayerRating, PlayerRating]
+    For 2v2: team1 = (p1, p2), team2 = (p3, p4)
+    For 2v1: team1 = (p1, p2), team2 = (p3, None) — duo vs solo
+    For 1v1: team1 = (p1, None), team2 = (p3, None)
+    """
+
+    team1: Tuple[PlayerRating, Optional[PlayerRating]]
+    team2: Tuple[PlayerRating, Optional[PlayerRating]]
     result: GameResult
     score_team1: Optional[float] = None
     score_team2: Optional[float] = None
+    game_type: str = "2v2"
+
+    def all_players(self) -> list:
+        """Get all non-None players."""
+        players = [self.team1[0]]
+        if self.team1[1] is not None:
+            players.append(self.team1[1])
+        players.append(self.team2[0])
+        if self.team2[1] is not None:
+            players.append(self.team2[1])
+        return players
 
 
 @dataclass
@@ -71,8 +87,10 @@ class RatingSystem(ABC):
         """
         pass
 
-    def _get_team_average(self, p1: PlayerRating, p2: PlayerRating) -> float:
-        """Get the average rating of a team."""
+    def _get_team_average(self, p1: PlayerRating, p2: Optional[PlayerRating] = None) -> float:
+        """Get the average rating of a team. Handles 1-player teams."""
+        if p2 is None:
+            return p1.rating
         return (p1.rating + p2.rating) / 2
 
     def _get_expected_score(self, rating_a: float, rating_b: float) -> float:
@@ -90,10 +108,3 @@ class RatingSystem(ABC):
             return 1.0 if is_team1 else 0.0
         else:  # TEAM2_WIN
             return 0.0 if is_team1 else 1.0
-
-
-
-
-
-
-

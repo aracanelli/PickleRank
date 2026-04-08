@@ -35,7 +35,7 @@ class PlayerInfo(BaseModel):
 
 
 class GameResponse(BaseModel):
-    """Game response."""
+    """Game response. Supports 2v2, 2v1, and 1v1 games."""
 
     id: UUID
     round_index: int = Field(ge=0, alias="roundIndex")
@@ -47,6 +47,7 @@ class GameResponse(BaseModel):
     team1_elo: Optional[float] = Field(None, alias="team1Elo")
     team2_elo: Optional[float] = Field(None, alias="team2Elo")
     result: GameResult
+    game_type: str = Field(default="2v2", alias="gameType")
 
     class Config:
         populate_by_name = True

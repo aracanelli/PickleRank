@@ -44,48 +44,46 @@ class RacsEloRating(RatingSystem):
                 continue  # Skip games without scores
 
             # Store player info
-            for p in [*game.team1, *game.team2]:
+            for p in game.all_players():
                 if p.player_id not in player_info:
                     player_info[p.player_id] = p
                     player_deltas[p.player_id] = 0.0
 
-            # Get players and their ratings
-            p1, p2 = game.team1
-            p3, p4 = game.team2
+            # Get team players
+            t1_players = [game.team1[0]]
+            if game.team1[1] is not None:
+                t1_players.append(game.team1[1])
+            t2_players = [game.team2[0]]
+            if game.team2[1] is not None:
+                t2_players.append(game.team2[1])
 
             # Calculate team averages
-            team1_avg = self._get_team_average(p1, p2)
-            team2_avg = self._get_team_average(p3, p4)
+            team1_avg = self._get_team_average(game.team1[0], game.team1[1])
+            team2_avg = self._get_team_average(game.team2[0], game.team2[1])
 
             # Calculate individual expected scores
-            # E = 1 / (1 + 10^((player_elo - opponent_team_avg) / (player_elo * elo_const)))
-            E1 = self._calc_expected(p1.rating, team2_avg)
-            E2 = self._calc_expected(p2.rating, team2_avg)
-            E3 = self._calc_expected(p3.rating, team1_avg)
-            E4 = self._calc_expected(p4.rating, team1_avg)
+            t1_expected = [self._calc_expected(p.rating, team2_avg) for p in t1_players]
+            t2_expected = [self._calc_expected(p.rating, team1_avg) for p in t2_players]
 
-            # K-factor = 10 * |score_diff| (exactly like calculate_elo.py line 43)
+            # K-factor = 10 * |score_diff|
             if game.score_team1 is not None and game.score_team2 is not None:
                 score_diff = abs(game.score_team1 - game.score_team2)
                 k_const = 10 * score_diff
             else:
-                # Fallback if scores not available
                 k_const = self.k_factor
 
             # Calculate deltas based on result
             if game.result == GameResult.TEAM1_WIN:
-                # Team 1 wins
-                player_deltas[p1.player_id] += k_const * E1
-                player_deltas[p2.player_id] += k_const * E2
-                player_deltas[p3.player_id] += k_const * (-1 + E3)
-                player_deltas[p4.player_id] += k_const * (-1 + E4)
+                for p, e in zip(t1_players, t1_expected):
+                    player_deltas[p.player_id] += k_const * e
+                for p, e in zip(t2_players, t2_expected):
+                    player_deltas[p.player_id] += k_const * (-1 + e)
 
             elif game.result == GameResult.TEAM2_WIN:
-                # Team 2 wins
-                player_deltas[p1.player_id] += k_const * (-1 + E1)
-                player_deltas[p2.player_id] += k_const * (-1 + E2)
-                player_deltas[p3.player_id] += k_const * E3
-                player_deltas[p4.player_id] += k_const * E4
+                for p, e in zip(t1_players, t1_expected):
+                    player_deltas[p.player_id] += k_const * (-1 + e)
+                for p, e in zip(t2_players, t2_expected):
+                    player_deltas[p.player_id] += k_const * e
 
             else:  # TIE
                 # No ELO change on tie in Rac's system
@@ -115,6 +113,6 @@ class RacsEloRating(RatingSystem):
         """
         if player_rating == 0:
             return 0.5
-        
+
         exponent = (player_rating - opponent_team_avg) / (player_rating * self.elo_const)
         return 1.0 / (1.0 + pow(10.0, exponent))

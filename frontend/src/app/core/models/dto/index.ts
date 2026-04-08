@@ -108,6 +108,8 @@ export interface PlayerInfo {
   displayName: string
 }
 
+export type GameType = '2v2' | '2v1' | '1v1'
+
 export interface GameDto {
   id: string
   roundIndex: number
@@ -119,6 +121,7 @@ export interface GameDto {
   team1Elo?: number
   team2Elo?: number
   result: GameResult
+  gameType?: GameType
 }
 
 export interface GenerationMeta {

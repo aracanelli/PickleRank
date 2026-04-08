@@ -1,8 +1,8 @@
 """
 Matchmaking constraints for pickleball events.
 """
-from dataclasses import dataclass
-from typing import Dict, FrozenSet, List, Set, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 from uuid import UUID
 
 
@@ -30,32 +30,55 @@ class Player:
 
 @dataclass
 class Game:
-    """A single 2v2 game."""
+    """A game that can be 2v2, 2v1, or 1v1.
+
+    For 2v2: team1 = (p1, p2), team2 = (p3, p4)
+    For 2v1: team1 = (p1, p2), team2 = (p3, None) — duo vs solo
+    For 1v1: team1 = (p1, None), team2 = (p3, None)
+    """
 
     round_index: int
     court_index: int
-    team1: Tuple[UUID, UUID]
-    team2: Tuple[UUID, UUID]
+    team1: Tuple[UUID, Optional[UUID]]
+    team2: Tuple[UUID, Optional[UUID]]
+    game_type: str = "2v2"  # "2v2", "2v1", "1v1"
 
     def all_players(self) -> Set[UUID]:
         """Get all players in this game."""
-        return {self.team1[0], self.team1[1], self.team2[0], self.team2[1]}
+        players = {self.team1[0], self.team2[0]}
+        if self.team1[1] is not None:
+            players.add(self.team1[1])
+        if self.team2[1] is not None:
+            players.add(self.team2[1])
+        return players
 
     def teammate_pairs(self) -> Set[FrozenSet[UUID]]:
-        """Get teammate pairs as frozen sets."""
-        return {
-            frozenset([self.team1[0], self.team1[1]]),
-            frozenset([self.team2[0], self.team2[1]]),
-        }
+        """Get teammate pairs as frozen sets. Only pairs where both exist."""
+        pairs: Set[FrozenSet[UUID]] = set()
+        if self.team1[1] is not None:
+            pairs.add(frozenset([self.team1[0], self.team1[1]]))
+        if self.team2[1] is not None:
+            pairs.add(frozenset([self.team2[0], self.team2[1]]))
+        return pairs
 
     def opponent_pairs(self) -> Set[FrozenSet[UUID]]:
         """Get opponent pairs as frozen sets."""
-        return {
-            frozenset([self.team1[0], self.team2[0]]),
-            frozenset([self.team1[0], self.team2[1]]),
-            frozenset([self.team1[1], self.team2[0]]),
-            frozenset([self.team1[1], self.team2[1]]),
-        }
+        t1_players = [self.team1[0]]
+        if self.team1[1] is not None:
+            t1_players.append(self.team1[1])
+        t2_players = [self.team2[0]]
+        if self.team2[1] is not None:
+            t2_players.append(self.team2[1])
+        pairs: Set[FrozenSet[UUID]] = set()
+        for p1 in t1_players:
+            for p2 in t2_players:
+                pairs.add(frozenset([p1, p2]))
+        return pairs
+
+    def team_size(self, team: int) -> int:
+        """Get the size of a team (1 or 2)."""
+        t = self.team1 if team == 1 else self.team2
+        return 2 if t[1] is not None else 1
 
 
 class ConstraintChecker:
@@ -146,12 +169,8 @@ class ConstraintChecker:
             violations.append(f"Opponent pair would exceed 2 matches in event")
 
         # Check rating balance
-        team1_rating = (
-            players[game.team1[0]].rating + players[game.team1[1]].rating
-        ) / 2
-        team2_rating = (
-            players[game.team2[0]].rating + players[game.team2[1]].rating
-        ) / 2
+        team1_rating = self._get_team_rating(game.team1, players)
+        team2_rating = self._get_team_rating(game.team2, players)
 
         if not self.check_rating_balance(team1_rating, team2_rating, elo_diff):
             violations.append(
@@ -159,6 +178,14 @@ class ConstraintChecker:
             )
 
         return len(violations) == 0, violations
+
+    def _get_team_rating(
+        self, team: Tuple[UUID, Optional[UUID]], players: Dict[UUID, Player]
+    ) -> float:
+        """Get the average rating of a team, handling 1-player teams."""
+        if team[1] is None:
+            return players[team[0]].rating
+        return (players[team[0]].rating + players[team[1]].rating) / 2
 
     def check_swap_warnings(
         self,
@@ -183,10 +210,3 @@ class ConstraintChecker:
                 break
 
         return warnings
-
-
-
-
-
-
-

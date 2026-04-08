@@ -26,8 +26,20 @@ const eventName = ref('')
 const courts = ref(2)
 const rounds = ref(4)
 
-const requiredPlayers = computed(() => courts.value * 4)
-const canCreate = computed(() => selectedPlayerIds.value.size === requiredPlayers.value)
+const maxPlayers = computed(() => courts.value * 4)
+const minPlayers = computed(() => courts.value * 4 - 2)
+const requiredPlayers = computed(() => maxPlayers.value) // used for selection limit
+const canCreate = computed(() => {
+  const count = selectedPlayerIds.value.size
+  return count >= minPlayers.value && count <= maxPlayers.value
+})
+const courtMode = computed(() => {
+  const shortfall = maxPlayers.value - selectedPlayerIds.value.size
+  if (shortfall === 0) return 'standard'
+  if (shortfall === 1) return 'one_short'
+  if (shortfall === 2) return 'two_short'
+  return 'invalid'
+})
 
 // Split players by membership type
 const permanentPlayers = computed(() => 
@@ -93,8 +105,8 @@ function togglePlayer(playerId: string) {
     // Allow deselecting any player
     selectedPlayerIds.value.delete(playerId)
   } else {
-    // Only allow selecting if we haven't reached the limit
-    if (selectedPlayerIds.value.size < requiredPlayers.value) {
+    // Only allow selecting if we haven't reached the max
+    if (selectedPlayerIds.value.size < maxPlayers.value) {
       selectedPlayerIds.value.add(playerId)
     }
   }
@@ -112,7 +124,7 @@ function selectAllPermanent() {
   // Add any currently selected sub players (up to the limit)
   let added = permanentIds.length
   for (const subId of subPlayers.value.map(p => p.id)) {
-    if (currentSelected.includes(subId) && added < requiredPlayers.value) {
+    if (currentSelected.includes(subId) && added < maxPlayers.value) {
       newSelection.add(subId)
       added++
     }
@@ -197,8 +209,17 @@ async function createEvent() {
             </div>
 
             <div class="requirement-badge">
-              Requires exactly <strong>{{ requiredPlayers }}</strong> players
-              ({{ courts }} courts × 4 players)
+              <strong>{{ minPlayers }}</strong> to <strong>{{ maxPlayers }}</strong> players
+              ({{ courts }} courts)
+            </div>
+            <div v-if="courtMode === 'one_short'" class="mode-badge warn">
+              1 court will play 2v1 (strongest player solo)
+            </div>
+            <div v-else-if="courtMode === 'two_short'" class="mode-badge warn">
+              1 court will play 1v1
+            </div>
+            <div v-else-if="courtMode === 'standard' && canCreate" class="mode-badge ok">
+              All courts 2v2
             </div>
           </BaseCard>
         </div>
@@ -210,7 +231,7 @@ async function createEvent() {
               <div class="players-header">
                 <h3>Select Participants</h3>
                 <span class="selection-count" :class="{ complete: canCreate }">
-                  {{ selectedPlayerIds.size }} / {{ requiredPlayers }}
+                  {{ selectedPlayerIds.size }} / {{ minPlayers }}-{{ maxPlayers }}
                 </span>
               </div>
               <div class="selection-actions">
@@ -273,12 +294,12 @@ async function createEvent() {
                     v-for="player in subPlayers"
                     :key="player.id"
                     class="player-chip sub"
-                    :class="{ 
+                    :class="{
                       selected: selectedPlayerIds.has(player.id),
-                      disabled: !selectedPlayerIds.has(player.id) && selectedPlayerIds.size >= requiredPlayers
+                      disabled: !selectedPlayerIds.has(player.id) && selectedPlayerIds.size >= maxPlayers
                     }"
                     @click="togglePlayer(player.id)"
-                    :disabled="!selectedPlayerIds.has(player.id) && selectedPlayerIds.size >= requiredPlayers"
+                    :disabled="!selectedPlayerIds.has(player.id) && selectedPlayerIds.size >= maxPlayers"
                   >
                     <span class="chip-avatar">{{ player.displayName[0] }}</span>
                     <span class="chip-name">{{ player.displayName }}</span>
@@ -387,6 +408,26 @@ async function createEvent() {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
   text-align: center;
+}
+
+.mode-badge {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  text-align: center;
+  margin-top: var(--spacing-xs);
+}
+
+.mode-badge.warn {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.mode-badge.ok {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--color-primary);
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .players-header {

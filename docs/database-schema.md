@@ -117,14 +117,15 @@ CREATE TABLE games (
     round_index INTEGER NOT NULL CHECK (round_index >= 0),
     court_index INTEGER NOT NULL CHECK (court_index >= 0),
     team1_p1 UUID NOT NULL REFERENCES group_players(id),
-    team1_p2 UUID NOT NULL REFERENCES group_players(id),
+    team1_p2 UUID REFERENCES group_players(id),          -- NULL for 1v1
     team2_p1 UUID NOT NULL REFERENCES group_players(id),
-    team2_p2 UUID NOT NULL REFERENCES group_players(id),
+    team2_p2 UUID REFERENCES group_players(id),          -- NULL for 2v1/1v1
     score_team1 NUMERIC(5, 1),
     score_team2 NUMERIC(5, 1),
     team1_elo NUMERIC(10, 2),
     team2_elo NUMERIC(10, 2),
     result game_result DEFAULT 'UNSET',
+    game_type VARCHAR(3) NOT NULL DEFAULT '2v2' CHECK (game_type IN ('2v2', '2v1', '1v1')),
     swapped BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

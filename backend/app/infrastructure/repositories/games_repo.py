@@ -11,7 +11,7 @@ class GamesRepository:
         self.conn = conn
 
     async def create_many(self, games: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create multiple games."""
+        """Create multiple games. Supports 2v2, 2v1, and 1v1 games."""
         if not games:
             return []
 
@@ -24,18 +24,19 @@ class GamesRepository:
                     g["round_index"],
                     g["court_index"],
                     g["team1_p1"],
-                    g["team1_p2"],
+                    g.get("team1_p2"),  # nullable for 1v1
                     g["team2_p1"],
-                    g["team2_p2"],
+                    g.get("team2_p2"),  # nullable for 2v1/1v1
                     g.get("team1_elo"),
                     g.get("team2_elo"),
+                    g.get("game_type", "2v2"),
                 )
             )
 
         await self.conn.executemany(
             """
-            INSERT INTO games (event_id, round_index, court_index, team1_p1, team1_p2, team2_p1, team2_p2, team1_elo, team2_elo)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO games (event_id, round_index, court_index, team1_p1, team1_p2, team2_p1, team2_p2, team1_elo, team2_elo, game_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """,
             values,
         )
@@ -50,6 +51,7 @@ class GamesRepository:
             SELECT g.id, g.event_id, g.round_index, g.court_index,
                    g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
                    g.score_team1, g.score_team2, g.result, g.swapped,
+                   g.game_type,
                    e.group_id
             FROM games g
             JOIN events e ON e.id = g.event_id
@@ -65,7 +67,8 @@ class GamesRepository:
             """
             SELECT g.id, g.event_id, g.round_index, g.court_index,
                    g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
-                   g.score_team1, g.score_team2, g.result, g.swapped
+                   g.score_team1, g.score_team2, g.result, g.swapped,
+                   g.game_type
             FROM games g
             WHERE g.event_id = $1
             ORDER BY g.round_index, g.court_index
@@ -75,26 +78,29 @@ class GamesRepository:
         return [dict(row) for row in rows]
 
     async def list_by_event_with_players(self, event_id: UUID) -> List[Dict[str, Any]]:
-        """List all games in an event with player details."""
+        """List all games in an event with player details.
+
+        Uses LEFT JOINs for team1_p2 and team2_p2 to support 2v1 and 1v1 games.
+        """
         rows = await self.conn.fetch(
             """
             SELECT g.id, g.event_id, g.round_index, g.court_index,
                    g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
                    g.score_team1, g.score_team2, g.result, g.swapped,
-                   g.team1_elo, g.team2_elo,
+                   g.team1_elo, g.team2_elo, g.game_type,
                    p1.display_name as t1p1_name, gp1.rating as t1p1_rating,
                    p2.display_name as t1p2_name, gp2.rating as t1p2_rating,
                    p3.display_name as t2p1_name, gp3.rating as t2p1_rating,
                    p4.display_name as t2p2_name, gp4.rating as t2p2_rating
             FROM games g
             JOIN group_players gp1 ON gp1.id = g.team1_p1
-            JOIN group_players gp2 ON gp2.id = g.team1_p2
+            LEFT JOIN group_players gp2 ON gp2.id = g.team1_p2
             JOIN group_players gp3 ON gp3.id = g.team2_p1
-            JOIN group_players gp4 ON gp4.id = g.team2_p2
+            LEFT JOIN group_players gp4 ON gp4.id = g.team2_p2
             JOIN players p1 ON p1.id = gp1.player_id
-            JOIN players p2 ON p2.id = gp2.player_id
+            LEFT JOIN players p2 ON p2.id = gp2.player_id
             JOIN players p3 ON p3.id = gp3.player_id
-            JOIN players p4 ON p4.id = gp4.player_id
+            LEFT JOIN players p4 ON p4.id = gp4.player_id
             WHERE g.event_id = $1
             ORDER BY g.round_index, g.court_index
             """,
@@ -109,7 +115,7 @@ class GamesRepository:
             SELECT g.id, g.event_id, g.round_index, g.court_index,
                    g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
                    g.score_team1, g.score_team2, g.result, g.swapped,
-                   g.team1_elo, g.team2_elo,
+                   g.team1_elo, g.team2_elo, g.game_type,
                    p1.display_name as t1p1_name, gp1.rating as t1p1_rating,
                    p2.display_name as t1p2_name, gp2.rating as t1p2_rating,
                    p3.display_name as t2p1_name, gp3.rating as t2p1_rating,
@@ -118,13 +124,13 @@ class GamesRepository:
             FROM games g
             JOIN events e ON e.id = g.event_id
             JOIN group_players gp1 ON gp1.id = g.team1_p1
-            JOIN group_players gp2 ON gp2.id = g.team1_p2
+            LEFT JOIN group_players gp2 ON gp2.id = g.team1_p2
             JOIN group_players gp3 ON gp3.id = g.team2_p1
-            JOIN group_players gp4 ON gp4.id = g.team2_p2
+            LEFT JOIN group_players gp4 ON gp4.id = g.team2_p2
             JOIN players p1 ON p1.id = gp1.player_id
-            JOIN players p2 ON p2.id = gp2.player_id
+            LEFT JOIN players p2 ON p2.id = gp2.player_id
             JOIN players p3 ON p3.id = gp3.player_id
-            JOIN players p4 ON p4.id = gp4.player_id
+            LEFT JOIN players p4 ON p4.id = gp4.player_id
             WHERE g.team1_p1 = $1 OR g.team1_p2 = $1 OR g.team2_p1 = $1 OR g.team2_p2 = $1
             ORDER BY e.starts_at ASC, g.round_index ASC
             """,
@@ -153,7 +159,7 @@ class GamesRepository:
             WHERE id = $1
             RETURNING id, event_id, round_index, court_index,
                       team1_p1, team1_p2, team2_p1, team2_p2,
-                      score_team1, score_team2, result, swapped
+                      score_team1, score_team2, result, swapped, game_type
             """,
             game_id,
             score_team1,
@@ -166,7 +172,6 @@ class GamesRepository:
         self, game_id: UUID, position1: str, position2: str, player1_id: UUID, player2_id: UUID
     ) -> None:
         """Swap players in a game."""
-        # This is a complex operation - we need to swap the player IDs in the correct positions
         await self.conn.execute(
             f"""
             UPDATE games
@@ -199,12 +204,12 @@ class GamesRepository:
         row = await self.conn.fetchrow(
             """
             UPDATE games
-            SET team1_p1 = $2, team1_p2 = $3, team2_p1 = $4, team2_p2 = $5, 
+            SET team1_p1 = $2, team1_p2 = $3, team2_p1 = $4, team2_p2 = $5,
                 swapped = TRUE, updated_at = NOW()
             WHERE id = $1
             RETURNING id, event_id, round_index, court_index,
                       team1_p1, team1_p2, team2_p1, team2_p2,
-                      score_team1, score_team2, result, swapped
+                      score_team1, score_team2, result, swapped, game_type
             """,
             game_id,
             team1_p1,
@@ -215,24 +220,21 @@ class GamesRepository:
         return dict(row) if row else None
 
     async def get_teammate_pairs_from_event(self, event_id: UUID) -> List[tuple]:
-        """Get all teammate pairs from an event."""
+        """Get all teammate pairs from an event (only from 2v2 and 2v1 games with duo teams)."""
         rows = await self.conn.fetch(
             """
             SELECT DISTINCT
                 LEAST(team1_p1, team1_p2) as p1,
                 GREATEST(team1_p1, team1_p2) as p2
             FROM games
-            WHERE event_id = $1
+            WHERE event_id = $1 AND team1_p2 IS NOT NULL
             UNION
             SELECT DISTINCT
                 LEAST(team2_p1, team2_p2) as p1,
                 GREATEST(team2_p1, team2_p2) as p2
             FROM games
-            WHERE event_id = $1
+            WHERE event_id = $1 AND team2_p2 IS NOT NULL
             """,
             event_id,
         )
         return [(row["p1"], row["p2"]) for row in rows]
-
-
-

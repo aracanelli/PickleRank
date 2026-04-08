@@ -43,7 +43,7 @@ class CatchUpEloRating(RatingSystem):
         # First pass: collect all players and their ratings
         all_players = set()
         for game in games:
-            for p in [*game.team1, *game.team2]:
+            for p in game.all_players():
                 all_players.add(p.player_id)
                 if p.player_id not in player_info:
                     player_info[p.player_id] = p
@@ -76,23 +76,32 @@ class CatchUpEloRating(RatingSystem):
 
             base_delta_team1 = self.k_factor * (actual_team1 - expected_team1)
 
-            # Apply catch-up adjustments per player
-            for p in game.team1:
-                adjusted_delta = self._adjust_delta(
+            # Apply catch-up adjustments per player on team1
+            player_deltas[game.team1[0].player_id] += self._adjust_delta(
+                base_delta_team1,
+                current_ratings.get(game.team1[0].player_id, game.team1[0].rating),
+                median_rating,
+            )
+            if game.team1[1] is not None:
+                player_deltas[game.team1[1].player_id] += self._adjust_delta(
                     base_delta_team1,
-                    current_ratings.get(p.player_id, p.rating),
+                    current_ratings.get(game.team1[1].player_id, game.team1[1].rating),
                     median_rating,
                 )
-                player_deltas[p.player_id] += adjusted_delta
 
-            for p in game.team2:
-                base_delta = -base_delta_team1
-                adjusted_delta = self._adjust_delta(
-                    base_delta,
-                    current_ratings.get(p.player_id, p.rating),
+            # Apply catch-up adjustments per player on team2
+            base_delta_team2 = -base_delta_team1
+            player_deltas[game.team2[0].player_id] += self._adjust_delta(
+                base_delta_team2,
+                current_ratings.get(game.team2[0].player_id, game.team2[0].rating),
+                median_rating,
+            )
+            if game.team2[1] is not None:
+                player_deltas[game.team2[1].player_id] += self._adjust_delta(
+                    base_delta_team2,
+                    current_ratings.get(game.team2[1].player_id, game.team2[1].rating),
                     median_rating,
                 )
-                player_deltas[p.player_id] += adjusted_delta
 
         # Build result
         result: Dict[UUID, RatingDelta] = {}
@@ -143,10 +152,3 @@ class CatchUpEloRating(RatingSystem):
             else:
                 # Below median: normal losses
                 return base_delta
-
-
-
-
-
-
-

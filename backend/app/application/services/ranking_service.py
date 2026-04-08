@@ -111,13 +111,13 @@ class RankingService:
             FROM games g
             JOIN events e ON e.id = g.event_id
             JOIN group_players gp1 ON gp1.id = g.team1_p1
-            JOIN group_players gp2 ON gp2.id = g.team1_p2
+            LEFT JOIN group_players gp2 ON gp2.id = g.team1_p2
             JOIN group_players gp3 ON gp3.id = g.team2_p1
-            JOIN group_players gp4 ON gp4.id = g.team2_p2
+            LEFT JOIN group_players gp4 ON gp4.id = g.team2_p2
             JOIN players p1 ON p1.id = gp1.player_id
-            JOIN players p2 ON p2.id = gp2.player_id
+            LEFT JOIN players p2 ON p2.id = gp2.player_id
             JOIN players p3 ON p3.id = gp3.player_id
-            JOIN players p4 ON p4.id = gp4.player_id
+            LEFT JOIN players p4 ON p4.id = gp4.player_id
             WHERE e.group_id = $1 AND e.status = 'COMPLETED'
         """
 
@@ -228,10 +228,10 @@ class RankingService:
                     date=row["event_date"] or datetime.now(),
                     roundIndex=row["round_index"],
                     courtIndex=row["court_index"],
-                    team1=[row["t1p1_name"], row["t1p2_name"]],
-                    team2=[row["t2p1_name"], row["t2p2_name"]],
-                    team1Ids=[row["team1_p1"], row["team1_p2"]],
-                    team2Ids=[row["team2_p1"], row["team2_p2"]],
+                    team1=[n for n in [row["t1p1_name"], row.get("t1p2_name")] if n is not None],
+                    team2=[n for n in [row["t2p1_name"], row.get("t2p2_name")] if n is not None],
+                    team1Ids=[i for i in [row["team1_p1"], row.get("team1_p2")] if i is not None],
+                    team2Ids=[i for i in [row["team2_p1"], row.get("team2_p2")] if i is not None],
                     scoreTeam1=float(row["score_team1"]) if row["score_team1"] else None,
                     scoreTeam2=float(row["score_team2"]) if row["score_team2"] else None,
                     result=row["result"],

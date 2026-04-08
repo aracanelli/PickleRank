@@ -48,11 +48,12 @@ const gridStyle = computed(() => ({
         <div class="round-label">
           Round {{ roundIdx + 1 }}
         </div>
-        <div 
-          v-for="game in roundGames" 
-          :key="game.id" 
+        <div
+          v-for="game in roundGames"
+          :key="game.id"
           class="game-cell"
         >
+          <div v-if="game.gameType && game.gameType !== '2v2'" class="game-type-tag">{{ game.gameType }}</div>
           <div class="team team1">
             <span class="players">{{ game.team1.map(p => p.displayName).join(' & ') }}</span>
             <span class="elo">({{ Math.round(game.team1Elo || 0) }})</span>
@@ -185,5 +186,14 @@ const gridStyle = computed(() => ({
   font-weight: 600;
   color: rgba(255, 255, 255, 0.4);
   text-transform: uppercase;
+}
+
+.game-type-tag {
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #f59e0b;
+  letter-spacing: 0.05em;
 }
 </style>
