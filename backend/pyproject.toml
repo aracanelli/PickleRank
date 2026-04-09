@@ -17,7 +17,7 @@ dependencies = [
   "psycopg2-binary==2.9.10",
 
   # Auth
-  "PyJWT==2.10.1",
+  "PyJWT==2.12.1",
   "cryptography==44.0.0",
   "httpx==0.28.1",
 
