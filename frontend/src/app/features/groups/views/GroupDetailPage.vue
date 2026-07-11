@@ -1,1448 +1,241 @@
 <script setup lang="ts">
-import { 
-  ArrowLeft, Settings, Plus, Trophy, ChartBar, Upload, Target, 
-  Users, TrendingUp, TrendingDown, Calendar, Download, CheckCircle, Activity, DollarSign, RefreshCw
-} from 'lucide-vue-next'
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { Settings, Users, Plus, CalendarDays, Upload, DollarSign, UserPlus } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { api } from '@/app/core/http/api-client'
 import type { GroupDto, GroupPlayerDto, EventListItemDto } from '@/app/core/models/dto'
-import BaseButton from '@/app/core/ui/components/BaseButton.vue'
-import BaseCard from '@/app/core/ui/components/BaseCard.vue'
-import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import EmptyState from '@/app/core/ui/components/EmptyState.vue'
-import Modal from '@/app/core/ui/components/Modal.vue'
 import { useAuthStore } from '@/stores/auth'
-
-const authStore = useAuthStore()
-const currentUserId = computed(() => authStore.userId)
+import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
+import { useToast } from '@/app/core/ui/composables/useToast'
+import { useConfirm } from '@/app/core/ui/composables/useConfirm'
+import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
+import HeaderActions from '@/app/core/layout/HeaderActions.vue'
+import IconButton from '@/app/core/ui/components/IconButton.vue'
+import AppButton from '@/app/core/ui/components/AppButton.vue'
+import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
+import ErrorState from '@/app/core/ui/components/ErrorState.vue'
+import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
+import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
+import ListItem from '@/app/core/ui/components/ListItem.vue'
+import Fab from '@/app/core/ui/components/Fab.vue'
+import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
+import GroupStatsRow from '../components/GroupStatsRow.vue'
+import EventCard from '../components/EventCard.vue'
+import ImportHistorySheet from '../components/ImportHistorySheet.vue'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
+const groupContext = useGroupContextStore()
+const toast = useToast()
+const { confirm } = useConfirm()
+
 const groupId = computed(() => route.params.groupId as string)
 
 const group = ref<GroupDto | null>(null)
 const players = ref<GroupPlayerDto[]>([])
-const pendingEvents = ref<EventListItemDto[]>([])
+const events = ref<EventListItemDto[]>([])
 const isLoading = ref(true)
-const isLoadingEvents = ref(false)
 const error = ref('')
+const statusFilter = ref('all')
+const showImportSheet = ref(false)
 
-const showImportModal = ref(false)
-const importFile = ref<File | null>(null)
-const isImporting = ref(false)
-const importResult = ref<{ eventsCreated: number; gamesImported: number } | null>(null)
-const isRefreshing = ref(false)
+const statusOptions = [
+  { label: 'All', value: 'all' },
+  { label: 'Active', value: 'active' },
+  { label: 'Done', value: 'done' }
+]
 
-onMounted(async () => {
-  await Promise.all([loadGroup(), loadPlayers(), loadPendingEvents()])
-})
+onMounted(loadAll)
 
-async function loadGroup() {
+async function loadAll(silent = false) {
+  if (!silent) isLoading.value = true
+  error.value = ''
   try {
-    group.value = await groupsApi.get(groupId.value)
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load group'
-  }
-}
-
-async function loadPlayers() {
-  isLoading.value = true
-  try {
-    const groupPlayersRes = await groupsApi.getPlayers(groupId.value)
-    players.value = groupPlayersRes.players
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load players'
+    // Events failing shouldn't take down the whole page (ported behavior)
+    const [groupRes, playersRes, eventsRes] = await Promise.all([
+      groupsApi.get(groupId.value),
+      groupsApi.getPlayers(groupId.value),
+      eventsApi.list(groupId.value).catch((e) => {
+        console.error('Failed to load events:', e)
+        return { events: [] as EventListItemDto[] }
+      })
+    ])
+    group.value = groupRes
+    players.value = playersRes.players
+    events.value = eventsRes.events
+    syncGroupContext()
+  } catch (e) {
+    error.value = getApiErrorMessage(e, 'Failed to load group')
   } finally {
     isLoading.value = false
   }
 }
 
-// Compute permanent and sub counts
-const permanentPlayers = computed(() => players.value.filter(p => p.membershipType === 'PERMANENT'))
-const subPlayers = computed(() => players.value.filter(p => p.membershipType === 'SUB'))
-
-function formatRating(rating: number): string {
-  return rating.toFixed(1)
-}
-
-// Check if current user is the group owner or has ORGANIZER role
-const isOrganizer = computed(() => {
-  // First check if user is the group owner
-  if (group.value && currentUserId.value && group.value.ownerUserId === currentUserId.value) {
-    return true
-  }
-  
-  // Otherwise check if user has a linked player with ORGANIZER role
-
-  const myPlayer = players.value.find(
-    p => p.userId && p.userId === currentUserId.value && p.role === 'ORGANIZER'
-  )
-  return !!myPlayer
-})
-
-// Find current user's player for Stats button - simple lookup by userId
-const myPlayer = computed(() => {
-  if (!currentUserId.value || players.value.length === 0) {
-    return null
-  }
-  return players.value.find(p => p.userId === currentUserId.value) || null
-})
-
-async function loadPendingEvents() {
-  isLoadingEvents.value = true
-  try {
-    const allEvents = await eventsApi.list(groupId.value)
-    // Filter out completed events - only show DRAFT, GENERATED, IN_PROGRESS
-    pendingEvents.value = allEvents.events.filter(
-      e => e.status !== 'COMPLETED'
-    )
-  } catch (e: any) {
-    console.error('Failed to load pending events:', e)
-  } finally {
-    isLoadingEvents.value = false
-  }
-}
-
-function continueEvent(event: EventListItemDto) {
-  router.push(`/events/${event.id}`)
-}
-
-async function deleteEvent(event: EventListItemDto) {
-  if (!confirm(`Delete event "${event.name || 'Unnamed Event'}"? This cannot be undone.`)) {
-    return
-  }
-  
-  try {
-    await eventsApi.delete(event.id)
-    await loadPendingEvents()
-  } catch (e: any) {
-    error.value = e.message || 'Failed to delete event'
-  }
-}
-
-function formatEventDate(dateStr?: string): string {
-  if (!dateStr) return 'No date'
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
+function syncGroupContext() {
+  if (!group.value) return
+  const userId = authStore.userId
+  const myPlayer = players.value.find((p) => p.userId && p.userId === userId) || null
+  let role: GroupRole = null
+  if (userId && group.value.ownerUserId === userId) role = 'OWNER'
+  else if (myPlayer) role = myPlayer.role
+  groupContext.setGroup({
+    groupId: groupId.value,
+    groupName: group.value.name,
+    myPlayerId: myPlayer?.id ?? null,
+    role
   })
 }
 
-function getStatusLabel(status: string): string {
-  switch (status) {
-    case 'DRAFT': return 'Draft'
-    case 'GENERATED': return 'Generated'
-    case 'IN_PROGRESS': return 'In Progress'
-    default: return status
-  }
-}
+const canManage = computed(() => groupContext.canManage)
 
-function getStatusBadgeClass(status: string): string {
-  switch (status) {
-    case 'DRAFT': return 'badge-muted'
-    case 'GENERATED': return 'badge-info'
-    case 'IN_PROGRESS': return 'badge-warning'
-    default: return 'badge-muted'
-  }
-}
+const permanentPlayers = computed(() => players.value.filter((p) => p.membershipType === 'PERMANENT'))
 
-async function downloadTemplate() {
+const ratingSystemLabel = computed(() => {
+  switch (group.value?.settings.ratingSystem) {
+    case 'CATCH_UP': return 'Catch-Up Mode'
+    case 'RACS_ELO': return "Rac's ELO"
+    default: return 'Serious ELO'
+  }
+})
+
+const filteredEvents = computed(() => {
+  if (statusFilter.value === 'active') return events.value.filter((e) => e.status !== 'COMPLETED')
+  if (statusFilter.value === 'done') return events.value.filter((e) => e.status === 'COMPLETED')
+  return events.value
+})
+
+const trackPayments = computed(() => !!group.value?.settings.paymentSettings?.trackPayments)
+
+async function reloadEvents() {
   try {
-    const { useAuthStore } = await import('@/stores/auth')
-    const authStore = useAuthStore()
-    const token = await authStore.getToken()
-    
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/groups/${groupId.value}/history/import/template`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ detail: 'Failed to download template' }))
-      throw new Error(errorData.detail || `HTTP ${response.status}`)
-    }
-    
-    const blob = await response.blob()
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'history_import_template.csv'
-    document.body.appendChild(a)
-    a.click()
-    window.URL.revokeObjectURL(url)
-    document.body.removeChild(a)
-  } catch (e: any) {
-    error.value = e.message || 'Failed to download template'
+    events.value = (await eventsApi.list(groupId.value)).events
+  } catch (e) {
+    console.error('Failed to load events:', e)
   }
 }
 
-function handleFileSelect(event: Event) {
-  const target = event.target as HTMLInputElement
-  if (target.files && target.files[0]) {
-    importFile.value = target.files[0]
-  }
-}
-
-async function importHistory() {
-  if (!importFile.value) return
-  
-  isImporting.value = true
-  error.value = ''
-  importResult.value = null
-  
+async function deleteEvent(event: EventListItemDto) {
+  const ok = await confirm({
+    title: 'Delete event?',
+    message: `Delete event "${event.name || 'Unnamed event'}"? This cannot be undone.`,
+    confirmLabel: 'Delete',
+    danger: true
+  })
+  if (!ok) return
   try {
-    const formData = new FormData()
-    formData.append('file', importFile.value)
-    
-    const { useAuthStore } = await import('@/stores/auth')
-    const authStore = useAuthStore()
-    const token = await authStore.getToken()
-    
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/groups/${groupId.value}/history/import`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
-      body: formData
-    })
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ detail: 'Import failed' }))
-      throw new Error(errorData.detail || `HTTP ${response.status}`)
-    }
-    
-    const result = await response.json()
-    importResult.value = result
-    await loadPendingEvents()
-  } catch (e: any) {
-    error.value = e.message || 'Failed to import history'
-  } finally {
-    isImporting.value = false
+    await eventsApi.delete(event.id)
+    toast.success('Event deleted')
+    await reloadEvents()
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, 'Failed to delete event'))
   }
 }
 
-function closeImportModal() {
-  showImportModal.value = false
-  importFile.value = null
-  importResult.value = null
-  error.value = '' // Clear error when closing modal
-}
-
-
-function viewPlayerHistory(player: GroupPlayerDto) {
-  router.push(`/groups/${groupId.value}/players/${player.id}`)
-}
-
-// Refresh all data with cache invalidation
-async function refreshAllData() {
-  isRefreshing.value = true
-  try {
-    // Invalidate all cached data for this group
-    api.invalidateCache(`/api/groups/${groupId.value}`)
-    api.invalidateCache(`/api/groups/${groupId.value}/players`)
-    api.invalidateCache(`/api/groups/${groupId.value}/rankings`)
-    await Promise.all([loadGroup(), loadPlayers(), loadPendingEvents()])
-  } finally {
-    isRefreshing.value = false
-  }
+async function refresh() {
+  api.invalidateCache(`/api/groups/${groupId.value}`)
+  api.invalidateCache(`/api/groups/${groupId.value}/players`)
+  api.invalidateCache(`/api/groups/${groupId.value}/rankings`)
+  await loadAll(true)
 }
 </script>
 
 <template>
-  <div class="group-detail container">
-    <LoadingSpinner v-if="isLoading || !authStore.isInitialized" text="Loading group..." />
+  <HeaderActions>
+    <template v-if="canManage">
+      <IconButton label="Manage players" @click="router.push(`/groups/${groupId}/players/manage`)">
+        <Users class="size-5" />
+      </IconButton>
+      <IconButton label="Group settings" @click="router.push(`/groups/${groupId}/settings`)">
+        <Settings class="size-5" />
+      </IconButton>
+    </template>
+  </HeaderActions>
 
-    <template v-else-if="group">
-      <!-- Header -->
-      <div class="page-header">
-        <div>
-          <!-- Mobile: back button and actions on same row -->
-          <div class="header-top-row mobile-only">
-            <router-link to="/groups" class="back-link">
-              <ArrowLeft :size="16" /><span class="back-text">Back</span>
-            </router-link>
-            <div class="header-actions">
-              <button 
-                class="glass-btn" 
-                :class="{ 'spinning': isRefreshing }"
-                :disabled="isRefreshing"
-                @click="refreshAllData" 
-                title="Refresh"
-              >
-                <RefreshCw :size="18" />
-              </button>
-              <template v-if="isOrganizer">
-                <button class="glass-btn" @click="router.push(`/groups/${groupId}/settings`)" title="Settings">
-                  <Settings :size="18" />
-                </button>
-                <button class="new-event-btn" @click="router.push(`/groups/${groupId}/events/new`)">
-                  <Plus :size="16" />
-                  <span>New Event</span>
-                </button>
-              </template>
-            </div>
-          </div>
+  <PullRefresh :on-refresh="refresh">
+    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
+      <SkeletonList v-if="isLoading || !authStore.isInitialized" :rows="5" />
 
-          <!-- Desktop: original back link -->
-          <router-link to="/groups" class="back-link desktop-only">
-            <ArrowLeft :size="16" /> Back to All Groups
-          </router-link>
-          <h1>{{ group.name }}</h1>
-          <p class="subtitle">
-            <template v-if="group.settings.ratingSystem === 'CATCH_UP'">Catch-Up Mode</template>
-            <template v-else-if="group.settings.ratingSystem === 'RACS_ELO'">Rac's ELO</template>
-            <template v-else>Serious ELO</template>
-             • {{ players.length }} players
-          </p>
-        </div>
-        <!-- Desktop header actions -->
-        <div class="header-actions desktop-only" v-if="isOrganizer">
-          <BaseButton variant="secondary" @click="router.push(`/groups/${groupId}/settings`)">
-            <Settings :size="16" /> Settings
-          </BaseButton>
-          <BaseButton @click="router.push(`/groups/${groupId}/events/new`)">
-            <Plus :size="16" /> New Event
-          </BaseButton>
-        </div>
-      </div>
+      <ErrorState v-else-if="error" :message="error" @retry="loadAll()" />
 
-      <!-- Quick Actions -->
-      <div class="quick-actions">
-        <BaseCard clickable @click="router.push(`/groups/${groupId}/rankings`)">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg"><Trophy :size="28" /></div>
-            <span class="qa-label">Rankings</span>
-          </div>
-        </BaseCard>
+      <div v-else-if="group" class="flex flex-col gap-5">
+        <section class="flex flex-col gap-2">
+          <GroupStatsRow :players="players" :events="events" />
+          <p class="text-xs text-ink-faint">{{ ratingSystemLabel }}</p>
+        </section>
 
-        <BaseCard clickable @click="router.push(`/groups/${groupId}/history`)">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg"><ChartBar :size="28" /></div>
-            <span class="qa-label">History</span>
-          </div>
-        </BaseCard>
-        <BaseCard clickable :class="{ 'refreshing': isRefreshing }" @click="refreshAllData">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg" :class="{ 'spinning': isRefreshing }">
-              <RefreshCw :size="28" />
-            </div>
-            <span class="qa-label">{{ isRefreshing ? 'Refreshing...' : 'Refresh' }}</span>
-          </div>
-        </BaseCard>
-
-        <BaseCard v-if="myPlayer" clickable @click="router.push(`/groups/${groupId}/players/${myPlayer.id}`)">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg"><Activity :size="28" /></div>
-            <span class="qa-label">My Stats</span>
-          </div>
-        </BaseCard>
-        <BaseCard v-if="isOrganizer" clickable @click="showImportModal = true">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg"><Upload :size="28" /></div>
-            <span class="qa-label">Import History</span>
-          </div>
-        </BaseCard>
-        <BaseCard v-if="isOrganizer && group.settings.paymentSettings?.trackPayments" clickable @click="router.push(`/groups/${groupId}/payments`)">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg"><DollarSign :size="28" /></div>
-            <span class="qa-label">Payments</span>
-          </div>
-        </BaseCard>
-        <BaseCard v-if="isOrganizer" clickable @click="router.push(`/groups/${groupId}/events/new`)">
-          <div class="quick-action">
-            <div class="qa-icon icon-container icon-container-lg"><Target :size="28" /></div>
-            <span class="qa-label">New Event</span>
-          </div>
-        </BaseCard>
-      </div>
-
-      <!-- Players Section -->
-      <section class="section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-label">Players</span>
-            <div class="player-counts">
-              <span class="badge badge-primary">{{ permanentPlayers.length }} Permanent</span>
-              <span class="badge badge-warning">{{ subPlayers.length }} Subs</span>
-            </div>
-          </div>
-          <div class="section-actions" v-if="isOrganizer">
-            <BaseButton size="sm" @click="router.push(`/groups/${groupId}/players/manage`)">
-              Manage Players
-            </BaseButton>
-          </div>
-        </div>
-
-        <EmptyState
-          v-if="permanentPlayers.length === 0"
-          :icon="Users"
+        <AppEmptyState
+          v-if="canManage && permanentPlayers.length === 0"
           title="No permanent players yet"
           description="Add permanent players to your group to start creating events."
         >
+          <template #icon><UserPlus class="size-7" /></template>
           <template #action>
-            <BaseButton @click="router.push(`/groups/${groupId}/players/manage`)">
-              Manage Players
-            </BaseButton>
+            <AppButton @click="router.push(`/groups/${groupId}/players/manage`)">
+              Manage players
+            </AppButton>
           </template>
-        </EmptyState>
+        </AppEmptyState>
 
-        <div v-else class="players-list card-container">
-          <div 
-            v-for="(player, index) in permanentPlayers" 
-            :key="player.id" 
-            class="player-item card-container-item clickable" 
-            :class="{ 'is-me': player.userId === currentUserId }"
-            @click="viewPlayerHistory(player)"
-            :style="{ animationDelay: `${index * 50}ms` }"
+        <section class="flex flex-col gap-3">
+          <SegmentedControl v-model="statusFilter" :options="statusOptions" />
+
+          <AppEmptyState
+            v-if="filteredEvents.length === 0"
+            :title="statusFilter === 'all' ? 'No events yet' : 'No events here'"
+            :description="
+              statusFilter === 'done'
+                ? 'Completed events will show up here.'
+                : 'Create a new event to start organizing games.'
+            "
           >
-            <div class="player-info">
-              <div class="player-avatar">
-                {{ player.displayName[0] }}
-              </div>
-              <div class="player-details">
-                <div class="player-name-row">
-                  <span class="player-name">{{ player.displayName }}</span>
-                  <span v-if="player.role === 'ORGANIZER'" class="badge badge-purple">ORG</span>
-                </div>
-                <div class="player-stats">
-                  <span>{{ (player.winRate * 100).toFixed(0) }}% win rate</span>
-                </div>
-              </div>
-            </div>
-            <div class="player-rating">
-              <div class="rating-row">
-                <span class="rating-value">{{ formatRating(player.rating) }}</span>
-                <span v-if="player.ratingDelta && player.ratingDelta > 0" class="rating-delta positive">
-                  <TrendingUp :size="12" /> +{{ player.ratingDelta.toFixed(1) }}
-                </span>
-                <span v-else-if="player.ratingDelta && player.ratingDelta < 0" class="rating-delta negative">
-                  <TrendingDown :size="12" /> {{ player.ratingDelta.toFixed(1) }}
-                </span>
-              </div>
-              <span class="rating-label">Rating</span>
-            </div>
-          </div>
-        </div>
-      </section>
+            <template #icon><CalendarDays class="size-7" /></template>
+            <template v-if="canManage && statusFilter !== 'done'" #action>
+              <AppButton @click="router.push(`/groups/${groupId}/events/new`)">
+                <Plus class="size-4" />
+                Create event
+              </AppButton>
+            </template>
+          </AppEmptyState>
 
-      <!-- Pending Events Section (Organizers only) -->
-      <section v-if="isOrganizer" class="section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-label">Pending Events</span>
-            <span v-if="pendingEvents.length > 0" class="badge badge-info">
-              {{ pendingEvents.length }}
-            </span>
-          </div>
-  
-        </div>
-
-        <EmptyState
-          v-if="!isLoadingEvents && pendingEvents.length === 0"
-          :icon="Calendar"
-          title="No pending events"
-          description="Create a new event to start organizing games."
-        >
-          <template #action>
-            <BaseButton @click="router.push(`/groups/${groupId}/events/new`)">
-              Create First Event
-            </BaseButton>
-          </template>
-        </EmptyState>
-
-        <LoadingSpinner v-if="isLoadingEvents" text="Loading events..." />
-
-        <div v-else-if="pendingEvents.length > 0" class="events-list">
-          <BaseCard v-for="event in pendingEvents" :key="event.id" class="event-card" :data-status="event.status.toLowerCase()">
-            <div class="event-card-content">
-              <div class="event-info">
-                <div class="event-name-row">
-                  <h3 class="event-name">{{ event.name || 'Unnamed Event' }}</h3>
-                  <span class="badge" :class="getStatusBadgeClass(event.status)">
-                    {{ getStatusLabel(event.status) }}
-                  </span>
-                </div>
-                <div class="event-meta">
-                  <span>{{ formatEventDate(event.startsAt) }}</span>
-                  <span>•</span>
-                  <span>{{ event.courts }} courts</span>
-                  <span>•</span>
-                  <span>{{ event.rounds }} rounds</span>
-                </div>
-              </div>
-              <div class="event-actions">
-                <BaseButton size="sm" @click="continueEvent(event)">
-                  Continue
-                </BaseButton>
-                <BaseButton size="sm" variant="secondary" @click="deleteEvent(event)">
-                  Delete
-                </BaseButton>
-              </div>
-            </div>
-          </BaseCard>
-        </div>
-      </section>
-    </template>
-
-    <!-- Import History Modal -->
-    <Modal :open="showImportModal" title="Import History" @close="closeImportModal">
-      <div class="import-content">
-        <div class="import-instructions">
-          <p>Import historical game data from a CSV file. Download the template to see the required format.</p>
-          <BaseButton variant="secondary" size="sm" @click="downloadTemplate">
-            <Download :size="16" /> Download Template
-          </BaseButton>
-        </div>
-
-        <div v-if="error" class="import-error">
-          <strong>Error:</strong>
-          <pre>{{ error }}</pre>
-        </div>
-
-        <div v-if="importResult" class="import-success">
-          <div class="success-header">
-            <CheckCircle :size="24" class="success-icon" />
-            <h4>Import Successful!</h4>
-          </div>
-          <p>{{ importResult.eventsCreated }} events created</p>
-          <p>{{ importResult.gamesImported }} games imported</p>
-        </div>
-
-        <div v-else class="import-form">
-          <div class="form-group">
-            <label class="label">Select CSV File</label>
-            <input
-              type="file"
-              accept=".csv"
-              @change="handleFileSelect"
-              class="file-input"
+          <div v-else class="flex flex-col gap-2">
+            <EventCard
+              v-for="event in filteredEvents"
+              :key="event.id"
+              :event="event"
+              :deletable="canManage && event.status !== 'COMPLETED'"
+              @click="router.push(`/events/${event.id}`)"
+              @delete="deleteEvent(event)"
             />
-            <p v-if="importFile" class="file-name">{{ importFile.name }}</p>
           </div>
-        </div>
+        </section>
+
+        <!-- Organizer tools without another home: history import, payments -->
+        <section v-if="canManage" class="overflow-hidden rounded-xl border border-line bg-surface-1">
+          <div class="divide-y divide-line">
+            <ListItem title="Import history" subtitle="Load past games from a CSV" @click="showImportSheet = true">
+              <template #leading><Upload class="size-5" /></template>
+            </ListItem>
+            <ListItem
+              v-if="trackPayments"
+              title="Payments"
+              subtitle="Track sub fees and attendance"
+              chevron
+              @click="router.push(`/groups/${groupId}/payments`)"
+            >
+              <template #leading><DollarSign class="size-5" /></template>
+            </ListItem>
+          </div>
+        </section>
       </div>
-      <template #footer>
-        <BaseButton variant="secondary" @click="closeImportModal">Cancel</BaseButton>
-        <BaseButton
-          :loading="isImporting"
-          :disabled="!importFile"
-          @click="importHistory"
-        >
-          Import
-        </BaseButton>
-      </template>
-    </Modal>
-  </div>
+    </div>
+  </PullRefresh>
+
+  <Fab v-if="canManage" label="New event" @click="router.push(`/groups/${groupId}/events/new`)">
+    <Plus class="size-5" />
+  </Fab>
+
+  <ImportHistorySheet v-model="showImportSheet" :group-id="groupId" @imported="reloadEvents" />
 </template>
-
-<style scoped>
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--spacing-xl);
-}
-
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 6px 12px;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: all var(--transition-fast);
-  margin-bottom: var(--spacing-md);
-}
-
-.back-link:hover {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.page-header h1 {
-  font-size: 2rem;
-  margin-bottom: var(--spacing-xs);
-}
-
-.subtitle {
-  color: var(--color-text-secondary);
-}
-
-.header-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-.quick-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-xl);
-}
-
-.quick-action {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  text-align: center;
-}
-
-.qa-icon {
-  font-size: 2rem;
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-  color: var(--color-primary);
-}
-
-.quick-action:hover .qa-icon,
-.quick-action:active .qa-icon {
-  transform: scale(1.1);
-}
-
-.qa-label {
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  transition: color 0.2s ease;
-}
-
-.quick-action:hover .qa-label,
-.quick-action:active .qa-label {
-  color: var(--color-text-primary);
-}
-
-/* Refresh spinning animation */
-.qa-icon.spinning {
-  animation: spin 1s linear infinite;
-}
-
-.qa-icon.spinning svg {
-  animation: none; /* Prevent double animation */
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.refreshing {
-  opacity: 0.7;
-  pointer-events: none;
-}
-
-
-.section {
-  margin-bottom: var(--spacing-xl);
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-lg);
-  flex-wrap: wrap;
-  gap: var(--spacing-md);
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  flex-wrap: wrap;
-}
-
-.section-title h2 {
-  font-size: 1.25rem;
-}
-
-.player-counts {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-.count-badge {
-  font-size: 0.75rem;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-full);
-  font-weight: 500;
-}
-
-.count-badge.permanent {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--color-primary);
-}
-
-.count-badge.sub {
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
-}
-
-.section-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-.empty-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.players-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0; /* No gap - using border separators */
-}
-
-@keyframes slideUpFade {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.player-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  
-  /* Staggered Animation Base */
-  animation: slideUpFade 0.4s ease-out forwards;
-  opacity: 0; /* Start hidden */
-}
-
-.player-item.clickable {
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.player-item.clickable:hover {
-  background: var(--color-bg-hover);
-}
-
-.player-item.clickable:active {
-  background: var(--color-bg-tertiary);
-  transition: background 0.1s ease-out;
-}
-
-.player-info {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  flex: 1;
-  min-width: 0; /* Enable text truncation/wrapping in flex child */
-}
-
-.player-avatar {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-primary);
-  color: white;
-  border-radius: var(--radius-full);
-  font-weight: 600;
-  /* Prevent shrinking */
-  flex-shrink: 0; 
-  min-width: 40px;
-}
-
-.player-avatar.sub {
-  background: #f59e0b;
-}
-
-.player-details {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.player-name-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
-.player-name {
-  font-weight: 500;
-}
-
-.membership-badge {
-  font-size: 0.625rem;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border: none;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.membership-badge.permanent {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--color-primary);
-}
-
-.membership-badge.permanent:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.25);
-}
-
-.membership-badge.sub {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
-}
-
-.membership-badge.sub:hover:not(:disabled) {
-  background: rgba(245, 158, 11, 0.25);
-}
-
-.membership-badge:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.player-stats {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
-.player-rating {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0 var(--spacing-lg);
-}
-
-.rating-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--color-primary);
-  font-family: var(--font-mono);
-}
-
-.rating-label {
-  font-size: 0.625rem;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.rating-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-xs);
-}
-
-.rating-delta {
-  font-size: 0.75rem;
-  font-weight: 600;
-  font-family: var(--font-mono);
-}
-
-.rating-delta.positive {
-  color: var(--color-success, #10b981);
-}
-
-.rating-delta.negative {
-  color: var(--color-error, #ef4444);
-}
-
-/* Player stats inline indicators */
-.player-item.is-me {
-  background: rgba(16, 185, 129, 0.05);
-  box-shadow: inset 4px 0 0 var(--color-primary);
-}
-
-.role-badge {
-  font-size: 0.625rem;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.role-badge.organizer {
-  background: rgba(139, 92, 246, 0.15);
-  color: #8b5cf6;
-}
-
-.remove-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-}
-
-.remove-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--color-error);
-}
-
-.skill-level-select {
-  height: 32px;
-  padding: 0 var(--spacing-sm);
-  border: 1px solid #f59e0b;
-  border-radius: var(--radius-md);
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  margin-right: var(--spacing-xs);
-}
-
-.skill-level-select:hover:not(:disabled) {
-  background: rgba(245, 158, 11, 0.2);
-}
-
-.skill-level-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.form-group {
-  margin-bottom: var(--spacing-md);
-}
-
-.label {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-xs);
-}
-
-.select {
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: 1rem;
-}
-
-.select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-}
-
-.membership-options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-sm);
-}
-
-.membership-option {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.membership-option:hover {
-  border-color: var(--color-text-muted);
-}
-
-.membership-option.active {
-  border-color: var(--color-primary);
-  background: rgba(16, 185, 129, 0.05);
-}
-
-.option-indicator {
-  width: 12px;
-  height: 12px;
-  border-radius: var(--radius-full);
-}
-
-.option-indicator.permanent {
-  background: var(--color-primary);
-}
-
-.option-indicator.sub {
-  background: #f59e0b;
-}
-
-.option-label {
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.option-desc {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-}
-
-.empty-players {
-  text-align: center;
-  padding: var(--spacing-lg);
-  color: var(--color-text-secondary);
-}
-
-.empty-players a {
-  display: inline-block;
-  margin-top: var(--spacing-sm);
-}
-
-/* Import Modal */
-.import-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
-.import-instructions {
-  padding: var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-}
-
-.import-instructions p {
-  margin-bottom: var(--spacing-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-}
-
-.import-success {
-  padding: var(--spacing-md);
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid var(--color-success);
-  border-radius: var(--radius-md);
-}
-
-.import-success h4 {
-  color: var(--color-success);
-  margin-bottom: var(--spacing-sm);
-}
-
-.import-success p {
-  color: var(--color-text-primary);
-  margin-bottom: var(--spacing-xs);
-}
-
-.file-input {
-  width: 100%;
-  padding: var(--spacing-sm);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  cursor: pointer;
-}
-
-.file-name {
-  margin-top: var(--spacing-xs);
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
-}
-
-.import-error {
-  padding: var(--spacing-md);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-md);
-  color: var(--color-error);
-}
-
-.import-error strong {
-  display: block;
-  margin-bottom: var(--spacing-xs);
-}
-
-.import-error pre {
-  margin: 0;
-  font-size: 0.875rem;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-
-.events-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.event-card {
-  transition: all var(--transition-fast);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Status indicator border on left */
-.event-card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--color-text-muted);
-  transition: background var(--transition-fast);
-}
-
-.event-card[data-status="draft"]::before {
-  background: var(--color-text-muted);
-}
-
-.event-card[data-status="generated"]::before {
-  background: var(--color-info);
-}
-
-.event-card[data-status="in_progress"]::before {
-  background: var(--color-warning);
-}
-
-.event-card:hover {
-  border-color: var(--color-primary);
-}
-
-.event-card-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--spacing-md);
-  flex-wrap: wrap;
-}
-
-.event-info {
-  flex: 1;
-  min-width: 200px;
-}
-
-.event-name-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-xs);
-  flex-wrap: wrap;
-}
-
-.event-name {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.status-badge {
-  font-size: 0.75rem;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-full);
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.status-badge.draft {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-}
-
-.status-badge.generated {
-  background: rgba(59, 130, 246, 0.2);
-  color: var(--color-info);
-}
-
-.status-badge.in_progress {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--color-warning);
-}
-
-.event-meta {
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  flex-wrap: wrap;
-}
-
-.event-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-shrink: 0;
-}
-
-/* Responsive visibility utilities */
-.desktop-only {
-  display: flex;
-}
-
-.mobile-only {
-  display: none;
-}
-
-/* Mobile icon buttons */
-.mobile-icon-btn {
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: 1.25rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.mobile-icon-btn:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-light);
-}
-
-.mobile-icon-btn.primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.mobile-icon-btn.primary:hover {
-  background: var(--color-primary-hover);
-}
-
-/* Prominent New Event button */
-.new-event-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
-  border: none;
-  border-radius: var(--radius-md);
-  color: white;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.new-event-btn:hover {
-  background: linear-gradient(135deg, var(--color-primary-hover) 0%, var(--color-primary-dark) 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-}
-
-.new-event-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
-}
-
-@media (max-width: 768px) {
-  /* Show/hide responsive elements */
-  .desktop-only {
-    display: none !important;
-  }
-
-  .mobile-only {
-    display: flex !important;
-  }
-
-  /* Hide quick actions on mobile - they're in global bottom nav now */
-  .quick-actions {
-    display: none;
-  }
-
-  /* Add padding at bottom for fixed nav bar */
-  .group-detail {
-    padding-bottom: 100px;
-  }
-
-  .page-header {
-    flex-direction: column;
-    gap: var(--spacing-sm);
-    align-items: stretch;
-  }
-
-  .page-header > div:first-child {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-  }
-
-  /* Mobile header row: back button on left, actions on right */
-  .header-top-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--spacing-sm);
-  }
-
-  /* Compact back link on mobile */
-  .back-link {
-    padding: 8px 10px;
-    font-size: 0.75rem;
-    white-space: nowrap;
-    margin-bottom: 0;
-  }
-
-  /* Hide back link text on mobile, show just icon */
-  .back-link .back-text {
-    display: none;
-  }
-
-  .header-actions.mobile-only {
-    gap: var(--spacing-xs);
-    flex-shrink: 0;
-  }
-
-  .section-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .section-actions {
-    justify-content: stretch;
-  }
-
-  .section-actions button {
-    flex: 1;
-  }
-
-  .event-card-content {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .event-actions {
-    width: 100%;
-  }
-
-  .event-actions button {
-    flex: 1;
-  }
-
-/* Per-page bottom nav hidden - using global nav from AppLayout */
-.mobile-bottom-nav {
-  display: none !important;
-}
-
-  /* Improve player list item layout on mobile */
-  .player-item {
-    padding: 12px; /* Slightly tighter padding */
-    gap: 12px;
-  }
-
-  /* Ensure avatar stays consistent size */
-  .player-avatar {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    font-size: 0.875rem;
-  }
-
-  /* Allow name to take available space but handle overflow */
-  .player-info {
-    min-width: 0; /* Enable truncation in flex child */
-    gap: 10px;
-  }
-
-  .player-details {
-    min-width: 0; /* Enable truncation */
-  }
-
-  .player-name-row {
-    flex-wrap: nowrap; /* Prevent wrapping on very small screens if possible */
-  }
-
-  .player-name {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Clean up stats for mobile */
-  .player-stats {
-    font-size: 0.7rem;
-    white-space: nowrap;
-  }
-  
-  /* Fix rating block alignment and spacing */
-  .player-rating {
-    padding: 0;
-    padding-left: 8px; /* Reduce padding */
-    align-items: flex-end; /* Align to right */
-    min-width: auto;
-  }
-
-  .rating-value {
-    font-size: 1rem; /* Slightly smaller on mobile to prevent shifts */
-    line-height: 1.2;
-  }
-
-  .rating-label {
-    font-size: 0.6rem;
-  }
-  
-  /* Fix icon sizes */
-  .rating-delta svg {
-    width: 12px;
-    height: 12px;
-    min-width: 12px; /* Prevent shrink */
-  }
-}
-.role-badge {
-  font-size: 0.625rem;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  margin-left: var(--spacing-xs);
-}
-
-.role-badge.organizer {
-  background: rgba(124, 58, 237, 0.15);
-  color: #7c3aed;
-}
-
-</style>
-
-
-
-
-
-

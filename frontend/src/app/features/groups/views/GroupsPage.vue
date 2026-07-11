@@ -1,31 +1,64 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import {
+  ClipboardList,
+  Users,
+  Plus,
+  ChevronRight,
+  EllipsisVertical,
+  Pencil,
+  Copy,
+  RefreshCw,
+  Archive
+} from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
+import { api } from '@/app/core/http/api-client'
 import type { GroupListItemDto } from '@/app/core/models/dto'
-import { ClipboardList, Users, Calendar, ArrowRight, Plus } from 'lucide-vue-next'
-import BaseButton from '@/app/core/ui/components/BaseButton.vue'
-import BaseCard from '@/app/core/ui/components/BaseCard.vue'
-import BaseInput from '@/app/core/ui/components/BaseInput.vue'
-import EmptyState from '@/app/core/ui/components/EmptyState.vue'
-import Modal from '@/app/core/ui/components/Modal.vue'
-import GroupCardSkeleton from '../components/GroupCardSkeleton.vue'
+import { useGroupContextStore } from '@/stores/group-context'
+import { useToast } from '@/app/core/ui/composables/useToast'
+import { useConfirm } from '@/app/core/ui/composables/useConfirm'
+import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
+import AppButton from '@/app/core/ui/components/AppButton.vue'
+import AppInput from '@/app/core/ui/components/AppInput.vue'
+import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
+import ErrorState from '@/app/core/ui/components/ErrorState.vue'
+import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
+import IconButton from '@/app/core/ui/components/IconButton.vue'
+import Sheet from '@/app/core/ui/components/Sheet.vue'
+import Fab from '@/app/core/ui/components/Fab.vue'
+import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
+import CreateGroupSheet from '../components/CreateGroupSheet.vue'
 
 const router = useRouter()
+const toast = useToast()
+const { confirm } = useConfirm()
+const groupContext = useGroupContextStore()
+
 const groups = ref<GroupListItemDto[]>([])
 const memberGroups = ref<GroupListItemDto[]>([])
 const isLoading = ref(true)
 const error = ref('')
-const showCreateModal = ref(false)
-const newGroupName = ref('')
-const isCreating = ref(false)
+const showCreateSheet = ref(false)
+
+// Per-group actions sheet
+const showActionsSheet = ref(false)
+const actionsGroup = ref<GroupListItemDto | null>(null)
+const renameMode = ref(false)
+const renameName = ref('')
+const isRenaming = ref(false)
+const isDuplicating = ref(false)
+const isRecalculating = ref(false)
+const isArchiving = ref(false)
 
 onMounted(async () => {
+  // Leaving group scope: reset contextual header/tabs
+  groupContext.clear()
   await loadGroups()
 })
 
-async function loadGroups() {
-  isLoading.value = true
+async function loadGroups(silent = false) {
+  if (!silent) isLoading.value = true
   error.value = ''
   try {
     const [ownedResponse, memberResponse] = await Promise.all([
@@ -33,314 +66,260 @@ async function loadGroups() {
       groupsApi.listMemberGroups()
     ])
     groups.value = ownedResponse.groups
-    
-    // Filter out groups where I am the organizer from "Groups You Play In"
-    const ownedIds = new Set(ownedResponse.groups.map(g => g.id))
-    memberGroups.value = memberResponse.groups.filter(g => !ownedIds.has(g.id))
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load groups'
+    // Groups I organize are excluded from the "member of" section
+    const ownedIds = new Set(ownedResponse.groups.map((g) => g.id))
+    memberGroups.value = memberResponse.groups.filter((g) => !ownedIds.has(g.id))
+  } catch (e) {
+    error.value = getApiErrorMessage(e, 'Failed to load groups')
   } finally {
     isLoading.value = false
   }
 }
 
-async function createGroup() {
-  if (!newGroupName.value.trim()) return
-
-  isCreating.value = true
-  try {
-    const group = await groupsApi.create({ name: newGroupName.value })
-    showCreateModal.value = false
-    newGroupName.value = ''
-    router.push(`/groups/${group.id}`)
-  } catch (e: any) {
-    error.value = e.message || 'Failed to create group'
-  } finally {
-    isCreating.value = false
-  }
+async function refresh() {
+  api.invalidateCache('/api/groups')
+  await loadGroups(true)
 }
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return 'N/A'
+  const date = new Date(dateStr)
+  if (isNaN(date.getTime())) return 'N/A'
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function openActions(group: GroupListItemDto) {
+  actionsGroup.value = group
+  renameMode.value = false
+  renameName.value = group.name
+  showActionsSheet.value = true
+}
+
+const actionBusy = () =>
+  isRenaming.value || isDuplicating.value || isRecalculating.value || isArchiving.value
+
+async function renameGroup() {
+  const group = actionsGroup.value
+  if (!group || !renameName.value.trim() || isRenaming.value) return
+  isRenaming.value = true
   try {
-    const date = new Date(dateStr)
-    if (isNaN(date.getTime())) return 'N/A'
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })
+    const updated = await groupsApi.rename(group.id, renameName.value.trim())
+    group.name = updated.name
+    toast.success('Group renamed')
+    showActionsSheet.value = false
   } catch (e) {
-    return 'N/A'
+    toast.error(getApiErrorMessage(e, 'Failed to rename group'))
+  } finally {
+    isRenaming.value = false
+  }
+}
+
+async function duplicateGroup() {
+  const group = actionsGroup.value
+  if (!group || actionBusy()) return
+  isDuplicating.value = true
+  try {
+    const newGroup = await groupsApi.duplicate(group.id)
+    toast.success(`Created "${newGroup.name}"`)
+    showActionsSheet.value = false
+    router.push(`/groups/${newGroup.id}`)
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, 'Failed to duplicate group'))
+  } finally {
+    isDuplicating.value = false
+  }
+}
+
+async function recalculateRatings() {
+  const group = actionsGroup.value
+  if (!group || actionBusy()) return
+  const ok = await confirm({
+    title: 'Recalculate ratings?',
+    message:
+      'This resets all player ratings and replays every completed event from the beginning. Current ratings will be replaced.',
+    confirmLabel: 'Recalculate'
+  })
+  if (!ok) return
+  isRecalculating.value = true
+  try {
+    const result = await groupsApi.recalculateRatings(group.id)
+    toast.success(
+      `Recalculated: ${result.eventsRecalculated} events processed, ${result.playersUpdated} players updated`
+    )
+    showActionsSheet.value = false
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, 'Failed to recalculate ratings'))
+  } finally {
+    isRecalculating.value = false
+  }
+}
+
+async function archiveGroup() {
+  const group = actionsGroup.value
+  if (!group || actionBusy()) return
+  const ok = await confirm({
+    title: 'Archive group?',
+    message: `"${group.name}" will be hidden from your dashboard.`,
+    confirmLabel: 'Archive',
+    danger: true
+  })
+  if (!ok) return
+  isArchiving.value = true
+  try {
+    await groupsApi.archive(group.id)
+    toast.success('Group archived')
+    showActionsSheet.value = false
+    await loadGroups(true)
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, 'Failed to archive group'))
+  } finally {
+    isArchiving.value = false
   }
 }
 </script>
 
 <template>
-  <div class="groups-page container">
-    <div class="page-header">
-      <div>
-        <h1>Your Groups</h1>
-        <p class="subtitle">Manage your pickleball leagues and teams</p>
+  <PullRefresh :on-refresh="refresh">
+    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
+      <SkeletonList v-if="isLoading" :rows="4" />
+
+      <ErrorState v-else-if="error" :message="error" @retry="loadGroups()" />
+
+      <AppEmptyState
+        v-else-if="groups.length === 0 && memberGroups.length === 0"
+        title="No groups yet"
+        description="Create your first group to start organizing pickleball events and tracking rankings."
+      >
+        <template #icon><ClipboardList class="size-7" /></template>
+        <template #action>
+          <AppButton @click="showCreateSheet = true">
+            <Plus class="size-4" />
+            Create your first group
+          </AppButton>
+        </template>
+      </AppEmptyState>
+
+      <div v-else class="flex flex-col gap-6">
+        <section v-if="groups.length > 0" class="flex flex-col gap-3">
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">My groups</h2>
+          <div class="grid gap-3 md:grid-cols-2">
+            <div
+              v-for="group in groups"
+              :key="group.id"
+              class="flex items-center rounded-xl border border-line bg-surface-1 transition-colors hover:bg-surface-2"
+            >
+              <button
+                type="button"
+                class="flex min-h-16 min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                @click="router.push(`/groups/${group.id}`)"
+              >
+                <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span class="truncate text-sm font-semibold text-ink">{{ group.name }}</span>
+                  <span class="truncate text-sm text-ink-faint">
+                    <span class="font-mono tabular-nums">{{ group.playerCount }}</span>
+                    players · {{ formatDate(group.createdAt) }}
+                  </span>
+                </span>
+                <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
+              </button>
+              <div class="pr-2">
+                <IconButton label="Group actions" @click="openActions(group)">
+                  <EllipsisVertical class="size-5" />
+                </IconButton>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="memberGroups.length > 0" class="flex flex-col gap-3">
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">Member of</h2>
+          <div class="grid gap-3 md:grid-cols-2">
+            <button
+              v-for="group in memberGroups"
+              :key="group.id"
+              type="button"
+              class="flex min-h-16 min-w-0 items-center gap-3 rounded-xl border border-line bg-surface-1 px-4 py-3 text-left transition-colors hover:bg-surface-2"
+              @click="router.push(`/groups/${group.id}`)"
+            >
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+                <Users class="size-4" />
+              </span>
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span class="truncate text-sm font-semibold text-ink">{{ group.name }}</span>
+                <span class="truncate text-sm text-ink-faint">
+                  <span class="font-mono tabular-nums">{{ group.playerCount }}</span>
+                  players · {{ formatDate(group.createdAt) }}
+                </span>
+              </span>
+              <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
+            </button>
+          </div>
+        </section>
       </div>
-      <BaseButton @click="showCreateModal = true">
-        <Plus :size="20" /> New Group
-      </BaseButton>
     </div>
+  </PullRefresh>
 
-    <!-- Skeleton Loading State -->
-    <div v-if="isLoading" class="groups-container">
-      <section class="groups-section">
-        <div class="skeleton-section-title"></div>
-        <GroupCardSkeleton :count="3" />
-      </section>
+  <Fab label="New group" @click="showCreateSheet = true">
+    <Plus class="size-5" />
+  </Fab>
+
+  <CreateGroupSheet v-model="showCreateSheet" />
+
+  <!-- Per-group actions -->
+  <Sheet
+    v-model="showActionsSheet"
+    :title="actionsGroup?.name"
+    :persistent="actionBusy()"
+    @closed="renameMode = false"
+  >
+    <form v-if="renameMode" class="flex flex-col gap-3" @submit.prevent="renameGroup">
+      <AppInput v-model="renameName" label="Group name" placeholder="Group name" required />
+      <div class="flex gap-2">
+        <AppButton variant="secondary" block :disabled="isRenaming" @click="renameMode = false">
+          Cancel
+        </AppButton>
+        <AppButton block type="submit" :loading="isRenaming" :disabled="!renameName.trim()">
+          Save
+        </AppButton>
+      </div>
+    </form>
+
+    <div v-else class="flex flex-col">
+      <button
+        type="button"
+        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
+        @click="renameMode = true"
+      >
+        <Pencil class="size-5 text-ink-muted" />
+        Rename
+      </button>
+      <button
+        type="button"
+        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
+        :disabled="isDuplicating"
+        @click="duplicateGroup"
+      >
+        <Copy class="size-5 text-ink-muted" />
+        {{ isDuplicating ? 'Duplicating…' : 'Duplicate' }}
+      </button>
+      <button
+        type="button"
+        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
+        :disabled="isRecalculating"
+        @click="recalculateRatings"
+      >
+        <RefreshCw class="size-5 text-ink-muted" :class="isRecalculating ? 'animate-spin' : ''" />
+        {{ isRecalculating ? 'Recalculating…' : 'Recalculate ratings' }}
+      </button>
+      <button
+        type="button"
+        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-loss transition-colors hover:bg-loss/10 disabled:opacity-50"
+        :disabled="isArchiving"
+        @click="archiveGroup"
+      >
+        <Archive class="size-5" />
+        {{ isArchiving ? 'Archiving…' : 'Archive' }}
+      </button>
     </div>
-
-    <div v-else-if="error" class="error-message">
-      {{ error }}
-    </div>
-
-    <EmptyState
-      v-else-if="groups.length === 0 && memberGroups.length === 0"
-      :icon="ClipboardList"
-      title="No groups yet"
-      description="Create your first group to start organizing pickleball events and tracking rankings."
-    >
-      <template #action>
-        <BaseButton @click="showCreateModal = true">Create Your First Group</BaseButton>
-      </template>
-    </EmptyState>
-
-    <div v-else class="groups-container">
-      <!-- Organized Groups -->
-      <section v-if="groups.length > 0" class="groups-section">
-        <h2 class="section-title">Organized by You</h2>
-        <div class="groups-grid">
-          <BaseCard
-            v-for="group in groups"
-            :key="group.id"
-            clickable
-            @click="router.push(`/groups/${group.id}`)"
-          >
-            <div class="group-card-content">
-              <div class="group-icon">
-                <ClipboardList :size="32" />
-              </div>
-              <div class="group-info">
-                <h3>{{ group.name }}</h3>
-                <div class="group-meta">
-                  <span class="meta-item">
-                    <Users :size="16" class="meta-icon" />
-                    {{ group.playerCount }} players
-                  </span>
-                  <span class="meta-item">
-                    <Calendar :size="16" class="meta-icon" />
-                    {{ formatDate(group.createdAt) }}
-                  </span>
-                </div>
-              </div>
-              <ArrowRight class="group-arrow" />
-            </div>
-          </BaseCard>
-        </div>
-      </section>
-
-      <!-- Member Groups -->
-      <section v-if="memberGroups.length > 0" class="groups-section">
-        <h2 class="section-title">Groups You Play In</h2>
-        <div class="groups-grid">
-          <BaseCard
-            v-for="group in memberGroups"
-            :key="group.id"
-            clickable
-            @click="router.push(`/groups/${group.id}`)"
-          >
-            <div class="group-card-content">
-              <div class="group-icon member">
-                <Users :size="32" />
-              </div>
-              <div class="group-info">
-                <h3>{{ group.name }}</h3>
-                <div class="group-meta">
-                  <span class="meta-item">
-                    <Users :size="16" class="meta-icon" />
-                    {{ group.playerCount }} players
-                  </span>
-                  <span class="meta-item">
-                    <Calendar :size="16" class="meta-icon" />
-                    {{ formatDate(group.createdAt) }}
-                  </span>
-                </div>
-              </div>
-              <ArrowRight class="group-arrow" />
-            </div>
-          </BaseCard>
-        </div>
-      </section>
-    </div>
-
-    <!-- Create Group Modal -->
-    <Modal :open="showCreateModal" title="Create New Group" @close="showCreateModal = false">
-      <form @submit.prevent="createGroup">
-        <BaseInput
-          v-model="newGroupName"
-          label="Group Name"
-          placeholder="e.g., Friday Night Picklers"
-        />
-      </form>
-      <template #footer>
-        <BaseButton variant="secondary" @click="showCreateModal = false">Cancel</BaseButton>
-        <BaseButton :loading="isCreating" @click="createGroup">Create Group</BaseButton>
-      </template>
-    </Modal>
-  </div>
+  </Sheet>
 </template>
-
-<style scoped>
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--spacing-xl);
-}
-
-.page-header h1 {
-  font-size: 2rem;
-  margin-bottom: var(--spacing-xs);
-}
-
-.subtitle {
-  color: var(--color-text-secondary);
-}
-
-.groups-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xl);
-}
-
-.groups-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.section-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.groups-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--spacing-lg);
-}
-
-.group-card-content {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.group-icon {
-  font-size: 2rem;
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-}
-
-.group-info {
-  flex: 1;
-}
-
-.group-info h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: var(--spacing-xs);
-}
-
-.group-meta {
-  display: flex;
-  gap: var(--spacing-md);
-}
-
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
-}
-
-.meta-icon {
-  font-size: 0.875rem;
-}
-
-.group-arrow {
-  color: var(--color-text-muted);
-  font-size: 1.25rem;
-  transition: transform var(--transition-fast);
-}
-
-.group-card-content:hover .group-arrow {
-  transform: translateX(4px);
-  color: var(--color-primary);
-}
-
-.error-message {
-  padding: var(--spacing-lg);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-md);
-  color: var(--color-error);
-  text-align: center;
-}
-
-.skeleton-section-title {
-  width: 150px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  margin-bottom: var(--spacing-md);
-  background: linear-gradient(
-    90deg,
-    var(--color-bg-tertiary) 0%,
-    var(--color-bg-hover) 20%,
-    var(--color-bg-tertiary) 40%,
-    var(--color-bg-tertiary) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    gap: var(--spacing-md);
-  }
-
-  .groups-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
-
-
-
-
-
-
-
