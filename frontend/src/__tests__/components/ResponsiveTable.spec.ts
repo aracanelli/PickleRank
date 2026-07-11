@@ -29,7 +29,7 @@ const items = [
 
 function mountTable(clickable = false) {
   return mount(ResponsiveTable, {
-    props: { columns, items, itemKey: (item: { id: string }) => item.id, clickable },
+    props: { columns, items, itemKey: (item: unknown) => (item as { id: string }).id, clickable },
     slots: {
       card: '<template #card="{ item }"><div class="card-slot">{{ item.name }}</div></template>',
       'cell-name': '<template #cell-name="{ item }">{{ item.name }}</template>',

@@ -1,622 +1,99 @@
 <script setup lang="ts">
-import { onMounted, ref, onUnmounted, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { Activity } from 'lucide-vue-next'
 import { getClerk } from '@/app/core/auth/clerk'
-import { getSafeRedirect, createNavigationWithRedirect } from '@/app/core/auth/redirectUtils'
+import { getClerkAppearance } from '@/app/core/auth/clerk-appearance'
+import { getSafeRedirect } from '@/app/core/auth/redirectUtils'
 import { useAuthStore } from '@/stores/auth'
-import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import { Activity, Check, AlertTriangle } from 'lucide-vue-next'
+import { useThemeStore } from '@/stores/theme'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const clerkReady = ref(false)
-const authContainer = ref<HTMLElement>()
+const themeStore = useThemeStore()
 
-// Watch for auth state changes - redirect when authenticated
-watch(() => authStore.isAuthenticated, (isAuth) => {
-  if (isAuth) {
-    router.push(getSafeRedirect(route.query.redirect))
+const clerkAvailable = ref(true)
+const authContainer = ref<HTMLElement>()
+let mounted = false
+
+// Redirect as soon as authentication happens
+watch(
+  () => authStore.isAuthenticated,
+  (isAuth) => {
+    if (isAuth) router.push(getSafeRedirect(route.query.redirect))
+  },
+  { immediate: true }
+)
+
+function mountClerk() {
+  const clerk = getClerk()
+  if (!clerk || !authContainer.value) return
+  clerk.mountSignIn(authContainer.value, {
+    fallbackRedirectUrl: getSafeRedirect(route.query.redirect),
+    signUpFallbackRedirectUrl: '/groups',
+    appearance: getClerkAppearance(themeStore.resolved)
+  })
+  mounted = true
+}
+
+function unmountClerk() {
+  const clerk = getClerk()
+  if (clerk && authContainer.value && mounted) {
+    clerk.unmountSignIn(authContainer.value)
+    mounted = false
   }
-}, { immediate: true })
+}
+
+// Clerk captures appearance at mount: remount when the theme flips
+watch(
+  () => themeStore.resolved,
+  () => {
+    if (!mounted) return
+    unmountClerk()
+    mountClerk()
+  }
+)
 
 onMounted(async () => {
-  // If already authenticated, redirect
   if (authStore.isAuthenticated) {
     router.push(getSafeRedirect(route.query.redirect))
     return
   }
-
-  // Wait for auth to be initialized
   await authStore.waitForAuth()
-
-  // Check again after auth is ready
   if (authStore.isAuthenticated) {
     router.push(getSafeRedirect(route.query.redirect))
     return
   }
-
-  const clerk = getClerk()
-  
-  if (!clerk) {
+  if (!getClerk()) {
+    clerkAvailable.value = false
     return
   }
-
-  clerkReady.value = true
-
-  // Mount Clerk sign-in component
-  if (authContainer.value) {
-    clerk.mountSignIn(authContainer.value, {
-      fallbackRedirectUrl: getSafeRedirect(route.query.redirect),
-      signUpFallbackRedirectUrl: '/groups',
-      appearance: {
-        baseTheme: undefined,
-        variables: {
-          colorPrimary: '#10b981',
-          colorBackground: '#1e293b',
-          colorInputBackground: '#0f172a',
-          colorInputText: '#f8fafc',
-          colorText: '#f8fafc',
-          colorTextSecondary: '#94a3b8',
-          colorDanger: '#ef4444',
-          borderRadius: '0.75rem',
-          fontFamily: 'Outfit, system-ui, sans-serif',
-        },
-        elements: {
-          rootBox: {
-            width: '100%',
-            maxWidth: '100%',
-          },
-          card: {
-            background: 'transparent',
-            boxShadow: 'none',
-            border: 'none',
-            padding: '0',
-            width: '100%',
-            maxWidth: '100%',
-          },
-          main: {
-            width: '100%',
-            padding: '0 8px',
-          },
-          form: {
-            padding: '0 8px',
-          },
-          headerTitle: {
-            display: 'none',
-          },
-          headerSubtitle: {
-            display: 'none',
-          },
-          socialButtonsBlockButton: {
-            background: '#334155',
-            border: '1px solid #475569',
-            color: '#f8fafc',
-            minHeight: '52px',
-            fontSize: '0.9375rem',
-            fontWeight: '500',
-            borderRadius: '0.75rem',
-            '&:hover': {
-              background: '#475569',
-            },
-          },
-          socialButtons: {
-            display: 'flex',
-            justifyContent: 'center',
-          },
-          socialButtonsBlockButtonText: {
-            fontWeight: '500',
-          },
-          formButtonPrimary: {
-            background: 'linear-gradient(135deg, #10b981, #059669)',
-            minHeight: '52px',
-            fontSize: '1rem',
-            fontWeight: '600',
-            borderRadius: '0.75rem',
-            marginTop: '8px',
-            '&:hover': {
-              background: 'linear-gradient(135deg, #059669, #047857)',
-            },
-          },
-          formFieldInput: {
-            background: '#0f172a',
-            border: '1px solid #334155',
-            color: '#f8fafc',
-            minHeight: '52px',
-            fontSize: '1rem',
-            '&:focus': {
-              borderColor: '#10b981',
-              boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.2)',
-            },
-          },
-          formFieldLabel: {
-            color: '#94a3b8',
-            fontSize: '0.875rem',
-            fontWeight: '500',
-            paddingLeft: '8px',
-            marginBottom: '8px',
-          },
-          formField: {
-            marginBottom: '20px',
-          },
-          footerActionLink: {
-            color: '#10b981',
-            fontWeight: '600',
-            '&:hover': {
-              color: '#059669',
-            },
-          },
-          identityPreviewEditButton: {
-            color: '#10b981',
-          },
-          dividerLine: {
-            background: '#334155',
-          },
-          dividerText: {
-            color: '#64748b',
-          },
-          footer: {
-            display: 'none',
-          },
-        },
-      },
-    })
-  }
+  mountClerk()
 })
 
-onUnmounted(() => {
-  const clerk = getClerk()
-  if (clerk && authContainer.value) {
-    clerk.unmountSignIn(authContainer.value)
-  }
-})
-
-function goToSignUp() {
-  router.push(createNavigationWithRedirect('signup', route.query.redirect))
-}
+onUnmounted(unmountClerk)
 </script>
 
 <template>
-  <div class="login-page">
-    <!-- Background decoration -->
-    <div class="bg-decoration">
-      <div class="bg-glow"></div>
-      <div class="bg-grid"></div>
+  <div class="flex min-h-dvh flex-col items-center justify-center bg-surface-page px-4 py-10 pt-safe pb-safe">
+    <RouterLink to="/" class="mb-8 flex items-center gap-2 text-2xl font-bold text-ink">
+      <Activity class="size-7 text-brand" aria-hidden="true" />
+      PickleRank
+    </RouterLink>
+
+    <div class="w-full max-w-md rounded-2xl border border-line bg-surface-1 p-6 shadow-sm">
+      <div v-if="clerkAvailable" ref="authContainer" class="min-h-64" />
+      <p v-else class="py-8 text-center text-sm text-ink-muted">
+        Sign-in is not configured for this environment.
+      </p>
     </div>
 
-    <div class="login-container">
-      <!-- Left side - Branding (hidden on mobile) -->
-      <div class="login-branding">
-        <div class="brand-content">
-          <div class="brand-icon"><Activity :size="48" /></div>
-          <h1>PickleRank</h1>
-          <p class="brand-tagline">Fair matchups. Real rankings.</p>
-          
-          <div class="brand-features">
-            <div class="brand-feature">
-              <Check class="feature-check" :size="16" />
-              <span>Smart 2v2 matchmaking</span>
-            </div>
-            <div class="brand-feature">
-              <Check class="feature-check" :size="16" />
-              <span>ELO-based rankings</span>
-            </div>
-            <div class="brand-feature">
-              <Check class="feature-check" :size="16" />
-              <span>Track your progress</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Decorative court mini -->
-        <div class="mini-court">
-          <div class="court-line h"></div>
-          <div class="court-line v"></div>
-        </div>
-      </div>
-
-      <!-- Right side - Auth form -->
-      <div class="login-form-section">
-        <div class="login-card">
-          <div class="login-header">
-            <h2>Welcome back</h2>
-            <p>Sign in to continue to your games</p>
-          </div>
-
-          <!-- Auth Mode Toggle -->
-          <div class="auth-toggle">
-            <button class="toggle-btn active">Sign In</button>
-            <button class="toggle-btn" @click="goToSignUp">Sign Up</button>
-          </div>
-
-          <div v-if="authStore.isLoading && !authStore.isInitialized" class="loading-container">
-            <LoadingSpinner text="Loading..." />
-          </div>
-          
-          <div v-show="clerkReady && authStore.isInitialized" ref="authContainer" class="auth-container"></div>
-
-          <div v-if="authStore.isInitialized && !getClerk()" class="no-auth">
-            <AlertTriangle class="no-auth-icon" :size="32" />
-            <p class="no-auth-title">Authentication not configured</p>
-            <p class="no-auth-message">Please set <code>VITE_CLERK_PUBLISHABLE_KEY</code> in your environment variables.</p>
-          </div>
-
-          <div class="login-footer">
-            <router-link to="/" class="back-link">
-              ← Back to home
-            </router-link>
-          </div>
-        </div>
-      </div>
-    </div>
+    <p class="mt-6 text-sm text-ink-muted">
+      New here?
+      <RouterLink :to="{ path: '/signup', query: route.query }" class="font-semibold text-brand hover:text-brand-strong">
+        Create an account
+      </RouterLink>
+    </p>
   </div>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: calc(100vh - 65px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-  padding: var(--spacing-lg);
-}
-
-/* Background decorations */
-.bg-decoration {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.bg-glow {
-  position: absolute;
-  top: -20%;
-  left: -10%;
-  width: 60%;
-  height: 60%;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 60%);
-  filter: blur(60px);
-}
-
-.bg-grid {
-  position: absolute;
-  inset: 0;
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 50px 50px;
-}
-
-/* Main container */
-.login-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  width: 100%;
-  max-width: 900px;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  box-shadow: 
-    0 25px 50px -12px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.05);
-  position: relative;
-  z-index: 1;
-}
-
-/* Left branding section */
-.login-branding {
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  padding: var(--spacing-2xl);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.brand-content {
-  position: relative;
-  z-index: 1;
-}
-
-.brand-icon {
-  color: var(--color-primary);
-  margin-bottom: var(--spacing-md);
-}
-
-.login-branding h1 {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: var(--spacing-xs);
-  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.brand-tagline {
-  color: var(--color-text-secondary);
-  font-size: 1rem;
-  margin-bottom: var(--spacing-xl);
-}
-
-.brand-features {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.brand-feature {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-}
-
-.feature-check {
-  color: var(--color-primary);
-  flex-shrink: 0;
-}
-
-/* Mini court decoration */
-.mini-court {
-  position: absolute;
-  bottom: -30px;
-  right: -30px;
-  width: 200px;
-  height: 250px;
-  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-  border-radius: var(--radius-lg);
-  opacity: 0.15;
-  transform: rotate(-15deg);
-}
-
-.mini-court .court-line {
-  position: absolute;
-  background: white;
-}
-
-.mini-court .court-line.h {
-  width: 100%;
-  height: 2px;
-  top: 50%;
-}
-
-.mini-court .court-line.v {
-  width: 2px;
-  height: 100%;
-  left: 50%;
-}
-
-/* Right form section */
-.login-form-section {
-  padding: var(--spacing-2xl);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg-secondary);
-}
-
-.login-card {
-  width: 100%;
-  max-width: 360px;
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: var(--spacing-lg);
-}
-
-.login-header h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-bottom: var(--spacing-xs);
-}
-
-.login-header p {
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-}
-
-/* Auth Mode Toggle - Prominent tabs */
-.auth-toggle {
-  display: flex;
-  gap: var(--spacing-xs);
-  background: var(--color-bg-tertiary);
-  padding: 4px;
-  border-radius: var(--radius-lg);
-  margin-bottom: var(--spacing-xl);
-}
-
-.toggle-btn {
-  flex: 1;
-  padding: 14px 16px;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-
-.toggle-btn:hover:not(.active) {
-  color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.toggle-btn.active {
-  background: var(--color-primary);
-  color: white;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.loading-container {
-  display: flex;
-  justify-content: center;
-  padding: var(--spacing-2xl);
-}
-
-.auth-container {
-  min-height: 280px;
-  width: 100%;
-}
-
-/* Clerk component overrides for mobile */
-:deep(.cl-rootBox),
-:deep(.cl-card),
-:deep(.cl-main),
-:deep(.cl-form),
-:deep(.cl-socialButtons) {
-  width: 100% !important;
-  max-width: 100% !important;
-}
-
-:deep(.cl-socialButtonsBlockButton) {
-  min-width: 0 !important;
-  min-height: 52px !important;
-}
-
-:deep(.cl-formFieldInput) {
-  width: 100% !important;
-  min-height: 52px !important;
-}
-
-:deep(.cl-formButtonPrimary) {
-  min-height: 52px !important;
-}
-
-/* No auth state */
-.no-auth {
-  text-align: center;
-  padding: var(--spacing-xl);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: var(--radius-lg);
-}
-
-.no-auth-icon {
-  color: var(--color-warning);
-  margin-bottom: var(--spacing-md);
-}
-
-.no-auth-title {
-  font-weight: 600;
-  margin-bottom: var(--spacing-sm);
-  color: var(--color-error);
-}
-
-.no-auth-message {
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-.no-auth code {
-  background: var(--color-bg-tertiary);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-}
-
-/* Footer */
-.login-footer {
-  margin-top: var(--spacing-xl);
-  text-align: center;
-}
-
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 8px 16px;
-  background-color: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: all var(--transition-fast);
-}
-
-.back-link:hover {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .login-page {
-    padding: var(--spacing-md);
-    align-items: flex-start;
-    padding-top: var(--spacing-xl);
-  }
-
-  .login-container {
-    grid-template-columns: 1fr;
-    max-width: 100%;
-    border-radius: var(--radius-lg);
-  }
-
-  .login-branding {
-    display: none;
-  }
-
-  .login-form-section {
-    padding: var(--spacing-lg);
-  }
-
-  .login-card {
-    max-width: 100%;
-  }
-
-  .login-header {
-    margin-bottom: var(--spacing-md);
-  }
-
-  .login-header h2 {
-    font-size: 1.375rem;
-  }
-
-  .auth-toggle {
-    margin-bottom: var(--spacing-lg);
-  }
-
-  .toggle-btn {
-    padding: 16px;
-    font-size: 1rem;
-  }
-
-  .auth-container {
-    min-height: 320px;
-  }
-}
-
-@media (max-width: 480px) {
-  .login-page {
-    padding: var(--spacing-sm);
-    padding-top: var(--spacing-lg);
-  }
-
-  .login-form-section {
-    padding: var(--spacing-md);
-  }
-
-  .login-header h2 {
-    font-size: 1.25rem;
-  }
-
-  .login-header p {
-    font-size: 0.8rem;
-  }
-}
-</style>
