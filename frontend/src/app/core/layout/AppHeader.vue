@@ -37,16 +37,16 @@ const title = computed(() => {
 const desktopNav = computed(() => {
   if (props.context === 'global') {
     return [
-      { label: 'Groups', icon: ClipboardList, to: '/groups', active: route.path.startsWith('/groups') },
+      { label: 'Clubs', icon: ClipboardList, to: '/groups', active: route.path.startsWith('/groups') },
       { label: 'Players', icon: Users, to: '/players', active: route.path.startsWith('/players') }
     ]
   }
   const gid = groupId.value
   if (!gid) return []
   return [
-    { label: 'Home', icon: Home, to: `/groups/${gid}`, active: route.name === 'group-detail' },
-    { label: 'Rankings', icon: Trophy, to: `/groups/${gid}/rankings`, active: route.path.includes('/rankings') },
-    { label: 'History', icon: History, to: `/groups/${gid}/history`, active: route.path.includes('/history') },
+    { label: 'Club', icon: Home, to: `/groups/${gid}`, active: route.name === 'group-detail' },
+    { label: 'Ladder', icon: Trophy, to: `/groups/${gid}/rankings`, active: route.path.includes('/rankings') },
+    { label: 'Feed', icon: History, to: `/groups/${gid}/history`, active: route.path.includes('/history') },
     ...(groupContext.myPlayerId
       ? [{
           label: 'Me',
@@ -64,9 +64,9 @@ const desktopNav = computed(() => {
     <div class="mx-auto flex h-14 w-full max-w-5xl items-center gap-2 px-2 md:px-6">
       <!-- Left: logo (global) or back + title (group context) -->
       <template v-if="context === 'global'">
-        <RouterLink to="/groups" class="flex items-center gap-2 px-2 font-bold text-ink">
-          <Activity class="size-5 text-brand" aria-hidden="true" />
-          <span class="text-lg">PickleRank</span>
+        <RouterLink to="/groups" class="flex items-center gap-2 px-2 text-ink">
+          <Activity class="size-5 text-accent-text" aria-hidden="true" />
+          <span class="display-wide text-base">PickleRank</span>
         </RouterLink>
       </template>
       <template v-else>
@@ -87,8 +87,8 @@ const desktopNav = computed(() => {
           v-for="item in desktopNav"
           :key="item.label"
           :to="item.to"
-          class="flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors"
-          :class="item.active ? 'bg-brand-soft text-brand' : 'text-ink-muted hover:bg-surface-2 hover:text-ink'"
+          class="flex min-h-10 items-center gap-1.5 rounded-[10px] px-3 text-sm font-medium transition-colors"
+          :class="item.active ? 'bg-accent-soft text-accent-text' : 'text-ink-muted hover:bg-surface-2 hover:text-ink'"
         >
           <component :is="item.icon" class="size-4" aria-hidden="true" />
           {{ item.label }}

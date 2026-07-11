@@ -15,11 +15,15 @@ const accountSheetOpen = ref(false)
 
 // Route meta drives the chrome: 'global' | 'group' | 'none'
 const nav = computed(() => (route.meta.nav as 'global' | 'group' | 'none' | undefined) ?? 'none')
-const showChrome = computed(() => nav.value !== 'none' && authStore.isAuthenticated)
+
+// Immersive takeover (live scoreboard): same route, chrome fully hidden
+const immersive = computed(() => route.name === 'event-detail' && route.query.mode === 'live')
+
+const showChrome = computed(() => nav.value !== 'none' && authStore.isAuthenticated && !immersive.value)
 </script>
 
 <template>
-  <div class="flex min-h-dvh flex-col bg-surface-page">
+  <div class="flex min-h-dvh flex-col" :class="immersive ? 'bg-surface-court' : 'bg-surface-page'">
     <AppHeader v-if="showChrome" :context="nav === 'group' ? 'group' : 'global'" @account="accountSheetOpen = true" />
 
     <!-- pb reserves space for the mobile bottom tab bar -->

@@ -71,9 +71,9 @@ const tabs = computed<Tab[]>(() => {
   }
   const gid = groupId.value
   return [
-    { key: 'home', label: 'Home', icon: Home, action: () => gid && router.push(`/groups/${gid}`) },
-    { key: 'rankings', label: 'Rankings', icon: Trophy, action: () => gid && router.push(`/groups/${gid}/rankings`) },
-    { key: 'history', label: 'History', icon: History, action: () => gid && router.push(`/groups/${gid}/history`) },
+    { key: 'home', label: 'Club', icon: Home, action: () => gid && router.push(`/groups/${gid}`) },
+    { key: 'rankings', label: 'Ladder', icon: Trophy, action: () => gid && router.push(`/groups/${gid}/rankings`) },
+    { key: 'history', label: 'Feed', icon: History, action: () => gid && router.push(`/groups/${gid}/history`) },
     { key: 'me', label: 'Me', icon: User, action: goToMe }
   ]
 })
@@ -81,21 +81,23 @@ const tabs = computed<Tab[]>(() => {
 
 <template>
   <nav
-    class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface-1/95 backdrop-blur-md pb-safe md:hidden"
+    class="fixed inset-x-0 bottom-0 z-40 bg-surface-page/92 backdrop-blur-md pb-safe md:hidden"
     aria-label="Primary"
   >
+    <!-- kitchen line: the court's non-volley-zone line as the nav's top edge -->
+    <div class="kitchen-line" aria-hidden="true" />
     <div class="flex items-stretch">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         type="button"
-        class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 transition-colors active:scale-95"
-        :class="active === tab.key ? 'text-brand' : 'text-ink-faint'"
+        class="flex min-h-14 flex-1 flex-col items-center justify-center gap-1 transition-colors active:scale-95"
+        :class="active === tab.key ? 'text-accent-text' : 'text-ink-faint'"
         :aria-current="active === tab.key ? 'page' : undefined"
         @click="tab.action()"
       >
         <component :is="tab.icon" class="size-5" aria-hidden="true" />
-        <span class="text-[0.65rem] font-semibold uppercase tracking-wide">{{ tab.label }}</span>
+        <span class="eyebrow">{{ tab.label }}</span>
       </button>
     </div>
   </nav>
