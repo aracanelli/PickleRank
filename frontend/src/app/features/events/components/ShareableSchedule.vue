@@ -30,9 +30,9 @@ const gridStyle = computed(() => ({
       <!-- Header Row -->
       <div class="grid-header">
         <div class="round-header"></div>
-        <div 
-          v-for="courtNum in event.courts" 
-          :key="courtNum" 
+        <div
+          v-for="courtNum in event.courts"
+          :key="courtNum"
           class="court-header"
         >
           Court {{ courtNum }}
@@ -40,17 +40,17 @@ const gridStyle = computed(() => ({
       </div>
 
       <!-- Round Rows -->
-      <div 
-        v-for="(roundGames, roundIdx) in gamesByRound" 
-        :key="roundIdx" 
+      <div
+        v-for="(roundGames, roundIdx) in gamesByRound"
+        :key="roundIdx"
         class="round-row"
       >
         <div class="round-label">
           Round {{ roundIdx + 1 }}
         </div>
-        <div 
-          v-for="game in roundGames" 
-          :key="game.id" 
+        <div
+          v-for="game in roundGames"
+          :key="game.id"
           class="game-cell"
         >
           <div class="team team1">
@@ -65,36 +65,40 @@ const gridStyle = computed(() => ({
         </div>
       </div>
     </div>
+
+    <div class="schedule-footer">PickleRank</div>
   </div>
 </template>
 
+<!--
+  EXCEPTION: this component keeps a scoped style block with hex colors only.
+  It is rendered off-screen and rasterized by html2canvas, which cannot parse
+  the oklch()/color-mix() values Tailwind v4 utilities produce.
+-->
 <style scoped>
 .shareable-schedule {
-  /* Fixed landscape dimensions for export */
-  width: 1200px;
+  /* Fixed width for a consistent exported image */
+  width: 1080px;
   min-height: 600px;
-  padding: 32px;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  color: #ffffff;
+  padding: 40px;
+  background: #0f172a;
+  font-family: 'Outfit', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #f8fafc;
   border-radius: 16px;
 }
 
 .schedule-header {
   text-align: center;
-  margin-bottom: 32px;
-  padding-bottom: 24px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #1e293b;
 }
 
 .event-title {
   font-size: 2rem;
   font-weight: 700;
   margin: 0 0 8px 0;
-  background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #10b981;
 }
 
 .event-meta {
@@ -102,7 +106,7 @@ const gridStyle = computed(() => ({
   justify-content: center;
   gap: 12px;
   font-size: 1rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: #94a3b8;
 }
 
 .schedule-grid {
@@ -127,10 +131,10 @@ const gridStyle = computed(() => ({
   font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(255, 255, 255, 0.6);
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  color: #94a3b8;
+  padding: 10px 8px;
+  background: #1e293b;
+  border-radius: 10px;
 }
 
 .round-row {
@@ -146,19 +150,20 @@ const gridStyle = computed(() => ({
   font-weight: 700;
   font-size: 1rem;
   color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
-  border-radius: 8px;
+  background: #1e293b;
+  border: 1px solid #10b981;
+  border-radius: 10px;
   padding: 8px;
 }
 
 .game-cell {
-  background: rgba(255, 255, 255, 0.05);
+  background: #1e293b;
   border-radius: 12px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid #334155;
 }
 
 .team {
@@ -169,21 +174,33 @@ const gridStyle = computed(() => ({
 }
 
 .players {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.95rem;
+  color: #f8fafc;
 }
 
 .elo {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
-  font-family: 'Consolas', 'Monaco', monospace;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
 }
 
 .vs {
   text-align: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #64748b;
   text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.schedule-footer {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
 }
 </style>
