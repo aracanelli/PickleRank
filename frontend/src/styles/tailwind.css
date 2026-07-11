@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Dark mode is driven by data-theme on <html>, set pre-bundle in index.html
+   and managed by the theme store. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------------------------------------------------------------------------
+   Semantic design tokens. Components use these (bg-surface-1, text-ink,
+   border-line, text-brand, ...) and are automatically bi-theme; the dark:
+   variant is reserved for exceptions.
+   Chart + shareable-image tokens stay rgb/hex on purpose: chart.js and
+   html2canvas cannot parse oklch()/color-mix().
+--------------------------------------------------------------------------- */
+:root {
+  /* light */
+  --surface-page: #f8fafc;
+  --surface-1: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --ink: #0f172a;
+  --ink-muted: #475569;
+  --ink-faint: #94a3b8;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --brand: #059669;
+  --brand-strong: #047857;
+  --brand-soft: #d1fae5;
+  --brand-contrast: #ffffff;
+  --win: #16a34a;
+  --loss: #dc2626;
+  --tie: #ca8a04;
+  --warn: #d97706;
+  --info: #2563eb;
+  --chart-grid: #e2e8f0;
+  --chart-tick: #475569;
+}
+
+[data-theme="dark"] {
+  --surface-page: #0f172a;
+  --surface-1: #1e293b;
+  --surface-2: #334155;
+  --surface-3: #475569;
+  --ink: #f8fafc;
+  --ink-muted: #94a3b8;
+  --ink-faint: #64748b;
+  --line: #334155;
+  --line-strong: #475569;
+  --brand: #10b981;
+  --brand-strong: #34d399;
+  --brand-soft: rgba(16, 185, 129, 0.15);
+  --brand-contrast: #ffffff;
+  --win: #4ade80;
+  --loss: #f87171;
+  --tie: #facc15;
+  --warn: #fbbf24;
+  --info: #60a5fa;
+  --chart-grid: #334155;
+  --chart-tick: #94a3b8;
+}
+
+@theme inline {
+  --color-surface-page: var(--surface-page);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-win: var(--win);
+  --color-loss: var(--loss);
+  --color-tie: var(--tie);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
+
+  --font-sans: "Outfit", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--surface-page);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+
+  /* Inputs never below 16px: prevents iOS focus-zoom. */
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+}

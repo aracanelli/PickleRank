@@ -4,8 +4,10 @@ import App from './App.vue'
 import router from './router'
 import { initClerk, setAuthStore } from './app/core/auth/clerk'
 import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
 import { initApiClient } from './app/core/http/api-client'
-import './styles/main.css'
+import './styles/tailwind.css'
+import './styles/legacy.css'
 
 async function bootstrap() {
   const app = createApp(App)
@@ -13,6 +15,9 @@ async function bootstrap() {
 
   // Initialize Pinia first so stores are available
   app.use(pinia)
+
+  // Theme: sync data-theme/<meta theme-color> and watch system preference
+  useThemeStore().init()
 
   // Initialize auth store and connect it to Clerk and API client
   const authStore = useAuthStore()
