@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { useThemeStore } from '@/stores/theme'
+import { BRAND, FONTS } from '@/app/core/brand/brand-constants'
 
 /**
  * Theme-aware chart.js option fragments resolved from the CSS tokens in
@@ -16,27 +17,26 @@ export function useChartTheme() {
 
   const colors = computed(() => {
     // Depend on resolved theme so this recomputes after data-theme flips
-    void themeStore.resolved
+    const fallback = BRAND[themeStore.resolved]
     const style = getComputedStyle(document.documentElement)
-    const read = (name: string, fallback: string) =>
-      style.getPropertyValue(name).trim() || fallback
+    const read = (name: string, fb: string) => style.getPropertyValue(name).trim() || fb
     return {
-      grid: read('--chart-grid', '#334155'),
-      tick: read('--chart-tick', '#94a3b8'),
-      brand: read('--brand', '#10b981'),
-      brandSoft: read('--brand-soft', 'rgba(16, 185, 129, 0.15)'),
-      surface: read('--surface-1', '#1e293b'),
-      ink: read('--ink', '#f8fafc'),
-      line: read('--line', '#334155'),
-      win: read('--win', '#4ade80'),
-      loss: read('--loss', '#f87171')
+      grid: read('--chart-grid', fallback.chartGrid),
+      tick: read('--chart-tick', fallback.chartTick),
+      brand: read('--accent-text', fallback.accentText),
+      brandSoft: read('--accent-soft', 'rgba(212, 255, 61, 0.12)'),
+      surface: read('--surface-1', fallback.surface1),
+      ink: read('--ink', fallback.ink),
+      line: read('--line', fallback.line),
+      win: read('--win', fallback.win),
+      loss: read('--loss', fallback.loss)
     }
   })
 
   /** Common scale config for line/bar charts. */
   const scaleOptions = computed(() => ({
     grid: { color: colors.value.grid },
-    ticks: { color: colors.value.tick }
+    ticks: { color: colors.value.tick, font: { family: FONTS.sans } }
   }))
 
   /** Themed tooltip + legend plugin options. */

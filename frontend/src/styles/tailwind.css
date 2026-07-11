@@ -5,57 +5,87 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /* ---------------------------------------------------------------------------
-   Semantic design tokens. Components use these (bg-surface-1, text-ink,
-   border-line, text-brand, ...) and are automatically bi-theme; the dark:
-   variant is reserved for exceptions.
+   COURTSIDE design language — "Night Court + Volt".
+   Near-black graphite surfaces lit by a single accent: Volt (#D4FF3D), the
+   optic color of the ball. Dark is the design-primary theme; light stays
+   functional.
+
+   Accent is split into two roles so it survives light mode:
+   - accent-fill: a background color, always paired with accent-contrast text
+   - accent-text: a foreground color (volt on dark, deep green on light)
+   The legacy --brand* names are kept and re-pointed for compatibility:
+   brand = accent-text semantics, bg-brand + text-brand-contrast = fill.
+
    Chart + shareable-image tokens stay rgb/hex on purpose: chart.js and
-   html2canvas cannot parse oklch()/color-mix().
+   html2canvas cannot parse oklch()/color-mix(). Hex sources of truth for
+   TS consumers live in src/app/core/brand/brand-constants.ts — keep in sync.
 --------------------------------------------------------------------------- */
 :root {
   /* light */
-  --surface-page: #f8fafc;
+  --surface-page: #f4f6f8;
   --surface-1: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-3: #e2e8f0;
-  --ink: #0f172a;
-  --ink-muted: #475569;
-  --ink-faint: #94a3b8;
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
-  --brand: #059669;
-  --brand-strong: #047857;
-  --brand-soft: #d1fae5;
+  --surface-2: #edf0f4;
+  --surface-3: #e2e6ec;
+  --surface-court: #e9efe7;
+  --ink: #101319;
+  --ink-muted: #4c5666;
+  --ink-faint: #8a93a3;
+  --line: #e2e6ec;
+  --line-strong: #c9d0db;
+
+  --accent-fill: #c9f53a;
+  --accent-text: #4d7c0f;
+  --accent-soft: rgba(109, 163, 13, 0.14);
+  --accent-contrast: #0a0c10;
+
+  /* legacy brand aliases (foreground = accent-text; fills pair with brand-contrast) */
+  --brand: #4d7c0f;
+  --brand-strong: #3f6212;
+  --brand-soft: rgba(109, 163, 13, 0.14);
   --brand-contrast: #ffffff;
-  --win: #16a34a;
+
+  --win: #0e9f6e;
   --loss: #dc2626;
-  --tie: #ca8a04;
-  --warn: #d97706;
-  --info: #2563eb;
-  --chart-grid: #e2e8f0;
-  --chart-tick: #475569;
+  --tie: #b45309;
+  --warn: #b45309;
+  --info: #0e7cc2;
+
+  --glow-accent: 0 1px 2px rgba(16, 19, 25, 0.06), 0 4px 12px rgba(16, 19, 25, 0.08);
+  --chart-grid: #e2e6ec;
+  --chart-tick: #4c5666;
 }
 
 [data-theme="dark"] {
-  --surface-page: #0f172a;
-  --surface-1: #1e293b;
-  --surface-2: #334155;
-  --surface-3: #475569;
-  --ink: #f8fafc;
-  --ink-muted: #94a3b8;
-  --ink-faint: #64748b;
-  --line: #334155;
-  --line-strong: #475569;
-  --brand: #10b981;
-  --brand-strong: #34d399;
-  --brand-soft: rgba(16, 185, 129, 0.15);
-  --brand-contrast: #ffffff;
-  --win: #4ade80;
-  --loss: #f87171;
-  --tie: #facc15;
-  --warn: #fbbf24;
-  --info: #60a5fa;
-  --chart-grid: #334155;
-  --chart-tick: #94a3b8;
+  --surface-page: #0a0c10;
+  --surface-1: #12151c;
+  --surface-2: #1a1f29;
+  --surface-3: #242b38;
+  --surface-court: #0e1613;
+  --ink: #f2f5f9;
+  --ink-muted: #98a2b3;
+  --ink-faint: #5b6472;
+  --line: #20242e;
+  --line-strong: #333a48;
+
+  --accent-fill: #d4ff3d;
+  --accent-text: #d4ff3d;
+  --accent-soft: rgba(212, 255, 61, 0.12);
+  --accent-contrast: #0a0c10;
+
+  --brand: #d4ff3d;
+  --brand-strong: #e9ff85;
+  --brand-soft: rgba(212, 255, 61, 0.12);
+  --brand-contrast: #0a0c10;
+
+  --win: #34d399;
+  --loss: #ff5d5d;
+  --tie: #ffc53d;
+  --warn: #ffb224;
+  --info: #4cc2ff;
+
+  --glow-accent: 0 0 24px rgba(212, 255, 61, 0.25);
+  --chart-grid: #20242e;
+  --chart-tick: #98a2b3;
 }
 
 @theme inline {
@@ -63,11 +93,16 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-surface-court: var(--surface-court);
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
   --color-ink-faint: var(--ink-faint);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-text: var(--accent-text);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-contrast: var(--accent-contrast);
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
   --color-brand-soft: var(--brand-soft);
@@ -78,8 +113,23 @@
   --color-warn: var(--warn);
   --color-info: var(--info);
 
-  --font-sans: "Outfit", system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", monospace;
+
+  --shadow-glow: var(--glow-accent);
+
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Motion tokens (consumed as var(--dur-*) in transitions/animations) */
+:root {
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --dur-count: 800ms;
+  --dur-celebrate: 1400ms;
 }
 
 @utility pt-safe {
@@ -91,6 +141,59 @@
 @utility px-safe {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+}
+
+/* The non-volley-zone line: 2px volt rule, 7px gap, 1px hairline.
+   Use on a dedicated divider element (it has its own height). */
+@utility kitchen-line {
+  height: 10px;
+  background:
+    linear-gradient(var(--accent-text), var(--accent-text)) top / 100% 2px no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) bottom / 100% 1px no-repeat;
+}
+
+/* The brand card silhouette: one clipped "ticket stub" corner. */
+@utility ticket-clip {
+  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+}
+
+/* Condensed scoreboard numerals. Pair with a fixed-height container so the
+   webfont swap never shifts layout. */
+@utility numeral {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 68;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Wide broadcast headline treatment. */
+@utility display-wide {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 118;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Eyebrow labels (section markers, tape text). */
+@utility eyebrow {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 115;
+  font-weight: 700;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* Stadium glow for hero/scoreboard surfaces only — never on forms. */
+@utility stadium-glow {
+  background-image: radial-gradient(
+    120% 80% at 50% -20%,
+    var(--accent-soft),
+    transparent 60%
+  );
 }
 
 @layer base {

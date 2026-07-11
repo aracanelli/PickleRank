@@ -15,10 +15,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="PickleRank" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0a0c10" />
 
   <!-- Apply theme before the bundle loads to avoid a flash of the wrong theme.
-       Kept in sync afterwards by the theme store (src/stores/theme.ts). -->
+       Kept in sync afterwards by the theme store (src/stores/theme.ts).
+       Colors hand-synced with src/app/core/brand/brand-constants.ts -->
   <script>
     (function () {
       var theme = 'dark'
@@ -29,14 +30,14 @@
       } catch (e) { /* default to dark */ }
       document.documentElement.dataset.theme = theme
       var meta = document.querySelector('meta[name="theme-color"]')
-      if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f172a' : '#f8fafc')
+      if (meta) meta.setAttribute('content', theme === 'dark' ? '#0a0c10' : '#f4f6f8')
     })()
   </script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
 </head>
 

@@ -1,23 +1,26 @@
 import type { ResolvedTheme } from '@/stores/theme'
+import { BRAND, FONTS } from '@/app/core/brand/brand-constants'
 
 /**
- * Clerk `appearance` object built from the app's design tokens for the given
- * theme. Clerk components are mounted (not CSS-inherited), so auth pages
- * remount them with a fresh appearance when the theme changes.
+ * Clerk `appearance` object built from the COURTSIDE brand constants for the
+ * given theme. Clerk components are mounted (not CSS-inherited), so auth
+ * pages remount them with a fresh appearance when the theme changes.
  */
 export function getClerkAppearance(theme: ResolvedTheme) {
-  const dark = theme === 'dark'
+  const c = BRAND[theme]
   return {
     variables: {
-      colorPrimary: dark ? '#10b981' : '#059669',
-      colorBackground: dark ? '#1e293b' : '#ffffff',
-      colorInputBackground: dark ? '#0f172a' : '#f8fafc',
-      colorInputText: dark ? '#f8fafc' : '#0f172a',
-      colorText: dark ? '#f8fafc' : '#0f172a',
-      colorTextSecondary: dark ? '#94a3b8' : '#475569',
-      colorDanger: dark ? '#f87171' : '#dc2626',
-      borderRadius: '0.75rem',
-      fontFamily: 'Outfit, system-ui, sans-serif'
+      // Volt as a fill fails on white; use the accent-text role for Clerk's
+      // primary (it colors buttons AND links) in light mode.
+      colorPrimary: theme === 'dark' ? c.accentFill : c.accentText,
+      colorBackground: c.surface1,
+      colorInputBackground: c.surface2,
+      colorInputText: c.ink,
+      colorText: c.ink,
+      colorTextSecondary: c.inkMuted,
+      colorDanger: c.loss,
+      borderRadius: '0.625rem',
+      fontFamily: FONTS.sans
     },
     elements: {
       rootBox: { width: '100%', maxWidth: '100%' },
@@ -28,6 +31,15 @@ export function getClerkAppearance(theme: ResolvedTheme) {
         padding: '0',
         width: '100%',
         maxWidth: '100%'
+      },
+      headerTitle: {
+        fontFamily: FONTS.display,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.04em'
+      },
+      formButtonPrimary: {
+        color: theme === 'dark' ? c.accentContrast : '#ffffff',
+        fontWeight: 700
       },
       footer: { background: 'transparent' }
     }

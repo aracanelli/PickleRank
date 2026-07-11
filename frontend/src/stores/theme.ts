@@ -4,10 +4,12 @@ import { computed, ref } from 'vue'
 export type ThemePreference = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
 
+import { BRAND } from '@/app/core/brand/brand-constants'
+
 const STORAGE_KEY = 'pr-theme'
 const THEME_COLOR: Record<ResolvedTheme, string> = {
-  light: '#f8fafc',
-  dark: '#0f172a'
+  light: BRAND.light.surfacePage,
+  dark: BRAND.dark.surfacePage
 }
 
 function readStoredPreference(): ThemePreference {
