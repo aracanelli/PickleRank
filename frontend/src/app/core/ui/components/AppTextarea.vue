@@ -27,8 +27,8 @@ const id = useId()
       :placeholder="placeholder"
       :disabled="disabled"
       :aria-invalid="!!error || undefined"
-      class="w-full rounded-xl border bg-surface-1 px-3.5 py-2.5 text-base text-ink placeholder:text-ink-faint transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
-      :class="error ? 'border-loss focus:ring-loss/30' : 'border-line focus:border-brand focus:ring-brand/30'"
+      class="w-full rounded-[10px] border bg-surface-2 px-3.5 py-2.5 text-base text-ink placeholder:text-ink-faint transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
+      :class="error ? 'border-loss focus:ring-loss/30' : 'border-line focus:border-accent-text focus:ring-accent-text/40'"
     />
     <p v-if="error" class="text-sm text-loss">{{ error }}</p>
     <p v-else-if="hint" class="text-sm text-ink-faint">{{ hint }}</p>

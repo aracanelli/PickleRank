@@ -21,8 +21,8 @@ const model = defineModel<string>({ required: true })
         type="button"
         role="tab"
         :aria-selected="model === tab.value"
-        class="relative flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap px-4 text-sm font-medium transition-colors"
-        :class="model === tab.value ? 'text-brand' : 'text-ink-muted hover:text-ink'"
+        class="relative flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap px-4 eyebrow transition-colors"
+        :class="model === tab.value ? 'text-ink' : 'text-ink-muted hover:text-ink'"
         @click="model = tab.value"
       >
         {{ tab.label }}
@@ -32,7 +32,7 @@ const model = defineModel<string>({ required: true })
         >{{ tab.count }}</span>
         <span
           v-if="model === tab.value"
-          class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand"
+          class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent-fill"
         />
       </button>
     </div>

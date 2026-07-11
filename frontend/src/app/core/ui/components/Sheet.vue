@@ -85,13 +85,13 @@ onBeforeUnmount(() => {
         :aria-label="title"
       >
         <!-- Backdrop -->
-        <div class="sheet-backdrop absolute inset-0 bg-black/50" @click="close" />
+        <div class="sheet-backdrop absolute inset-0 bg-black/60" @click="close" />
 
         <!-- Panel -->
         <div
           ref="panel"
           tabindex="-1"
-          class="sheet-panel relative flex w-full flex-col rounded-t-2xl bg-surface-1 shadow-xl outline-none md:rounded-2xl"
+          class="sheet-panel relative flex w-full flex-col rounded-t-[20px] bg-surface-1 shadow-xl outline-none md:rounded-[20px]"
           :class="size === 'lg' ? 'md:max-w-2xl' : 'md:max-w-md'"
           :style="dragOffset ? { transform: `translateY(${dragOffset}px)`, transition: 'none' } : undefined"
         >
@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
             @touchmove.passive="onTouchMove"
             @touchend.passive="onTouchEnd"
           >
-            <h2 class="text-lg font-semibold text-ink">{{ title }}</h2>
+            <h2 class="display-wide text-base text-ink">{{ title }}</h2>
             <IconButton v-if="!persistent" label="Close" @click="close">
               <X class="size-5" />
             </IconButton>

@@ -14,7 +14,7 @@ const emit = defineEmits<{ remove: [] }>()
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-1 py-1 pl-1 pr-2.5 text-sm font-medium text-ink">
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pl-1 pr-2.5 text-sm font-medium text-ink">
     <Avatar :name="name" size="sm" />
     {{ name }}
     <button

@@ -20,7 +20,7 @@ const model = defineModel<string>({ required: true })
 
 <template>
   <div
-    class="flex gap-1 rounded-xl bg-surface-2 p-1"
+    class="flex gap-1 rounded-[10px] bg-surface-2 p-1"
     :class="scrollable ? 'overflow-x-auto [-webkit-overflow-scrolling:touch] [scrollbar-width:none]' : ''"
     role="tablist"
   >
@@ -33,7 +33,7 @@ const model = defineModel<string>({ required: true })
       class="relative flex min-h-9 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition-colors"
       :class="
         model === opt.value
-          ? 'bg-surface-1 text-ink shadow-sm'
+          ? 'bg-surface-3 text-ink shadow-sm dark:bg-surface-1'
           : 'text-ink-muted hover:text-ink'
       "
       @click="model = opt.value"
@@ -42,7 +42,7 @@ const model = defineModel<string>({ required: true })
       <span
         v-if="opt.dot"
         class="size-1.5 rounded-full"
-        :class="model === opt.value ? 'bg-brand' : 'bg-brand/60'"
+        :class="model === opt.value ? 'bg-accent-fill' : 'bg-accent-fill/60'"
         aria-hidden="true"
       />
     </button>

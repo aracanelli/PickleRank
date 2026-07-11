@@ -27,7 +27,7 @@ const id = useId()
       :aria-checked="model"
       :disabled="disabled"
       class="relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-      :class="model ? 'bg-brand' : 'bg-surface-3'"
+      :class="model ? 'bg-accent-fill' : 'bg-surface-3'"
       @click="model = !model"
     >
       <span

@@ -93,8 +93,8 @@ async function onTouchEnd() {
       :class="(isPulling && pullDistance > 10) || isRefreshing ? 'opacity-100' : 'opacity-0'"
       :style="{ transform: `translateY(${Math.min(pullDistance, threshold)}px)` }"
     >
-      <Loader2 v-if="isRefreshing" class="size-5 animate-spin text-brand" />
-      <span v-else-if="pullDistance >= threshold" class="flex items-center gap-1 font-medium text-brand">
+      <Loader2 v-if="isRefreshing" class="size-5 animate-spin text-accent-text" />
+      <span v-else-if="pullDistance >= threshold" class="flex items-center gap-1 font-medium text-accent-text">
         Release to refresh
       </span>
       <span v-else class="flex items-center gap-1">

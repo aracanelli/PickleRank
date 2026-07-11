@@ -26,11 +26,18 @@ describe('AppButton', () => {
     expect(wrapper.emitted('click')).toBeUndefined()
   })
 
-  it('applies variant classes', () => {
+  it('exposes the variant as a data attribute', () => {
     const primary = mount(AppButton, { props: { variant: 'primary' } })
     const danger = mount(AppButton, { props: { variant: 'danger' } })
-    expect(primary.classes().join(' ')).toContain('bg-brand')
-    expect(danger.classes().join(' ')).toContain('bg-loss')
+    const broadcast = mount(AppButton, { props: { variant: 'broadcast' } })
+    expect(primary.attributes('data-variant')).toBe('primary')
+    expect(danger.attributes('data-variant')).toBe('danger')
+    expect(broadcast.attributes('data-variant')).toBe('broadcast')
+  })
+
+  it('defaults to the primary variant', () => {
+    const wrapper = mount(AppButton)
+    expect(wrapper.attributes('data-variant')).toBe('primary')
   })
 
   it('renders full width with block', () => {

@@ -33,8 +33,8 @@ const id = useId()
         :id="id"
         v-model="model"
         :disabled="disabled"
-        class="w-full min-h-11 appearance-none rounded-xl border bg-surface-1 px-3.5 pr-10 text-base text-ink transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
-        :class="error ? 'border-loss focus:ring-loss/30' : 'border-line focus:border-brand focus:ring-brand/30'"
+        class="w-full min-h-11 appearance-none rounded-[10px] border bg-surface-2 px-3.5 pr-10 text-base text-ink transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
+        :class="error ? 'border-loss focus:ring-loss/30' : 'border-line focus:border-accent-text focus:ring-accent-text/40'"
       >
         <option v-if="placeholder" value="" disabled>{{ placeholder }}</option>
         <option v-for="opt in options" :key="String(opt.value)" :value="opt.value" :disabled="opt.disabled">

@@ -14,8 +14,8 @@ const emit = defineEmits<{ retry: [] }>()
 </script>
 
 <template>
-  <div class="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface-1 px-6 py-10 text-center">
-    <div class="flex size-12 items-center justify-center rounded-2xl bg-loss/10 text-loss">
+  <div class="flex flex-col items-center gap-3 rounded-[14px] border border-line bg-surface-1 px-6 py-10 text-center">
+    <div class="flex size-12 items-center justify-center rounded-[14px] bg-loss/10 text-loss">
       <AlertCircle class="size-6" />
     </div>
     <p class="max-w-sm text-sm text-ink-muted">{{ message }}</p>

@@ -30,7 +30,7 @@ const iconColor: Record<ToastType, string> = {
         <div
           v-for="toast in toasts"
           :key="toast.id"
-          class="pointer-events-auto mt-2 flex w-full max-w-sm items-start gap-2.5 rounded-xl border border-line bg-surface-1 px-4 py-3 shadow-lg"
+          class="pointer-events-auto mt-2 flex w-full max-w-sm items-start gap-2.5 rounded-[10px] border border-line-strong bg-surface-2 px-4 py-3 shadow-lg"
         >
           <component :is="icons[toast.type]" class="mt-0.5 size-5 shrink-0" :class="iconColor[toast.type]" aria-hidden="true" />
           <p class="flex-1 text-sm text-ink">{{ toast.message }}</p>

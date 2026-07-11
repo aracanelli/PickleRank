@@ -29,7 +29,7 @@ const alignClass = { left: 'text-left', center: 'text-center', right: 'text-righ
     <li
       v-for="item in items"
       :key="itemKey(item)"
-      class="rounded-xl border border-line bg-surface-1"
+      class="rounded-[14px] border border-line bg-surface-1"
       :class="clickable ? 'cursor-pointer transition-colors active:bg-surface-2' : ''"
       @click="clickable && emit('rowClick', item)"
     >
@@ -38,14 +38,14 @@ const alignClass = { left: 'text-left', center: 'text-center', right: 'text-righ
   </ul>
 
   <!-- Desktop: table -->
-  <div v-else class="overflow-x-auto rounded-xl border border-line bg-surface-1">
+  <div v-else class="overflow-x-auto rounded-[14px] border border-line bg-surface-1">
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-line">
           <th
             v-for="col in columns"
             :key="col.key"
-            class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-ink-faint"
+            class="px-4 py-3 eyebrow text-ink-faint"
             :class="alignClass[col.align || 'left']"
           >
             {{ col.label }}
