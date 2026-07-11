@@ -6,94 +6,98 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: () => import('@/app/features/home/views/HomePage.vue')
+      component: () => import('@/app/features/home/views/HomePage.vue'),
+      meta: { nav: 'none' }
     },
     {
       path: '/login',
       name: 'login',
-      component: () => import('@/app/features/auth/views/LoginPage.vue')
+      component: () => import('@/app/features/auth/views/LoginPage.vue'),
+      meta: { nav: 'none' }
     },
     {
       path: '/signup',
       name: 'signup',
-      component: () => import('@/app/features/auth/views/SignUpPage.vue')
+      component: () => import('@/app/features/auth/views/SignUpPage.vue'),
+      meta: { nav: 'none' }
     },
     {
       path: '/groups',
       name: 'groups',
       component: () => import('@/app/features/groups/views/GroupsPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'global' }
     },
     {
       path: '/groups/:groupId',
       name: 'group-detail',
       component: () => import('@/app/features/groups/views/GroupDetailPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group' }
     },
     {
       path: '/groups/:groupId/settings',
       name: 'group-settings',
       component: () => import('@/app/features/groups/views/GroupSettingsPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'Settings' }
     },
     {
       path: '/groups/:groupId/players/manage',
       name: 'manage-players',
       component: () => import('@/app/features/groups/views/ManagePlayersPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'Manage Players' }
     },
     {
       path: '/groups/:groupId/players/:playerId',
       name: 'player-profile',
       component: () => import('@/app/features/players/views/PlayerProfilePage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'Player' }
     },
     {
       path: '/players',
       name: 'players',
       component: () => import('@/app/features/players/views/PlayersPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'global' }
     },
     {
       path: '/groups/:groupId/events/new',
       name: 'create-event',
       component: () => import('@/app/features/events/views/CreateEventPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'New Event' }
     },
     {
       path: '/events/:eventId',
       name: 'event-detail',
       component: () => import('@/app/features/events/views/EventDetailPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'Event' }
     },
     {
       path: '/groups/:groupId/rankings',
       name: 'rankings',
       component: () => import('@/app/features/rankings/views/RankingsPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'Rankings' }
     },
     {
       path: '/groups/:groupId/history',
       name: 'history',
       component: () => import('@/app/features/rankings/views/HistoryPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'History' }
     },
     {
       path: '/groups/:groupId/payments',
       name: 'payments',
       component: () => import('@/app/features/payments/views/PaymentsPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'group', title: 'Payments' }
     },
     {
       path: '/link-player',
       name: 'link-player',
       component: () => import('@/app/features/players/views/LinkPlayerPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, nav: 'none' }
     },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
-      component: () => import('@/app/features/home/views/NotFoundPage.vue')
+      component: () => import('@/app/features/home/views/NotFoundPage.vue'),
+      meta: { nav: 'none' }
     }
   ]
 })
