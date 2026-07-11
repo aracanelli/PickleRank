@@ -147,7 +147,7 @@ const skillLabel = computed(() => {
           title="Match history"
           :subtitle="`All games played by ${stats.player.displayName}`"
           chevron
-          @click="router.push(`/groups/${groupId}/history?playerId=${playerId}`)"
+          @click="router.push(`/groups/${groupId}/history?playerId=${stats.player.playerId}`)"
         >
           <template #leading><History class="size-5" /></template>
         </ListItem>

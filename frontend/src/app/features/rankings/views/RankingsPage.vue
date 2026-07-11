@@ -174,7 +174,11 @@ const columns: TableColumn[] = [
 ]
 
 function openPlayer(entry: RankedEntry) {
-  router.push(`/groups/${groupId.value}/players/${entry.playerId}`)
+  // Rankings entries carry the global player id; the profile route (and the
+  // stats endpoint behind it) expects the group-player id.
+  const groupPlayerId = groupPlayers.value.find((p) => p.playerId === entry.playerId)?.id
+  if (!groupPlayerId) return
+  router.push(`/groups/${groupId.value}/players/${groupPlayerId}`)
 }
 
 function medalClass(rank: number): string {
