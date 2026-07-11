@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Activity, AlertCircle, Loader2 } from 'lucide-vue-next'
 import { playersApi } from '../services/players.api'
-import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import BaseButton from '@/app/core/ui/components/BaseButton.vue'
-import BaseCard from '@/app/core/ui/components/BaseCard.vue'
-import { CheckCircle, AlertCircle } from 'lucide-vue-next'
+import AppButton from '@/app/core/ui/components/AppButton.vue'
+import { useToast } from '@/app/core/ui/composables/useToast'
+import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
+
 const isLoading = ref(true)
 const error = ref('')
-const success = ref(false)
-const linkedPlayer = ref<any>(null)
 
 onMounted(async () => {
   const token = route.query.token as string
@@ -21,62 +21,39 @@ onMounted(async () => {
     isLoading.value = false
     return
   }
-  
+
   try {
     const player = await playersApi.linkPlayer(token)
-    linkedPlayer.value = player
-    success.value = true
-  } catch (e: any) {
-    error.value = e.message || 'Failed to link player'
-  } finally {
+    toast.success(`Linked to player ${player.displayName}`)
+    router.replace('/groups')
+  } catch (e) {
+    error.value = getApiErrorMessage(e, 'Failed to link player')
     isLoading.value = false
   }
 })
 </script>
 
 <template>
-  <div class="container link-page">
-    <BaseCard class="result-card">
-        <LoadingSpinner v-if="isLoading" text="Linking player..." />
-        
-        <div v-else-if="success" class="result success">
-            <CheckCircle :size="48" class="icon" />
-            <h1>Linked Successfully!</h1>
-            <p>You have been linked to player <strong>{{ linkedPlayer.displayName }}</strong>.</p>
-            <BaseButton @click="router.push('/groups')">Go to Dashboard</BaseButton>
+  <div class="flex min-h-dvh flex-col items-center justify-center bg-surface-page px-4 py-10 pt-safe pb-safe">
+    <RouterLink to="/" class="mb-8 flex items-center gap-2 text-2xl font-bold text-ink">
+      <Activity class="size-7 text-brand" aria-hidden="true" />
+      PickleRank
+    </RouterLink>
+
+    <div class="w-full max-w-md rounded-2xl border border-line bg-surface-1 p-6 shadow-sm">
+      <div v-if="isLoading" class="flex flex-col items-center gap-3 py-8 text-center">
+        <Loader2 class="size-8 animate-spin text-brand" aria-hidden="true" />
+        <p class="text-sm text-ink-muted">Linking your account...</p>
+      </div>
+
+      <div v-else class="flex flex-col items-center gap-4 py-4 text-center">
+        <div class="flex size-12 items-center justify-center rounded-2xl bg-loss/10 text-loss">
+          <AlertCircle class="size-6" />
         </div>
-        
-        <div v-else class="result error">
-            <AlertCircle :size="48" class="icon" />
-            <h1>Linking Failed</h1>
-            <p>{{ error }}</p>
-            <BaseButton variant="secondary" @click="router.push('/groups')">Go to Dashboard</BaseButton>
-        </div>
-    </BaseCard>
+        <h1 class="text-lg font-semibold text-ink">Linking failed</h1>
+        <p class="text-sm text-ink-muted">{{ error }}</p>
+        <AppButton variant="secondary" @click="router.push('/groups')">Go to dashboard</AppButton>
+      </div>
+    </div>
   </div>
 </template>
-
-<style scoped>
-.link-page {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 60vh;
-}
-.result-card {
-    width: 100%;
-    max-width: 500px;
-}
-.result {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: var(--spacing-lg);
-    padding: var(--spacing-lg);
-}
-.success .icon { color: var(--color-success, #10b981); }
-.error .icon { color: var(--color-error, #ef4444); }
-h1 { color: var(--color-text-primary); font-size: 1.5rem; }
-p { color: var(--color-text-secondary); }
-</style>

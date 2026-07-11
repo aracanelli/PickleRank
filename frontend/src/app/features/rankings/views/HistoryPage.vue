@@ -1,29 +1,32 @@
 <script setup lang="ts">
-import { ArrowLeft, ChartBar, Edit2, AlertTriangle, Filter, Settings2 } from 'lucide-vue-next'
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { ChartColumn, SlidersHorizontal, Settings2, X, AlertTriangle } from 'lucide-vue-next'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
+import { api } from '@/app/core/http/api-client'
 import type { MatchHistoryEntryDto, GroupDto, GroupPlayerDto, EventListItemDto } from '@/app/core/models/dto'
 import { useAuthStore } from '@/stores/auth'
-import BaseCard from '@/app/core/ui/components/BaseCard.vue'
-import BaseButton from '@/app/core/ui/components/BaseButton.vue'
-import LoadingSpinner from '@/app/core/ui/components/LoadingSpinner.vue'
-import SkeletonLoader from '@/app/core/ui/components/SkeletonLoader.vue'
-import EmptyState from '@/app/core/ui/components/EmptyState.vue'
-import Modal from '@/app/core/ui/components/Modal.vue'
-import PullToRefresh from '@/app/core/ui/components/PullToRefresh.vue'
-import EventEditModal from '../components/EventEditModal.vue'
-
-const authStore = useAuthStore()
-const currentUserId = computed(() => authStore.userId)
+import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
+import { useToast } from '@/app/core/ui/composables/useToast'
+import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
+import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
+import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
+import ErrorState from '@/app/core/ui/components/ErrorState.vue'
+import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
+import AppButton from '@/app/core/ui/components/AppButton.vue'
+import Sheet from '@/app/core/ui/components/Sheet.vue'
+import MatchCard from '../components/MatchCard.vue'
+import FilterSheet, { emptyFilters, type HistoryFilters } from '../components/FilterSheet.vue'
+import EventEditSheet, { type EventEditData } from '../components/EventEditSheet.vue'
 
 const route = useRoute()
+const authStore = useAuthStore()
+const groupContext = useGroupContextStore()
+const toast = useToast()
 
 const groupId = computed(() => route.params.groupId as string)
-
-
 
 const group = ref<GroupDto | null>(null)
 const players = ref<GroupPlayerDto[]>([])
@@ -32,142 +35,174 @@ const matches = ref<MatchHistoryEntryDto[]>([])
 const isLoading = ref(true)
 const error = ref('')
 
-// Filter state
-const filterEventId = ref<string>('')
-const filterPlayerId = ref<string>('')
-const filterSecondaryPlayerId = ref<string>('')
-const filterRelationship = ref<'teammate' | 'opponent'>('teammate')
+// Applied filters (edited via FilterSheet)
+const filters = ref<HistoryFilters>(emptyFilters())
+const showFilterSheet = ref(false)
 
-// Initialization flag to prevent duplicate loadHistory during setup
-const isInitializing = ref(false)
-
-// Check if current user is the group owner or has ORGANIZER role
-const isOrganizer = computed(() => {
-  // First check if user is the group owner
-  if (group.value && currentUserId.value && group.value.ownerUserId === currentUserId.value) {
-    return true
-  }
-  
-  // Otherwise check if user has a linked player with ORGANIZER role
-  const myPlayer = players.value.find(
-    p => p.userId && p.userId === currentUserId.value && p.role === 'ORGANIZER'
-  )
-  return !!myPlayer
-})
+const canManage = computed(() => groupContext.canManage)
 
 onMounted(async () => {
-  isInitializing.value = true
-  
   await Promise.all([loadGroup(), loadPlayers(), loadEvents()])
-  
-  // Check for playerId query param first
+  syncGroupContext()
+
+  // Check for playerId query param first, else auto-filter by the signed-in
+  // user's linked player (ported legacy behavior)
   const queryPlayerId = route.query.playerId as string | undefined
   if (queryPlayerId) {
-    filterPlayerId.value = queryPlayerId
-  } else if (currentUserId.value) {
-    // Auto-filter by current user's linked player if no query param
-    const myPlayer = players.value.find(p => p.userId === currentUserId.value)
-    if (myPlayer) {
-      filterPlayerId.value = myPlayer.playerId
-    }
+    filters.value.playerId = queryPlayerId
+  } else if (authStore.userId) {
+    const myPlayer = players.value.find((p) => p.userId === authStore.userId)
+    if (myPlayer) filters.value.playerId = myPlayer.playerId
   }
-  
-  isInitializing.value = false
+
   await loadHistory()
 })
 
-// Watch for filter changes
-watch([filterEventId, filterPlayerId, filterSecondaryPlayerId, filterRelationship], () => {
-  // Skip if still initializing to avoid duplicate loadHistory
-  if (isInitializing.value) return
-  
-  // If primary player is cleared, clear secondary too
-  if (!filterPlayerId.value) {
-    filterSecondaryPlayerId.value = ''
-  }
-  loadHistory()
-})
+function syncGroupContext() {
+  if (!group.value) return
+  const userId = authStore.userId
+  const myPlayer = players.value.find((p) => p.userId && p.userId === userId) || null
+  let role: GroupRole = null
+  if (userId && group.value.ownerUserId === userId) role = 'OWNER'
+  else if (myPlayer) role = myPlayer.role
+  groupContext.setGroup({
+    groupId: groupId.value,
+    groupName: group.value.name,
+    myPlayerId: myPlayer?.id ?? null,
+    role
+  })
+}
 
 async function loadGroup() {
   try {
     group.value = await groupsApi.get(groupId.value)
-  } catch (e: any) {
-    error.value = e.message
+  } catch (e) {
+    error.value = getApiErrorMessage(e)
   }
 }
 
 async function loadPlayers() {
   try {
-    const groupPlayersRes = await groupsApi.getPlayers(groupId.value)
-    players.value = groupPlayersRes.players
-  } catch (e: any) {
+    players.value = (await groupsApi.getPlayers(groupId.value)).players
+  } catch (e) {
     console.error('Failed to load players:', e)
   }
 }
 
 async function loadEvents() {
   try {
-    const eventsRes = await eventsApi.list(groupId.value, 'COMPLETED')
-    events.value = eventsRes.events
-  } catch (e: any) {
+    events.value = (await eventsApi.list(groupId.value, 'COMPLETED')).events
+  } catch (e) {
     console.error('Failed to load events:', e)
   }
 }
 
 async function loadHistory() {
   isLoading.value = true
+  error.value = ''
   try {
-    const options: { 
-      playerId?: string; 
-      eventId?: string;
-      secondaryPlayerId?: string;
-      relationship?: 'teammate' | 'opponent';
+    const options: {
+      from?: string
+      to?: string
+      playerId?: string
+      eventId?: string
+      secondaryPlayerId?: string
+      relationship?: 'teammate' | 'opponent'
     } = {}
-    
-    if (filterPlayerId.value) {
-      options.playerId = filterPlayerId.value
-      
+
+    if (filters.value.from) options.from = filters.value.from
+    if (filters.value.to) options.to = filters.value.to
+    if (filters.value.playerId) {
+      options.playerId = filters.value.playerId
       // Secondary filter only applies if primary is selected
-      if (filterSecondaryPlayerId.value) {
-        options.secondaryPlayerId = filterSecondaryPlayerId.value
-        options.relationship = filterRelationship.value
+      if (filters.value.secondaryPlayerId) {
+        options.secondaryPlayerId = filters.value.secondaryPlayerId
+        options.relationship = filters.value.relationship
       }
     }
-    
-    if (filterEventId.value) {
-      options.eventId = filterEventId.value
-    }
+    if (filters.value.eventId) options.eventId = filters.value.eventId
+
     const response = await rankingsApi.getHistory(groupId.value, options)
     matches.value = response.matches
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load history'
+    visibleEventCount.value = PAGE_SIZE
+  } catch (e) {
+    error.value = getApiErrorMessage(e, 'Failed to load history')
   } finally {
     isLoading.value = false
   }
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
+function applyFilters(next: HistoryFilters) {
+  filters.value = next
+  loadHistory()
 }
 
-function getResultLabel(result: string): string {
-  switch (result) {
-    case 'TEAM1_WIN': return 'Team 1 Won'
-    case 'TEAM2_WIN': return 'Team 2 Won'
-    case 'TIE': return 'Tie'
-    default: return result
+// --- Filter chips -----------------------------------------------------------
+
+function playerName(playerId: string): string {
+  return players.value.find((p) => p.playerId === playerId)?.displayName || 'Player'
+}
+
+function eventLabel(eventId: string): string {
+  const event = events.value.find((e) => e.id === eventId)
+  if (!event) return 'Event'
+  return event.name || (event.startsAt ? new Date(event.startsAt).toLocaleDateString() : 'Event')
+}
+
+interface FilterChip {
+  key: string
+  label: string
+  remove: () => void
+}
+
+const filterChips = computed<FilterChip[]>(() => {
+  const chips: FilterChip[] = []
+  const f = filters.value
+  if (f.from) {
+    chips.push({ key: 'from', label: `From ${f.from}`, remove: () => { filters.value.from = ''; loadHistory() } })
   }
-}
+  if (f.to) {
+    chips.push({ key: 'to', label: `To ${f.to}`, remove: () => { filters.value.to = ''; loadHistory() } })
+  }
+  if (f.eventId) {
+    chips.push({ key: 'event', label: eventLabel(f.eventId), remove: () => { filters.value.eventId = ''; loadHistory() } })
+  }
+  if (f.playerId) {
+    chips.push({
+      key: 'player',
+      label: playerName(f.playerId),
+      remove: () => {
+        // Clearing the primary player also clears the secondary (legacy semantics)
+        filters.value.playerId = ''
+        filters.value.secondaryPlayerId = ''
+        filters.value.relationship = 'teammate'
+        loadHistory()
+      }
+    })
+    if (f.secondaryPlayerId) {
+      chips.push({
+        key: 'secondary',
+        label: `${f.relationship === 'teammate' ? 'With' : 'Vs'} ${playerName(f.secondaryPlayerId)}`,
+        remove: () => {
+          filters.value.secondaryPlayerId = ''
+          filters.value.relationship = 'teammate'
+          loadHistory()
+        }
+      })
+    }
+  }
+  return chips
+})
 
-// Group matches by event with ID
+const activeFilterCount = computed(() => filterChips.value.length)
+
+// --- Grouping by event (newest first) + client-side "Load more" -------------
+
+const PAGE_SIZE = 5
+const visibleEventCount = ref(PAGE_SIZE)
+
 const matchesByEvent = computed(() => {
-  const eventsMap: Map<string, { id: string; name: string; date: string; matches: MatchHistoryEntryDto[] }> = new Map()
-  
+  const eventsMap = new Map<string, { id: string; name: string; date: string; matches: MatchHistoryEntryDto[] }>()
   for (const match of matches.value) {
     if (!eventsMap.has(match.eventId)) {
       eventsMap.set(match.eventId, {
@@ -179,55 +214,30 @@ const matchesByEvent = computed(() => {
     }
     eventsMap.get(match.eventId)!.matches.push(match)
   }
-  
-  // Sort by date (newest first)
-  return Array.from(eventsMap.values()).sort((a, b) => {
-    return new Date(b.date).getTime() - new Date(a.date).getTime()
-  })
-})
-
-function clearFilters() {
-  filterEventId.value = ''
-  filterPlayerId.value = ''
-  filterSecondaryPlayerId.value = ''
-  filterRelationship.value = 'teammate'
-}
-
-// Alphabetically sorted players for filter dropdown
-const sortedPlayers = computed(() => {
-  return [...players.value].sort((a, b) => 
-    a.displayName.localeCompare(b.displayName)
+  return Array.from(eventsMap.values()).sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )
 })
 
-// Get filtered player's display name
-const filteredPlayerName = computed(() => {
-  if (!filterPlayerId.value) return null
-  const player = players.value.find(p => p.playerId === filterPlayerId.value)
-  return player?.displayName || null
-})
+const visibleEvents = computed(() => matchesByEvent.value.slice(0, visibleEventCount.value))
+const hasMore = computed(() => matchesByEvent.value.length > visibleEventCount.value)
 
-// Determine if filtered player won or lost a match
-function getMatchOutcome(match: MatchHistoryEntryDto): 'win' | 'loss' | 'tie' | null {
-  if (!filteredPlayerName.value) return null
-  
-  const playerName = filteredPlayerName.value
-  const isOnTeam1 = match.team1.includes(playerName)
-  const isOnTeam2 = match.team2.includes(playerName)
-  
-  if (!isOnTeam1 && !isOnTeam2) return null
-  
-  if (match.result === 'TIE') return 'tie'
-  
-  if (isOnTeam1) {
-    return match.result === 'TEAM1_WIN' ? 'win' : 'loss'
-  } else {
-    return match.result === 'TEAM2_WIN' ? 'win' : 'loss'
-  }
+function loadMore() {
+  visibleEventCount.value += PAGE_SIZE
 }
 
-// History Editing
-const showEditModal = ref(false)
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+}
+
+// --- Per-game quick score edit (ported legacy edit modal) --------------------
+
+const showEditSheet = ref(false)
 const editingMatch = ref<MatchHistoryEntryDto | null>(null)
 const editScore1 = ref<number | undefined>(undefined)
 const editScore2 = ref<number | undefined>(undefined)
@@ -237,1192 +247,219 @@ function openEditMatch(match: MatchHistoryEntryDto) {
   editingMatch.value = match
   editScore1.value = match.scoreTeam1
   editScore2.value = match.scoreTeam2
-  showEditModal.value = true
+  showEditSheet.value = true
+}
+
+function parseScoreInput(value: string): number | undefined {
+  if (value === '') return undefined
+  const parsed = parseFloat(value)
+  return Number.isNaN(parsed) ? undefined : parsed
 }
 
 async function saveMatchEdit() {
   if (!editingMatch.value) return
-  
   isSavingEdit.value = true
   try {
     await eventsApi.updateScore(editingMatch.value.gameId, {
       scoreTeam1: editScore1.value,
       scoreTeam2: editScore2.value
     })
-    
-    // Close and reload to get recalculated values
-    showEditModal.value = false
+    showEditSheet.value = false
+    toast.success('Score updated')
     await loadHistory()
-  } catch (e: any) {
-    alert('Failed to update score: ' + e.message)
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, 'Failed to update score'))
   } finally {
     isSavingEdit.value = false
   }
 }
 
-// Pull-to-refresh handler
-async function refreshData() {
-  await loadHistory()
-}
+// --- Event edit sheet (batch editing of a whole event) -----------------------
 
-// Event Edit Modal
-interface EventEditData {
-  id: string
-  name: string
-  date: string
-  matches: MatchHistoryEntryDto[]
-}
-
-const showEventEditModal = ref(false)
+const showEventEditSheet = ref(false)
 const editingEvent = ref<EventEditData | null>(null)
 
-async function openEventEdit(event: { id: string; name: string; date: string; matches: MatchHistoryEntryDto[] }) {
+async function openEventEdit(event: { id: string; name: string; date: string }) {
   try {
     // Fetch full event data to get ALL games, not just filtered ones
     const fullEvent = await eventsApi.get(event.id)
-    
-    // Convert GameDto[] to MatchHistoryEntryDto[] format
-    const allMatches: MatchHistoryEntryDto[] = fullEvent.games.map(game => ({
+
+    const allMatches: MatchHistoryEntryDto[] = fullEvent.games.map((game) => ({
       gameId: game.id,
       eventId: fullEvent.id,
       eventName: fullEvent.name,
       date: fullEvent.startsAt || event.date,
       roundIndex: game.roundIndex,
       courtIndex: game.courtIndex,
-      team1: game.team1.map(p => p.displayName),
-      team2: game.team2.map(p => p.displayName),
-      team1Ids: game.team1.map(p => p.id),
-      team2Ids: game.team2.map(p => p.id),
+      team1: game.team1.map((p) => p.displayName),
+      team2: game.team2.map((p) => p.displayName),
+      team1Ids: game.team1.map((p) => p.id),
+      team2Ids: game.team2.map((p) => p.id),
       scoreTeam1: game.scoreTeam1,
       scoreTeam2: game.scoreTeam2,
       result: game.result,
       team1Elo: game.team1Elo,
       team2Elo: game.team2Elo
     }))
-    
-    editingEvent.value = {
-      id: event.id,
-      name: event.name,
-      date: event.date,
-      matches: allMatches
-    }
-    showEventEditModal.value = true
-  } catch (e: any) {
+
+    editingEvent.value = { id: event.id, name: event.name, date: event.date, matches: allMatches }
+    showEventEditSheet.value = true
+  } catch (e) {
     console.error('Failed to load event for editing:', e)
-    alert('Failed to load event: ' + (e.message || 'Unknown error'))
+    toast.error(getApiErrorMessage(e, 'Failed to load event'))
   }
 }
 
 function handleEventEditSaved() {
-  // Reload data to reflect changes
   loadHistory()
+}
+
+// --- Pull-to-refresh ---------------------------------------------------------
+
+async function refreshData() {
+  api.invalidateCache(`/api/groups/${groupId.value}/history`)
+  await loadHistory()
 }
 </script>
 
 <template>
-  <div class="history-page container">
-    <div class="page-header">
-      <div>
-        <router-link :to="`/groups/${groupId}`" class="back-link">
-          <ArrowLeft :size="16" /> Back to Group
-        </router-link>
-        <h1><ChartBar :size="32" class="page-title-icon" /> Match History</h1>
-        <p class="subtitle">All completed games in this group</p>
-      </div>
-    </div>
+  <PullRefresh :on-refresh="refreshData">
+    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
+      <div class="flex flex-col gap-4">
+        <!-- Filter button + applied chips -->
+        <div class="flex flex-wrap items-center gap-2">
+          <AppButton variant="secondary" size="sm" @click="showFilterSheet = true">
+            <SlidersHorizontal class="size-4" />
+            Filters
+            <span
+              v-if="activeFilterCount > 0"
+              class="flex size-5 items-center justify-center rounded-full bg-brand font-mono text-xs font-bold tabular-nums text-brand-contrast"
+            >
+              {{ activeFilterCount }}
+            </span>
+          </AppButton>
 
-    <!-- Filter Bar -->
-    <div class="filter-bar">
-      <div class="filter-icon">
-        <Filter :size="18" />
-        <span>Filters</span>
-      </div>
-      
-      <div class="filter-controls">
-        <div class="filter-group">
-          <label for="event-filter">Event</label>
-          <select id="event-filter" v-model="filterEventId" class="filter-select">
-            <option value="">All Events</option>
-            <option v-for="event in events" :key="event.id" :value="event.id">
-              {{ event.name || formatDate(event.startsAt || '') }}
-            </option>
-          </select>
-        </div>
-        
-        <div class="filter-group">
-          <label for="player-filter">Player</label>
-          <select id="player-filter" v-model="filterPlayerId" class="filter-select">
-            <option value="">All Players</option>
-            <option v-for="player in sortedPlayers" :key="player.playerId" :value="player.playerId">
-              {{ player.displayName }}
-            </option>
-          </select>
+          <button
+            v-for="chip in filterChips"
+            :key="chip.key"
+            type="button"
+            class="flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface-1 px-3 text-sm text-ink transition-colors hover:bg-surface-2"
+            :aria-label="`Remove filter: ${chip.label}`"
+            @click="chip.remove()"
+          >
+            {{ chip.label }}
+            <X class="size-3.5 text-ink-faint" />
+          </button>
         </div>
 
-        <!-- Secondary Filter (Visible only when primary player is selected) -->
-        <div class="filter-group" v-if="filterPlayerId">
-          <label for="sec-player-filter">With / Against</label>
-          <select id="sec-player-filter" v-model="filterSecondaryPlayerId" class="filter-select">
-            <option value="">(Optional) Second Player</option>
-            <option 
-              v-for="player in sortedPlayers.filter(p => p.playerId !== filterPlayerId)" 
-              :key="player.playerId" 
-              :value="player.playerId"
-            >
-              {{ player.displayName }}
-            </option>
-          </select>
-        </div>
+        <SkeletonList v-if="isLoading" :rows="4" />
 
-        <!-- Relationship Toggle (Visible only when secondary player is selected) -->
-        <div class="filter-group" v-if="filterPlayerId && filterSecondaryPlayerId">
-          <label>Relationship</label>
-          <div class="toggle-group">
-            <button 
-              class="toggle-btn" 
-              :class="{ active: filterRelationship === 'teammate' }"
-              @click="filterRelationship = 'teammate'"
-            >
-              Teammate
-            </button>
-            <button 
-              class="toggle-btn" 
-              :class="{ active: filterRelationship === 'opponent' }"
-              @click="filterRelationship = 'opponent'"
-            >
-              Opponent
-            </button>
-          </div>
-        </div>
-        
-        <button 
-          v-if="filterEventId || filterPlayerId" 
-          class="clear-filters-btn"
-          @click="clearFilters"
+        <ErrorState v-else-if="error" :message="error" @retry="loadHistory" />
+
+        <AppEmptyState
+          v-else-if="matches.length === 0"
+          title="No match history yet"
+          :description="
+            activeFilterCount > 0
+              ? 'No matches found for the selected filters.'
+              : 'Complete some events to see match history here.'
+          "
         >
-          Clear Filters
-        </button>
+          <template #icon><ChartColumn class="size-7" /></template>
+        </AppEmptyState>
+
+        <template v-else>
+          <section v-for="event in visibleEvents" :key="event.id" class="flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-3 border-b border-line pb-2">
+              <div class="min-w-0">
+                <h2 class="truncate text-base font-semibold text-ink">{{ event.name }}</h2>
+                <p class="text-xs text-ink-faint">{{ formatDate(event.date) }}</p>
+              </div>
+              <AppButton v-if="canManage" variant="ghost" size="sm" @click="openEventEdit(event)">
+                <Settings2 class="size-4" />
+                Edit event
+              </AppButton>
+            </div>
+
+            <div class="grid gap-2 md:grid-cols-2">
+              <MatchCard
+                v-for="match in event.matches"
+                :key="match.gameId"
+                :match="match"
+                :editable="canManage"
+                @edit="openEditMatch"
+              />
+            </div>
+          </section>
+
+          <AppButton v-if="hasMore" variant="secondary" block @click="loadMore">Load more</AppButton>
+        </template>
       </div>
     </div>
+  </PullRefresh>
 
-    <!-- Mobile: Skeleton Loader, Desktop: Spinner -->
-    <SkeletonLoader v-if="isLoading" :rows="4" class="mobile-skeleton" />
-    <LoadingSpinner v-if="isLoading" text="Loading history..." class="desktop-spinner" />
+  <!-- Filter sheet -->
+  <FilterSheet
+    v-model="showFilterSheet"
+    :filters="filters"
+    :players="players"
+    :events="events"
+    @apply="applyFilters"
+  />
 
-    <div v-else-if="error" class="error-message">{{ error }}</div>
-
-    <EmptyState
-      v-else-if="matches.length === 0"
-      :icon="ChartBar"
-      title="No match history yet"
-      :description="filterEventId || filterPlayerId ? 'No matches found for the selected filters.' : 'Complete some events to see match history here.'"
-    />
-
-    <template v-else>
-      <PullToRefresh :on-refresh="refreshData" class="history-refresh-wrapper">
-        <div class="history-content">
-        <div v-for="event in matchesByEvent" :key="event.id" :id="`event-${event.id}`" class="event-section">
-          <div class="event-header">
-            <h2>{{ event.name }}</h2>
-            <span class="event-date">{{ formatDate(event.date) }}</span>
-            <button v-if="isOrganizer" class="edit-event-btn" @click="openEventEdit(event)" title="Edit Event">
-              <Settings2 :size="16" />
-              Edit Event
-            </button>
-          </div>
-
-          <div class="matches-grid">
-            <BaseCard v-for="match in event.matches" :key="match.eventId + match.roundIndex + match.courtIndex">
-              <div class="match-card">
-                <div class="match-header">
-                  <span class="round-court">
-                    Round {{ match.roundIndex + 1 }} • Court {{ match.courtIndex + 1 }}
-                  </span>
-                  <span class="result-badge" :class="match.result.toLowerCase()">
-                    {{ getResultLabel(match.result) }}
-                  </span>
-                  <button v-if="isOrganizer" class="edit-btn" @click="openEditMatch(match)" title="Edit Score">
-                    <Edit2 :size="14" /> Edit
-                  </button>
-                </div>
-
-                <div class="match-teams">
-                  <div 
-                    class="team" 
-                    :class="{
-                      winner: match.result === 'TEAM1_WIN' && !filterPlayerId,
-                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && match.team1.includes(filteredPlayerName || ''),
-                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && match.team1.includes(filteredPlayerName || '')
-                    }"
-                  >
-                    <div class="team-info">
-                      <div class="team-players-list">
-                        <span class="player-name">{{ match.team1[0] }}</span>
-                        <span class="player-amp">&amp;</span>
-                        <span class="player-name">{{ match.team1[1] }}</span>
-                      </div>
-                      <div class="team-elo" v-if="match.team1Elo">ELO: {{ match.team1Elo.toFixed(1) }}</div>
-                    </div>
-                    <div class="team-score">{{ match.scoreTeam1 ?? '-' }}</div>
-                  </div>
-
-                  <span class="vs">vs</span>
-
-                  <div 
-                    class="team" 
-                    :class="{
-                      winner: match.result === 'TEAM2_WIN' && !filterPlayerId,
-                      'player-win': filterPlayerId && getMatchOutcome(match) === 'win' && match.team2.includes(filteredPlayerName || ''),
-                      'player-loss': filterPlayerId && getMatchOutcome(match) === 'loss' && match.team2.includes(filteredPlayerName || '')
-                    }"
-                  >
-                    <div class="team-info">
-                      <div class="team-players-list">
-                        <span class="player-name">{{ match.team2[0] }}</span>
-                        <span class="player-amp">&amp;</span>
-                        <span class="player-name">{{ match.team2[1] }}</span>
-                      </div>
-                      <div class="team-elo" v-if="match.team2Elo">ELO: {{ match.team2Elo.toFixed(1) }}</div>
-                    </div>
-                    <div class="team-score">{{ match.scoreTeam2 ?? '-' }}</div>
-                  </div>
-                </div>
-              </div>
-            </BaseCard>
-          </div>
-        </div>
-        </div>
-      </PullToRefresh>
-    </template>
-
-    <!-- Edit Match Modal -->
-    <Modal :open="showEditModal" title="Edit Match Score" @close="showEditModal = false">
-      <div v-if="editingMatch" class="edit-form">
-        <div class="edit-teams">
-          <div class="edit-team-block">
-            <div class="edit-team-header">Team 1</div>
-            <div class="edit-team-players">
-              <span class="edit-player-name">{{ editingMatch.team1[0] }}</span>
-              <span class="edit-player-amp">&amp;</span>
-              <span class="edit-player-name">{{ editingMatch.team1[1] }}</span>
-            </div>
-            <input type="number" v-model="editScore1" class="edit-input" placeholder="0" min="0" inputmode="numeric" />
-          </div>
-          <span class="edit-vs">VS</span>
-          <div class="edit-team-block">
-            <div class="edit-team-header">Team 2</div>
-            <div class="edit-team-players">
-              <span class="edit-player-name">{{ editingMatch.team2[0] }}</span>
-              <span class="edit-player-amp">&amp;</span>
-              <span class="edit-player-name">{{ editingMatch.team2[1] }}</span>
-            </div>
-            <input type="number" v-model="editScore2" class="edit-input" placeholder="0" min="0" inputmode="numeric" />
-          </div>
-        </div>
-        <p class="edit-warning">
-          <AlertTriangle :size="16" class="warning-icon" />
-          <span>Updating this score will recalculate ratings for the entire group from this event onwards. This may take a moment.</span>
-        </p>
+  <!-- Quick score edit sheet -->
+  <Sheet v-model="showEditSheet" title="Edit match score">
+    <div v-if="editingMatch" class="flex flex-col gap-4">
+      <div class="rounded-xl bg-surface-2 p-3.5">
+        <p class="text-[10px] font-bold uppercase tracking-widest text-ink-faint">Team 1</p>
+        <p class="mt-1 text-sm font-medium text-ink">{{ editingMatch.team1.join(' & ') }}</p>
+        <input
+          type="number"
+          min="0"
+          placeholder="0"
+          inputmode="numeric"
+          aria-label="Team 1 score"
+          class="mt-2 w-full rounded-xl border border-line bg-surface-1 py-2.5 text-center font-mono text-2xl font-bold tabular-nums text-brand focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+          :value="editScore1"
+          @input="editScore1 = parseScoreInput(($event.target as HTMLInputElement).value)"
+        />
       </div>
-      <template #footer>
-        <BaseButton variant="secondary" @click="showEditModal = false">Cancel</BaseButton>
-        <BaseButton :loading="isSavingEdit" @click="saveMatchEdit">Save & Recalculate</BaseButton>
-      </template>
-    </Modal>
+      <p class="text-center text-xs font-bold uppercase tracking-widest text-ink-faint">vs</p>
+      <div class="rounded-xl bg-surface-2 p-3.5">
+        <p class="text-[10px] font-bold uppercase tracking-widest text-ink-faint">Team 2</p>
+        <p class="mt-1 text-sm font-medium text-ink">{{ editingMatch.team2.join(' & ') }}</p>
+        <input
+          type="number"
+          min="0"
+          placeholder="0"
+          inputmode="numeric"
+          aria-label="Team 2 score"
+          class="mt-2 w-full rounded-xl border border-line bg-surface-1 py-2.5 text-center font-mono text-2xl font-bold tabular-nums text-brand focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+          :value="editScore2"
+          @input="editScore2 = parseScoreInput(($event.target as HTMLInputElement).value)"
+        />
+      </div>
+      <div class="flex items-start gap-2 rounded-xl bg-warn/10 px-3.5 py-3 text-xs text-warn">
+        <AlertTriangle class="mt-0.5 size-4 shrink-0" />
+        <span>
+          Updating this score will recalculate ratings for the entire group from this event onwards.
+          This may take a moment.
+        </span>
+      </div>
+    </div>
+    <template #footer>
+      <div class="flex justify-end gap-3">
+        <AppButton variant="secondary" :disabled="isSavingEdit" @click="showEditSheet = false">Cancel</AppButton>
+        <AppButton :loading="isSavingEdit" @click="saveMatchEdit">Save &amp; recalculate</AppButton>
+      </div>
+    </template>
+  </Sheet>
 
-    <!-- Event Edit Modal (Full-screen) -->
-    <EventEditModal
-      :open="showEventEditModal"
-      :event="editingEvent"
-      :group-id="groupId"
-      @close="showEventEditModal = false"
-      @saved="handleEventEditSaved"
-    />
-
-  </div>
+  <!-- Event edit sheet -->
+  <EventEditSheet
+    v-model="showEventEditSheet"
+    :event="editingEvent"
+    :group-id="groupId"
+    @saved="handleEventEditSaved"
+  />
 </template>
-
-<style scoped>
-.page-header {
-  margin-bottom: var(--spacing-xl);
-}
-
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 6px 12px;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: all var(--transition-fast);
-  margin-bottom: var(--spacing-md);
-}
-
-.back-link:hover {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.page-header h1 {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  font-size: 2rem;
-  margin-bottom: var(--spacing-xs);
-}
-
-.subtitle {
-  color: var(--color-text-secondary);
-}
-
-.error-message {
-  padding: var(--spacing-lg);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-md);
-  color: var(--color-error);
-  text-align: center;
-}
-
-/* Skeleton/Spinner visibility - Desktop: spinner, Mobile: skeleton */
-.mobile-skeleton {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  .mobile-skeleton {
-    display: block;
-  }
-  .desktop-spinner {
-    display: none !important;
-  }
-}
-
-/* Filter Bar */
-.filter-bar {
-  display: flex;
-  align-items: flex-end; /* Align to bottom so inputs and buttons line up */
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) var(--spacing-lg);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--spacing-xl);
-  flex-wrap: wrap;
-}
-
-.filter-icon {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  min-width: 80px;
-  padding-bottom: 12px; /* Visual balance with labels */
-}
-
-.filter-controls {
-  display: flex;
-  align-items: flex-end; /* CRITICAL: Aligns buttons with inputs */
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-width: 180px;
-}
-
-.filter-group label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.toggle-group {
-  display: flex;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 4px; /* Slightly more padding for the "pill" look */
-  height: 42px; /* Match standard input height */
-  box-sizing: border-box;
-}
-
-.toggle-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 var(--spacing-md);
-  font-size: 0.875rem; /* Match input text */
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
-  border: none; /* Reset */
-  background: transparent;
-}
-
-.toggle-btn:hover:not(.active) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.toggle-btn.active {
-  background: var(--color-bg-card); /* White/Card bg for active pill */
-  color: var(--color-primary);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.filter-select {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  height: 42px; /* Explicit height to match toggle */
-  box-sizing: border-box;
-  transition: all var(--transition-fast);
-}
-
-.filter-select:hover {
-  border-color: var(--color-border-hover);
-}
-
-.filter-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-}
-
-.clear-filters-btn {
-  padding: 0 var(--spacing-md); /* Use padding for width, height set by flex/box */
-  height: 42px; /* Match input height */
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-}
-
-.clear-filters-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-/* History Content */
-.history-content {
-  width: 100%;
-}
-
-.event-section {
-  margin-bottom: var(--spacing-2xl);
-}
-
-.event-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.event-header h2 {
-  font-size: 1.25rem;
-}
-
-.event-date {
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-}
-
-.edit-event-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 6px 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.edit-event-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.matches-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.match-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.match-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.round-court {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  letter-spacing: 0.05em;
-}
-
-.result-badge {
-  font-size: 0.75rem;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-}
-
-.result-badge.team1_win,
-.result-badge.team2_win {
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--color-success);
-}
-
-.result-badge.tie {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--color-warning);
-}
-
-.match-teams {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.team {
-  flex: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  border: 2px solid transparent;
-}
-
-.team.winner {
-  border-color: var(--color-success);
-}
-
-.team.player-win {
-  border-color: var(--color-success);
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.team.player-loss {
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.team-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-}
-
-.team-players-list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  line-height: 1.3;
-}
-
-.team-players-list .player-name {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.team-players-list .player-amp {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-}
-
-.team-names {
-  font-size: 0.875rem;
-  font-weight: 500;
-  word-break: break-word;
-  line-height: 1.4;
-}
-
-.team-elo {
-  font-size: 0.625rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-}
-
-.team-score {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--color-primary);
-  flex-shrink: 0;
-  min-width: 36px;
-  text-align: right;
-}
-
-.vs {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-/* Edit Button */
-.edit-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.edit-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.edit-form {
-  padding: 1rem 0;
-}
-
-.edit-teams {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  margin-bottom: 1.5rem;
-}
-
-.edit-team-block {
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.edit-team-header {
-  font-size: 0.625rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--color-text-muted);
-}
-
-.edit-team-players {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  line-height: 1.4;
-}
-
-.edit-player-name {
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.edit-player-amp {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-}
-
-.edit-input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-tertiary);
-  color: var(--color-primary);
-  font-size: 1.75rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  text-align: center;
-}
-
-.edit-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
-}
-
-.edit-vs {
-  font-weight: 700;
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-  text-align: center;
-  padding: var(--spacing-xs) 0;
-  letter-spacing: 0.1em;
-}
-
-.edit-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  font-size: 0.8rem;
-  color: var(--color-warning);
-  background: rgba(245, 158, 11, 0.1);
-  padding: 0.75rem;
-  border-radius: var(--radius-md);
-  margin-top: 1rem;
-  line-height: 1.5;
-}
-
-.edit-warning .warning-icon {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-@media (max-width: 768px) {
-  .matches-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .match-teams {
-    flex-direction: column;
-    gap: var(--spacing-sm);
-  }
-
-  .team {
-    width: 100%;
-    flex-direction: row;
-    justify-content: space-between;
-    padding: var(--spacing-md);
-  }
-
-  .vs {
-    display: none;
-  }
-
-  .match-header {
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
-  }
-
-  .edit-btn {
-    margin-left: 0;
-  }
-
-  .filter-icon {
-    margin-bottom: var(--spacing-sm);
-    padding-bottom: 0;
-  }
-
-  .filter-controls {
-    flex-direction: column;
-    align-items: stretch; /* Stack properly on mobile */
-    gap: var(--spacing-md);
-  }
-
-  .filter-group {
-    width: 100%;
-    min-width: 0; /* Allow shrinking */
-  }
-
-  .filter-select,
-  .toggle-group,
-  .clear-filters-btn {
-    width: 100%; /* Full width on mobile */
-  }
-}
-
-.filter-icon {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  min-width: 80px;
-}
-
-.filter-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-width: 180px;
-}
-
-.filter-group label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.toggle-group {
-  display: flex;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 2px;
-}
-
-.toggle-btn {
-  flex: 1;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
-}
-
-.toggle-btn:hover:not(.active) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.toggle-btn.active {
-  background: var(--color-primary);
-  color: white;
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.filter-select {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.filter-select:hover {
-  border-color: var(--color-border-hover);
-}
-
-.filter-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-}
-
-.clear-filters-btn {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.clear-filters-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-/* History Content */
-.history-content {
-  width: 100%;
-}
-
-.event-section {
-  margin-bottom: var(--spacing-2xl);
-}
-
-.event-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.event-header h2 {
-  font-size: 1.25rem;
-}
-
-.event-date {
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-}
-
-.matches-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--spacing-md);
-}
-
-.match-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.match-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.round-court {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  letter-spacing: 0.05em;
-}
-
-.result-badge {
-  font-size: 0.75rem;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-}
-
-.result-badge.team1_win,
-.result-badge.team2_win {
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--color-success);
-}
-
-.result-badge.tie {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--color-warning);
-}
-
-.match-teams {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.team {
-  flex: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  border: 2px solid transparent;
-}
-
-.team.winner {
-  border-color: var(--color-success);
-}
-
-.team.player-win {
-  border-color: var(--color-success);
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.team.player-loss {
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.team-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.team-names {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.team-elo {
-  font-size: 0.625rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-}
-
-.team-score {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--color-primary);
-}
-
-.vs {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-
-/* Edit Button */
-.edit-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  margin-left: 8px;
-}
-
-.edit-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.edit-form {
-  padding: 1rem 0;
-}
-
-.edit-teams {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.edit-team {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.edit-team-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.text-truncate {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.edit-input {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  font-size: 1.25rem;
-  text-align: center;
-}
-
-.edit-vs {
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
-
-.edit-warning {
-  font-size: 0.8rem;
-  color: var(--color-warning);
-  background: rgba(245, 158, 11, 0.1);
-  padding: 0.75rem;
-  border-radius: var(--radius-md);
-  margin-top: 1rem;
-}
-
-@media (max-width: 768px) {
-  .matches-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .match-teams {
-    flex-direction: column;
-  }
-
-  .team {
-    width: 100%;
-  }
-
-  .filter-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filter-controls {
-    flex-direction: column;
-  }
-
-  .filter-group {
-    width: 100%;
-  }
-}
-
-
-</style>
-
-
-
