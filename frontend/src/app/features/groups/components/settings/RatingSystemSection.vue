@@ -4,9 +4,7 @@ import { ChevronDown, Target, PartyPopper, Rocket, type LucideIcon } from 'lucid
 import type { SettingsForm } from './settings-form'
 import AppInput from '@/app/core/ui/components/AppInput.vue'
 
-const props = defineProps<{
-  form: SettingsForm
-}>()
+const form = defineModel<SettingsForm>('form', { required: true })
 
 const systems: Array<{
   value: SettingsForm['ratingSystem']
@@ -38,31 +36,31 @@ const showAdvanced = ref(false)
 
 // AppInput's v-model round-trips numbers as strings — coerce on write.
 const initialRating = computed<string | number>({
-  get: () => props.form.initialRating,
+  get: () => form.value.initialRating,
   set: (v) => {
-    props.form.initialRating = Number(v)
+    form.value.initialRating = Number(v)
   }
 })
 
 const kFactor = computed<string | number>({
-  get: () => props.form.kFactor,
+  get: () => form.value.kFactor,
   set: (v) => {
-    props.form.kFactor = Number(v)
+    form.value.kFactor = Number(v)
   }
 })
 
 const eloConst = computed<string | number>({
-  get: () => props.form.eloConst ?? '',
+  get: () => form.value.eloConst ?? '',
   set: (v) => {
-    props.form.eloConst = v === '' ? undefined : Number(v)
+    form.value.eloConst = v === '' ? undefined : Number(v)
   }
 })
 
 // Legacy displayed eloDiff (0.01–0.5) as a percentage — keep that convention.
 const eloDiffPercent = computed<string | number>({
-  get: () => Math.round(props.form.eloDiff * 100),
+  get: () => Math.round(form.value.eloDiff * 100),
   set: (v) => {
-    props.form.eloDiff = Number(v) / 100
+    form.value.eloDiff = Number(v) / 100
   }
 })
 </script>

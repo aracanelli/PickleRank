@@ -5,9 +5,7 @@ import AppInput from '@/app/core/ui/components/AppInput.vue'
 import AppSelect from '@/app/core/ui/components/AppSelect.vue'
 import ToggleSwitch from '@/app/core/ui/components/ToggleSwitch.vue'
 
-const props = defineProps<{
-  form: SettingsForm
-}>()
+const form = defineModel<SettingsForm>('form', { required: true })
 
 const currencyOptions = [
   { label: 'USD ($)', value: 'USD' },
@@ -18,9 +16,9 @@ const currencyOptions = [
 ]
 
 const subFee = computed<string | number>({
-  get: () => props.form.subFeePerAttendance,
+  get: () => form.value.subFeePerAttendance,
   set: (v) => {
-    props.form.subFeePerAttendance = Number(v)
+    form.value.subFeePerAttendance = Number(v)
   }
 })
 </script>

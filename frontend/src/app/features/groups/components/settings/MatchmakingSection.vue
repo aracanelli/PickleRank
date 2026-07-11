@@ -5,21 +5,19 @@ import AppInput from '@/app/core/ui/components/AppInput.vue'
 import ToggleSwitch from '@/app/core/ui/components/ToggleSwitch.vue'
 import Stepper from '@/app/core/ui/components/Stepper.vue'
 
-const props = defineProps<{
-  form: SettingsForm
-}>()
+const form = defineModel<SettingsForm>('form', { required: true })
 
 const autoRelaxStep = computed<string | number>({
-  get: () => props.form.autoRelaxStep,
+  get: () => form.value.autoRelaxStep,
   set: (v) => {
-    props.form.autoRelaxStep = Number(v)
+    form.value.autoRelaxStep = Number(v)
   }
 })
 
 const autoRelaxMaxEloDiff = computed<string | number>({
-  get: () => props.form.autoRelaxMaxEloDiff,
+  get: () => form.value.autoRelaxMaxEloDiff,
   set: (v) => {
-    props.form.autoRelaxMaxEloDiff = Number(v)
+    form.value.autoRelaxMaxEloDiff = Number(v)
   }
 })
 </script>

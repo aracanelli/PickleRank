@@ -197,9 +197,9 @@ async function refresh() {
         </div>
 
         <GeneralSection :group-id="groupId" :current-name="group.name" @renamed="onRenamed" />
-        <RatingSystemSection :form="form" />
-        <MatchmakingSection :form="form" />
-        <PaymentsSection :form="form" />
+        <RatingSystemSection v-model:form="form" />
+        <MatchmakingSection v-model:form="form" />
+        <PaymentsSection v-model:form="form" />
         <DangerSection v-if="canManage" :group-id="groupId" />
       </div>
     </div>
