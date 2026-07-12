@@ -76,21 +76,27 @@ onUnmounted(unmountClerk)
 
 <template>
   <div class="flex min-h-dvh flex-col items-center justify-center bg-surface-page px-4 py-10 pt-safe pb-safe">
-    <RouterLink to="/" class="mb-8 flex items-center gap-2 text-2xl font-bold text-ink">
-      <Activity class="size-7 text-brand" aria-hidden="true" />
+    <RouterLink to="/" class="display-wide mb-6 flex items-center gap-2 text-2xl text-ink">
+      <Activity class="size-7 text-accent-text" aria-hidden="true" />
       PickleRank
     </RouterLink>
 
-    <div class="w-full max-w-md rounded-2xl border border-line bg-surface-1 p-6 shadow-sm">
-      <div v-if="clerkAvailable" ref="authContainer" class="min-h-64" />
-      <p v-else class="py-8 text-center text-sm text-ink-muted">
-        Sign-up is not configured for this environment.
-      </p>
+    <div class="w-full max-w-md">
+      <div class="kitchen-line mb-4" />
+      <div class="rounded-[20px] border border-line bg-surface-1 p-6">
+        <div v-if="clerkAvailable" ref="authContainer" class="min-h-64" />
+        <p v-else class="py-8 text-center text-sm text-ink-muted">
+          Sign-up is not configured for this environment.
+        </p>
+      </div>
     </div>
 
     <p class="mt-6 text-sm text-ink-muted">
       Already have an account?
-      <RouterLink :to="{ path: '/login', query: route.query }" class="font-semibold text-brand hover:text-brand-strong">
+      <RouterLink
+        :to="{ path: '/login', query: route.query }"
+        class="font-semibold text-accent-text transition-colors hover:text-brand-strong"
+      >
         Sign in
       </RouterLink>
     </p>

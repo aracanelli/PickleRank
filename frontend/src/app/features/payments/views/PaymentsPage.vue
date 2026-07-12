@@ -186,10 +186,10 @@ async function refresh() {
       </AppEmptyState>
 
       <div v-else class="flex flex-col gap-4">
-        <div class="flex items-center justify-between rounded-xl border border-line bg-surface-1 p-4">
-          <span class="text-sm font-medium text-ink-muted">Total owed</span>
+        <div class="flex items-center justify-between rounded-[14px] border border-line bg-surface-1 p-4">
+          <span class="eyebrow text-ink-faint">Total owed</span>
           <span
-            class="font-mono text-2xl font-bold tabular-nums"
+            class="numeral h-9 text-3xl leading-9"
             :class="totalOwed > 0 ? 'text-loss' : 'text-ink-muted'"
           >
             {{ formatCurrency(totalOwed, currency) }}

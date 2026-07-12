@@ -59,7 +59,7 @@ async function bulkCreate() {
 <template>
   <Sheet v-model="open" title="Bulk add players" :persistent="isCreating">
     <div class="flex flex-col gap-4">
-      <div v-if="error" class="rounded-xl border border-loss/30 bg-loss/10 p-3 text-sm text-loss">
+      <div v-if="error" class="rounded-[14px] border border-loss/30 bg-loss/10 p-3 text-sm text-loss">
         {{ error }}
       </div>
 
@@ -72,7 +72,7 @@ async function bulkCreate() {
         :disabled="isCreating"
       />
 
-      <div v-if="result" class="flex flex-col gap-2 rounded-xl bg-surface-2 p-4 text-sm">
+      <div v-if="result" class="flex flex-col gap-2 rounded-[14px] bg-surface-2 p-4 text-sm">
         <p v-if="result.created > 0" class="flex items-center gap-2 font-medium text-win">
           <CheckCircle class="size-4" />
           Successfully created {{ result.created }} player{{ result.created !== 1 ? 's' : '' }}

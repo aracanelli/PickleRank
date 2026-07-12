@@ -117,7 +117,7 @@ async function unlinkPlayer() {
   <Sheet v-model="open" :title="player?.displayName || 'Player'" :persistent="isSaving || isUnlinking">
     <div v-if="player" class="flex flex-col gap-5">
       <div class="flex items-center gap-3">
-        <Avatar :name="player.displayName" size="lg" />
+        <Avatar :name="player.displayName" :seed="player.id" size="lg" />
         <div class="flex min-w-0 flex-col gap-1">
           <span class="truncate text-base font-semibold text-ink">{{ player.displayName }}</span>
           <AppBadge v-if="player.userId" variant="success" class="w-fit">Linked</AppBadge>
@@ -132,7 +132,7 @@ async function unlinkPlayer() {
         </AppButton>
       </div>
 
-      <div class="flex flex-col gap-2 rounded-xl border border-line bg-surface-1 p-4">
+      <div class="flex flex-col gap-2 rounded-[14px] border border-line bg-surface-1 p-4">
         <span class="text-sm font-medium text-ink">Invite</span>
         <template v-if="player.userId">
           <p class="text-sm text-ink-muted">

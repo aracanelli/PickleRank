@@ -191,7 +191,7 @@ async function refresh() {
       <ErrorState v-else-if="error" :message="error" @retry="loadGroup()" />
 
       <div v-else-if="group" class="flex flex-col gap-4">
-        <div class="flex items-start gap-2 rounded-xl border border-info/30 bg-info/10 p-3 text-sm text-ink-muted">
+        <div class="flex items-start gap-2 rounded-[14px] border border-info/30 bg-info/10 p-3 text-sm text-ink-muted">
           <Info class="mt-0.5 size-4 shrink-0 text-info" />
           Changes affect future events; history stays as recorded.
         </div>

@@ -182,7 +182,7 @@ async function addSelected() {
         >
           <template #icon><UserPlus class="size-7" /></template>
         </AppEmptyState>
-        <div v-else class="overflow-hidden rounded-xl border border-line bg-surface-1">
+        <div v-else class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
           <div class="divide-y divide-line">
             <button
               v-for="player in filteredPlayers"
@@ -197,7 +197,7 @@ async function addSelected() {
               :disabled="existingIdSet.has(player.id)"
               @click="toggle(player)"
             >
-              <Avatar :name="player.displayName" size="sm" :brand="selected.has(player.id)" />
+              <Avatar :name="player.displayName" :seed="player.id" size="sm" :brand="selected.has(player.id)" />
               <span class="flex min-w-0 flex-1 flex-col">
                 <span class="truncate text-sm font-medium text-ink">{{ player.displayName }}</span>
                 <span v-if="player.notes" class="truncate text-sm text-ink-faint">{{ player.notes }}</span>
@@ -236,7 +236,7 @@ async function addSelected() {
           hint="One name per line. Duplicate names will be skipped."
           :disabled="isBulkCreating"
         />
-        <div v-if="bulkResult" class="flex flex-col gap-2 rounded-xl bg-surface-2 p-4 text-sm">
+        <div v-if="bulkResult" class="flex flex-col gap-2 rounded-[14px] bg-surface-2 p-4 text-sm">
           <p v-if="bulkResult.created > 0" class="flex items-center gap-2 font-medium text-win">
             <CheckCircle class="size-4" />
             Created {{ bulkResult.created }} player{{ bulkResult.created !== 1 ? 's' : '' }} and selected them

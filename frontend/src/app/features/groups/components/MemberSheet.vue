@@ -171,7 +171,7 @@ async function removePlayer() {
   <Sheet v-model="open" :title="player?.displayName || 'Player'" :persistent="updating">
     <div v-if="player" class="flex flex-col gap-5">
       <div class="flex items-center gap-3">
-        <Avatar :name="player.displayName" size="lg" />
+        <Avatar :name="player.displayName" :seed="player.playerId" size="lg" />
         <div class="flex min-w-0 flex-col">
           <span class="truncate text-base font-semibold text-ink">{{ player.displayName }}</span>
           <span class="text-sm text-ink-muted font-mono tabular-nums">
@@ -194,7 +194,7 @@ async function removePlayer() {
         </p>
       </div>
 
-      <div class="rounded-xl border border-line bg-surface-1 px-4 py-1">
+      <div class="rounded-[14px] border border-line bg-surface-1 px-4 py-1">
         <ToggleSwitch
           v-model="isOrganizer"
           label="Organizer"
@@ -203,7 +203,7 @@ async function removePlayer() {
         />
       </div>
 
-      <div class="flex flex-col gap-2 rounded-xl border border-line bg-surface-1 p-4">
+      <div class="flex flex-col gap-2 rounded-[14px] border border-line bg-surface-1 p-4">
         <span class="text-sm font-medium text-ink">Account link</span>
         <template v-if="player.userId">
           <p class="text-sm text-ink-muted">This player is linked to a user account.</p>

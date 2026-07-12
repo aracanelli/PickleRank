@@ -31,7 +31,7 @@ const balanceClass = computed(() => {
 
 <template>
   <div
-    class="flex cursor-pointer flex-col gap-3 rounded-xl border border-line bg-surface-1 p-4 transition-colors hover:bg-surface-2 active:bg-surface-2"
+    class="flex cursor-pointer flex-col gap-3 rounded-[14px] border border-line bg-surface-1 p-4 transition-colors hover:bg-surface-2 active:bg-surface-2"
     role="button"
     tabindex="0"
     @click="emit('click')"
@@ -51,10 +51,10 @@ const balanceClass = computed(() => {
         </span>
       </div>
       <div class="flex shrink-0 flex-col items-end">
-        <span class="text-[0.6875rem] font-semibold uppercase tracking-wide" :class="balanceClass">
+        <span class="eyebrow" :class="balanceClass">
           {{ balanceLabel }}
         </span>
-        <span class="font-mono text-xl font-bold tabular-nums" :class="balanceClass">
+        <span class="numeral h-7 text-xl leading-7" :class="balanceClass">
           {{ formatCurrency(Math.abs(player.balance), currency) }}
         </span>
       </div>

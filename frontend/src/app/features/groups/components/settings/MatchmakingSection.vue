@@ -23,8 +23,8 @@ const autoRelaxMaxEloDiff = computed<string | number>({
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 rounded-xl border border-line bg-surface-1 p-4">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">Matchmaking</h2>
+  <section class="flex flex-col gap-3 rounded-[14px] border border-line bg-surface-1 p-4">
+    <h2 class="eyebrow text-ink-faint">Matchmaking</h2>
 
     <div class="flex flex-col divide-y divide-line">
       <ToggleSwitch

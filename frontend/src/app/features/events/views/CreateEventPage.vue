@@ -148,6 +148,13 @@ async function createEvent() {
     <ErrorState v-else-if="error" :message="error" @retry="loadPlayers()" />
 
     <div v-else class="flex flex-col gap-5">
+      <!-- Masthead -->
+      <header>
+        <p class="eyebrow text-ink-faint">{{ group?.name || 'Event setup' }}</p>
+        <h1 class="display-wide mt-1 text-3xl text-ink">New Event</h1>
+        <div class="kitchen-line mt-3" />
+      </header>
+
       <!-- Step indicator dots (mobile only) -->
       <div class="flex items-center justify-center gap-2 md:hidden" role="tablist" aria-label="Steps">
         <button
@@ -155,7 +162,7 @@ async function createEvent() {
           :key="s"
           type="button"
           class="size-2.5 rounded-full transition-colors"
-          :class="step === s ? 'bg-brand' : 'bg-line-strong'"
+          :class="step === s ? 'bg-accent-fill' : 'bg-line-strong'"
           :aria-label="s === 1 ? 'Step 1: Setup' : 'Step 2: Players'"
           :aria-current="step === s"
           @click="step = s"
@@ -165,10 +172,10 @@ async function createEvent() {
       <div class="md:grid md:grid-cols-[minmax(0,360px)_minmax(0,1fr)] md:items-start md:gap-6">
         <!-- Step 1: Setup -->
         <section
-          class="flex-col gap-4 rounded-xl border border-line bg-surface-1 p-4 md:p-5"
+          class="flex-col gap-4 rounded-[14px] border border-line bg-surface-1 p-4 md:p-5"
           :class="step === 1 ? 'flex' : 'hidden md:flex'"
         >
-          <h2 class="text-base font-semibold text-ink">Setup</h2>
+          <h2 class="eyebrow text-ink-faint">Step 1 — Setup</h2>
 
           <AppInput
             v-model="eventName"
@@ -183,7 +190,7 @@ async function createEvent() {
               :id="startsAtId"
               v-model="startsAtLocal"
               type="datetime-local"
-              class="min-h-11 w-full rounded-xl border border-line bg-surface-1 px-3.5 text-base text-ink transition-colors focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+              class="min-h-11 w-full rounded-[10px] border border-line bg-surface-2 px-3.5 text-base text-ink transition-colors focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
             >
             <p class="text-sm text-ink-faint">Optional</p>
           </div>
@@ -193,11 +200,22 @@ async function createEvent() {
             <Stepper v-model="rounds" label="Rounds" :min="1" :max="20" />
           </div>
 
-          <p class="rounded-xl bg-brand-soft px-4 py-3 text-center text-sm text-brand">
-            Needs
-            <strong class="mx-0.5 font-mono text-lg tabular-nums">{{ requiredPlayers }}</strong>
-            players ({{ courts }} {{ courts === 1 ? 'court' : 'courts' }} × 4)
-          </p>
+          <!-- Participant counter: volt at exact count -->
+          <div class="flex flex-col items-center gap-1 rounded-[14px] bg-surface-2 px-4 py-3">
+            <div class="flex h-10 items-baseline gap-1.5">
+              <span
+                class="numeral text-4xl leading-10 transition-colors"
+                :class="canCreate ? 'text-accent-text' : 'text-ink'"
+              >
+                {{ selectedPlayerIds.length }}
+              </span>
+              <span class="numeral text-xl text-ink-faint">/ {{ requiredPlayers }}</span>
+            </div>
+            <p class="eyebrow text-ink-faint">Players selected</p>
+            <p class="font-mono text-xs tabular-nums text-ink-faint">
+              {{ courts }} {{ courts === 1 ? 'COURT' : 'COURTS' }} × 4
+            </p>
+          </div>
         </section>
 
         <!-- Step 2: Players -->
@@ -205,7 +223,7 @@ async function createEvent() {
           class="mt-5 flex-col gap-3 md:mt-0"
           :class="step === 2 ? 'flex' : 'hidden md:flex'"
         >
-          <h2 class="text-base font-semibold text-ink md:px-1">Players</h2>
+          <h2 class="eyebrow text-ink-faint md:px-1">Step 2 — Players</h2>
 
           <AppEmptyState
             v-if="players.length === 0"
@@ -236,24 +254,29 @@ async function createEvent() {
         </AppButton>
         <template v-else>
           <AppButton
+            variant="broadcast"
             block
             :loading="isCreating"
             :disabled="!canCreate"
             @click="createEvent"
           >
-            Create event
+            Build the Bracket
           </AppButton>
-          <p v-if="!canCreate" class="text-center text-sm text-ink-muted">{{ createDisabledReason }}</p>
+          <p v-if="!canCreate" class="text-center font-mono text-xs tabular-nums text-ink-muted">
+            {{ createDisabledReason }}
+          </p>
           <AppButton variant="secondary" block @click="step = 1">Back</AppButton>
         </template>
       </div>
 
       <!-- Desktop actions -->
       <div class="hidden items-center justify-end gap-3 border-t border-line pt-4 md:flex">
-        <p v-if="!canCreate" class="mr-auto text-sm text-ink-muted">{{ createDisabledReason }}</p>
+        <p v-if="!canCreate" class="mr-auto font-mono text-xs tabular-nums text-ink-muted">
+          {{ createDisabledReason }}
+        </p>
         <AppButton variant="secondary" @click="router.back()">Cancel</AppButton>
-        <AppButton :loading="isCreating" :disabled="!canCreate" @click="createEvent">
-          Create event
+        <AppButton variant="broadcast" :loading="isCreating" :disabled="!canCreate" @click="createEvent">
+          Build the Bracket
         </AppButton>
       </div>
     </div>

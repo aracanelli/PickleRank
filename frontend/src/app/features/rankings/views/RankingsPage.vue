@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Trophy, Share2, Loader2, TrendingUp, TrendingDown, ChevronUp, ChevronDown, Minus } from 'lucide-vue-next'
+import { Trophy, Share2, Loader2, ChevronUp, ChevronDown, Minus } from 'lucide-vue-next'
+import { useMediaQuery } from '@vueuse/core'
 import html2canvas from 'html2canvas'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
@@ -17,10 +18,12 @@ import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
 import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
 import ErrorState from '@/app/core/ui/components/ErrorState.vue'
 import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
-import AppBadge from '@/app/core/ui/components/AppBadge.vue'
+import TapeChip from '@/app/core/ui/components/TapeChip.vue'
 import Avatar from '@/app/core/ui/components/Avatar.vue'
 import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
 import ResponsiveTable, { type TableColumn } from '@/app/core/ui/components/ResponsiveTable.vue'
+import PodiumStrip from '@/app/features/groups/components/dashboard/PodiumStrip.vue'
+import type { PodiumItem } from '@/app/features/groups/components/dashboard/types'
 import ShareableRankings from '../components/ShareableRankings.vue'
 
 const route = useRoute()
@@ -162,6 +165,32 @@ const rankedEntries = computed<RankedEntry[]>(() =>
   filteredRankings.value.map((entry, index) => ({ ...entry, displayRank: index + 1 }))
 )
 
+// --- Podium hero: top-3 of the filtered view as 2-1-3 stepped plinths -------
+const podiumItems = computed<PodiumItem[]>(() => {
+  if (rankedEntries.value.length < 3) return []
+  return rankedEntries.value.slice(0, 3).map((entry) => ({
+    rank: entry.displayRank,
+    playerId: entry.playerId,
+    groupPlayerId: groupPlayers.value.find((p) => p.playerId === entry.playerId)?.id,
+    name: entry.displayName,
+    rating: entry.rating,
+    delta: ratingDeltaMap.value.get(entry.playerId)
+  }))
+})
+
+// Ladder list: ranks 4+ once the podium takes the top three, all otherwise.
+// Desktop keeps the full-column table with every rank.
+const isDesktop = useMediaQuery('(min-width: 768px)')
+const ladderEntries = computed<RankedEntry[]>(() =>
+  podiumItems.value.length === 3 && !isDesktop.value
+    ? rankedEntries.value.slice(3)
+    : rankedEntries.value
+)
+
+function recordCaption(entry: RankedEntry): string {
+  return `${entry.wins}-${entry.losses}-${entry.ties} · ${entry.gamesPlayed} GP`
+}
+
 const columns: TableColumn[] = [
   { key: 'rank', label: '#', align: 'center' },
   { key: 'player', label: 'Player' },
@@ -179,15 +208,6 @@ function openPlayer(entry: RankedEntry) {
   const groupPlayerId = groupPlayers.value.find((p) => p.playerId === entry.playerId)?.id
   if (!groupPlayerId) return
   router.push(`/groups/${groupId.value}/players/${groupPlayerId}`)
-}
-
-function medalClass(rank: number): string {
-  switch (rank) {
-    case 1: return 'bg-tie text-brand-contrast'
-    case 2: return 'bg-surface-3 text-ink'
-    case 3: return 'bg-warn/25 text-warn'
-    default: return 'text-ink-muted'
-  }
 }
 
 // Export as image (ported verbatim from the legacy page, incl. Web Share / iOS fallback)
@@ -288,6 +308,13 @@ async function exportAsImage() {
       <ErrorState v-else-if="error" :message="error" @retry="loadData" />
 
       <div v-else class="flex flex-col gap-4">
+        <!-- Masthead -->
+        <header>
+          <p class="eyebrow text-ink-faint">{{ group?.name || 'Standings' }}</p>
+          <h1 class="display-wide mt-1 text-3xl text-ink">Ladder</h1>
+          <div class="kitchen-line mt-3" />
+        </header>
+
         <SegmentedControl v-if="rankings.length > 0" v-model="filterType" :options="filterOptions" />
 
         <AppEmptyState
@@ -298,136 +325,164 @@ async function exportAsImage() {
               ? 'No permanent players have rankings yet.'
               : 'Complete some events to see player rankings here.'
           "
+          court
         >
           <template #icon><Trophy class="size-7" /></template>
         </AppEmptyState>
 
-        <ResponsiveTable
-          v-else
-          :columns="columns"
-          :items="rankedEntries"
-          :item-key="(e) => e.playerId"
-          clickable
-          @row-click="openPlayer"
-        >
-          <!-- Mobile card -->
-          <template #card="{ item }">
-            <div class="flex items-center gap-3 p-3.5">
-              <span
-                class="flex size-9 shrink-0 items-center justify-center rounded-full font-mono text-sm font-bold tabular-nums"
-                :class="medalClass(item.displayRank)"
-              >
-                {{ item.displayRank }}
-              </span>
-              <Avatar :name="item.displayName" :brand="item.playerId === myRankingPlayerId" />
-              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span class="flex items-center gap-1.5 truncate text-sm font-semibold" :class="item.playerId === myRankingPlayerId ? 'text-brand' : 'text-ink'">
-                  <span class="truncate">{{ item.displayName }}</span>
-                  <AppBadge v-if="isSub(item.playerId)" variant="warning">Sub</AppBadge>
+        <template v-else>
+          <!-- Podium hero: 2 — 1 — 3, staggered plinth rise (reduced-motion safe) -->
+          <PodiumStrip
+            v-if="podiumItems.length === 3"
+            :key="filterType"
+            :items="podiumItems"
+            :group-id="groupId"
+          />
+
+          <ResponsiveTable
+            :columns="columns"
+            :items="ladderEntries"
+            :item-key="(e) => e.playerId"
+            clickable
+            @row-click="openPlayer"
+          >
+            <!-- Mobile ladder row -->
+            <template #card="{ item }">
+              <div class="flex items-center gap-3 p-3.5">
+                <span class="numeral w-8 shrink-0 text-center text-2xl leading-none text-ink-muted">
+                  {{ item.displayRank }}
                 </span>
-                <span class="truncate text-xs text-ink-faint">
-                  {{ item.gamesPlayed }} GP · {{ item.wins }}W {{ item.losses }}L {{ item.ties }}T ·
-                  {{ (item.winRate * 100).toFixed(0) }}%
-                </span>
-              </div>
-              <div class="flex shrink-0 flex-col items-end gap-0.5">
-                <span class="flex items-baseline gap-1.5">
-                  <span class="font-mono text-xl font-bold tabular-nums text-ink">{{ item.rating.toFixed(1) }}</span>
+                <Avatar
+                  :name="item.displayName"
+                  :seed="item.playerId"
+                  :brand="item.playerId === myRankingPlayerId"
+                />
+                <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span
-                    v-if="getRatingDelta(item.playerId)"
-                    class="flex items-center gap-0.5 font-mono text-xs font-semibold tabular-nums"
-                    :class="getRatingDelta(item.playerId)! > 0 ? 'text-win' : 'text-loss'"
+                    class="flex items-center gap-1.5 truncate text-sm font-semibold"
+                    :class="item.playerId === myRankingPlayerId ? 'text-accent-text' : 'text-ink'"
                   >
-                    <TrendingUp v-if="getRatingDelta(item.playerId)! > 0" class="size-3" />
-                    <TrendingDown v-else class="size-3" />
-                    {{ getRatingDelta(item.playerId)! > 0 ? '+' : '' }}{{ getRatingDelta(item.playerId)!.toFixed(1) }}
+                    <span class="truncate">{{ item.displayName }}</span>
+                    <TapeChip v-if="isSub(item.playerId)" variant="warn">Sub</TapeChip>
                   </span>
+                  <span class="truncate font-mono text-xs tabular-nums text-ink-faint">
+                    {{ recordCaption(item) }}
+                  </span>
+                </div>
+                <div class="flex shrink-0 flex-col items-end gap-0.5">
+                  <span class="flex items-baseline gap-1.5">
+                    <span class="numeral h-6 text-xl leading-6 text-ink">{{ item.rating.toFixed(1) }}</span>
+                    <span
+                      v-if="getRatingDelta(item.playerId)"
+                      class="numeral h-4 text-xs leading-4"
+                      :class="getRatingDelta(item.playerId)! > 0 ? 'text-win' : 'text-loss'"
+                    >
+                      {{ getRatingDelta(item.playerId)! > 0 ? '▲' : '▼' }}
+                      {{ Math.abs(getRatingDelta(item.playerId)!).toFixed(1) }}
+                    </span>
+                  </span>
+                  <span
+                    v-if="getRankChange(item.playerId, item.displayRank) > 0"
+                    class="numeral flex items-center text-xs text-win"
+                  >
+                    <ChevronUp class="size-3.5" />{{ getRankChange(item.playerId, item.displayRank) }}
+                  </span>
+                  <span
+                    v-else-if="getRankChange(item.playerId, item.displayRank) < 0"
+                    class="numeral flex items-center text-xs text-loss"
+                  >
+                    <ChevronDown class="size-3.5" />{{ Math.abs(getRankChange(item.playerId, item.displayRank)) }}
+                  </span>
+                  <Minus v-else-if="hasRecentChanges" class="size-3 text-ink-faint" />
+                </div>
+              </div>
+            </template>
+
+            <!-- Desktop cells -->
+            <template #cell-rank="{ item }">
+              <div class="relative flex flex-col items-center gap-0.5">
+                <!-- 2px volt left edge on top-3 rows (offsets cancel the cell padding) -->
+                <span
+                  v-if="item.displayRank <= 3"
+                  class="absolute -bottom-3 -left-4 -top-3 w-0.5 bg-accent-fill"
+                  aria-hidden="true"
+                />
+                <span
+                  class="numeral text-xl leading-6"
+                  :class="item.displayRank <= 3 ? 'text-accent-text' : 'text-ink-muted'"
+                >
+                  {{ item.displayRank }}
                 </span>
                 <span
                   v-if="getRankChange(item.playerId, item.displayRank) > 0"
-                  class="flex items-center font-mono text-xs font-semibold text-win"
+                  class="numeral flex items-center text-xs text-win"
                 >
-                  <ChevronUp class="size-3.5" />{{ getRankChange(item.playerId, item.displayRank) }}
+                  <ChevronUp class="size-3" />{{ getRankChange(item.playerId, item.displayRank) }}
                 </span>
                 <span
                   v-else-if="getRankChange(item.playerId, item.displayRank) < 0"
-                  class="flex items-center font-mono text-xs font-semibold text-loss"
+                  class="numeral flex items-center text-xs text-loss"
                 >
-                  <ChevronDown class="size-3.5" />{{ Math.abs(getRankChange(item.playerId, item.displayRank)) }}
+                  <ChevronDown class="size-3" />{{ Math.abs(getRankChange(item.playerId, item.displayRank)) }}
                 </span>
                 <Minus v-else-if="hasRecentChanges" class="size-3 text-ink-faint" />
               </div>
-            </div>
-          </template>
-
-          <!-- Desktop cells -->
-          <template #cell-rank="{ item }">
-            <div class="flex flex-col items-center gap-0.5">
-              <span
-                class="flex size-8 items-center justify-center rounded-full font-mono text-sm font-bold tabular-nums"
-                :class="medalClass(item.displayRank)"
-              >
-                {{ item.displayRank }}
-              </span>
-              <span
-                v-if="getRankChange(item.playerId, item.displayRank) > 0"
-                class="flex items-center font-mono text-xs font-semibold text-win"
-              >
-                <ChevronUp class="size-3" />{{ getRankChange(item.playerId, item.displayRank) }}
-              </span>
-              <span
-                v-else-if="getRankChange(item.playerId, item.displayRank) < 0"
-                class="flex items-center font-mono text-xs font-semibold text-loss"
-              >
-                <ChevronDown class="size-3" />{{ Math.abs(getRankChange(item.playerId, item.displayRank)) }}
-              </span>
-              <Minus v-else-if="hasRecentChanges" class="size-3 text-ink-faint" />
-            </div>
-          </template>
-          <template #cell-player="{ item }">
-            <div class="flex items-center gap-2.5">
-              <Avatar :name="item.displayName" size="sm" :brand="item.playerId === myRankingPlayerId" />
-              <span class="font-medium" :class="item.playerId === myRankingPlayerId ? 'text-brand' : 'text-ink'">
-                {{ item.displayName }}
-              </span>
-              <AppBadge v-if="isSub(item.playerId)" variant="warning">Sub</AppBadge>
-            </div>
-          </template>
-          <template #cell-rating="{ item }">
-            <div class="flex items-baseline justify-end gap-1.5">
-              <span class="font-mono text-base font-bold tabular-nums text-ink">{{ item.rating.toFixed(1) }}</span>
-              <span
-                v-if="getRatingDelta(item.playerId)"
-                class="flex items-center gap-0.5 font-mono text-xs font-semibold tabular-nums"
-                :class="getRatingDelta(item.playerId)! > 0 ? 'text-win' : 'text-loss'"
-              >
-                <TrendingUp v-if="getRatingDelta(item.playerId)! > 0" class="size-3" />
-                <TrendingDown v-else class="size-3" />
-                {{ getRatingDelta(item.playerId)! > 0 ? '+' : '' }}{{ getRatingDelta(item.playerId)!.toFixed(1) }}
-              </span>
-            </div>
-          </template>
-          <template #cell-gp="{ item }">
-            <span class="font-mono tabular-nums text-ink-muted">{{ item.gamesPlayed }}</span>
-          </template>
-          <template #cell-wins="{ item }">
-            <span class="font-mono tabular-nums text-win">{{ item.wins }}</span>
-          </template>
-          <template #cell-losses="{ item }">
-            <span class="font-mono tabular-nums text-loss">{{ item.losses }}</span>
-          </template>
-          <template #cell-ties="{ item }">
-            <span class="font-mono tabular-nums text-tie">{{ item.ties }}</span>
-          </template>
-          <template #cell-winRate="{ item }">
-            <div class="flex items-center justify-end gap-2">
-              <span class="h-1.5 w-14 overflow-hidden rounded-full bg-surface-2">
-                <span class="block h-full rounded-full bg-brand" :style="{ width: `${item.winRate * 100}%` }" />
-              </span>
-              <span class="font-mono text-sm tabular-nums text-ink-muted">{{ (item.winRate * 100).toFixed(0) }}%</span>
-            </div>
-          </template>
-        </ResponsiveTable>
+            </template>
+            <template #cell-player="{ item }">
+              <div class="flex items-center gap-2.5">
+                <Avatar
+                  :name="item.displayName"
+                  :seed="item.playerId"
+                  size="sm"
+                  :brand="item.playerId === myRankingPlayerId"
+                />
+                <span
+                  class="font-medium"
+                  :class="item.playerId === myRankingPlayerId ? 'text-accent-text' : 'text-ink'"
+                >
+                  {{ item.displayName }}
+                </span>
+                <TapeChip v-if="isSub(item.playerId)" variant="warn">Sub</TapeChip>
+              </div>
+            </template>
+            <template #cell-rating="{ item }">
+              <div class="flex items-baseline justify-end gap-1.5">
+                <span class="numeral h-6 text-xl leading-6 text-ink">{{ item.rating.toFixed(1) }}</span>
+                <span
+                  v-if="getRatingDelta(item.playerId)"
+                  class="numeral h-4 text-xs leading-4"
+                  :class="getRatingDelta(item.playerId)! > 0 ? 'text-win' : 'text-loss'"
+                >
+                  {{ getRatingDelta(item.playerId)! > 0 ? '▲' : '▼' }}
+                  {{ Math.abs(getRatingDelta(item.playerId)!).toFixed(1) }}
+                </span>
+              </div>
+            </template>
+            <template #cell-gp="{ item }">
+              <span class="font-mono tabular-nums text-ink-muted">{{ item.gamesPlayed }}</span>
+            </template>
+            <template #cell-wins="{ item }">
+              <span class="font-mono tabular-nums text-win">{{ item.wins }}</span>
+            </template>
+            <template #cell-losses="{ item }">
+              <span class="font-mono tabular-nums text-loss">{{ item.losses }}</span>
+            </template>
+            <template #cell-ties="{ item }">
+              <span class="font-mono tabular-nums text-tie">{{ item.ties }}</span>
+            </template>
+            <template #cell-winRate="{ item }">
+              <div class="flex items-center justify-end gap-2">
+                <span class="h-1.5 w-14 overflow-hidden rounded-full bg-surface-2">
+                  <span
+                    class="block h-full rounded-full bg-accent-fill"
+                    :style="{ width: `${item.winRate * 100}%` }"
+                  />
+                </span>
+                <span class="font-mono text-sm tabular-nums text-ink-muted">{{ (item.winRate * 100).toFixed(0) }}%</span>
+              </div>
+            </template>
+          </ResponsiveTable>
+        </template>
       </div>
     </div>
   </PullRefresh>

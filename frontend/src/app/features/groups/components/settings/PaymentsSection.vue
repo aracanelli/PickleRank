@@ -24,8 +24,8 @@ const subFee = computed<string | number>({
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 rounded-xl border border-line bg-surface-1 p-4">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">Payments</h2>
+  <section class="flex flex-col gap-3 rounded-[14px] border border-line bg-surface-1 p-4">
+    <h2 class="eyebrow text-ink-faint">Payments</h2>
 
     <ToggleSwitch
       v-model="form.trackPayments"

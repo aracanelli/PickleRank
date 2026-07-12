@@ -45,8 +45,8 @@ async function rename() {
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 rounded-xl border border-line bg-surface-1 p-4">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">General</h2>
+  <section class="flex flex-col gap-3 rounded-[14px] border border-line bg-surface-1 p-4">
+    <h2 class="eyebrow text-ink-faint">General</h2>
     <div class="flex items-end gap-2">
       <div class="flex-1">
         <AppInput v-model="name" label="Group name" placeholder="Enter group name" />

@@ -145,7 +145,7 @@ async function refresh() {
           <template #icon><Search class="size-7" /></template>
         </AppEmptyState>
 
-        <section v-else class="overflow-hidden rounded-xl border border-line bg-surface-1">
+        <section v-else class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
           <div class="divide-y divide-line">
             <button
               v-for="player in players"
@@ -154,7 +154,7 @@ async function refresh() {
               class="flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2 active:bg-surface-2"
               @click="openPlayer(player)"
             >
-              <Avatar :name="player.displayName" size="md" />
+              <Avatar :name="player.displayName" :seed="player.id" size="md" />
               <span class="flex min-w-0 flex-1 flex-col">
                 <span class="truncate text-sm font-medium text-ink">{{ player.displayName }}</span>
                 <span class="truncate text-sm text-ink-faint">

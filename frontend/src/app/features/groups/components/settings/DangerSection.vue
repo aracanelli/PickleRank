@@ -78,8 +78,8 @@ async function archiveGroup() {
 </script>
 
 <template>
-  <section class="flex flex-col gap-4 rounded-xl border border-loss/30 bg-surface-1 p-4">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-loss">Danger zone</h2>
+  <section class="flex flex-col gap-4 rounded-[14px] border border-loss/30 bg-surface-1 p-4">
+    <h2 class="eyebrow text-loss">Danger zone</h2>
 
     <div class="flex items-center justify-between gap-3">
       <span class="flex min-w-0 flex-col">

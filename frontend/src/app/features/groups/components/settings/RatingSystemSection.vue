@@ -66,8 +66,8 @@ const eloDiffPercent = computed<string | number>({
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 rounded-xl border border-line bg-surface-1 p-4">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">Rating system</h2>
+  <section class="flex flex-col gap-3 rounded-[14px] border border-line bg-surface-1 p-4">
+    <h2 class="eyebrow text-ink-faint">Rating system</h2>
 
     <div class="flex flex-col gap-2" role="radiogroup" aria-label="Rating system">
       <button
@@ -76,7 +76,7 @@ const eloDiffPercent = computed<string | number>({
         type="button"
         role="radio"
         :aria-checked="form.ratingSystem === system.value"
-        class="flex min-h-14 items-center gap-3 rounded-xl border p-3 text-left transition-colors"
+        class="flex min-h-14 items-center gap-3 rounded-[14px] border p-3 text-left transition-colors"
         :class="
           form.ratingSystem === system.value
             ? 'border-brand bg-brand-soft'

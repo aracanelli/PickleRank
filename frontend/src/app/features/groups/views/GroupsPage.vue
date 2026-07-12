@@ -81,11 +81,8 @@ async function refresh() {
   await loadGroups(true)
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return 'N/A'
-  const date = new Date(dateStr)
-  if (isNaN(date.getTime())) return 'N/A'
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+function clubCaption(group: GroupListItemDto): string {
+  return `${group.playerCount} ${group.playerCount === 1 ? 'player' : 'players'} · Pickleball`
 }
 
 function openActions(group: GroupListItemDto) {
@@ -181,44 +178,51 @@ async function archiveGroup() {
 <template>
   <PullRefresh :on-refresh="refresh">
     <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
+      <!-- Masthead -->
+      <header class="mb-5">
+        <p class="eyebrow text-ink-faint">Your leagues</p>
+        <h1 class="display-wide mt-1 text-3xl text-ink">My Clubs</h1>
+        <div class="kitchen-line mt-3" />
+      </header>
+
       <SkeletonList v-if="isLoading" :rows="4" />
 
       <ErrorState v-else-if="error" :message="error" @retry="loadGroups()" />
 
       <AppEmptyState
         v-else-if="groups.length === 0 && memberGroups.length === 0"
-        title="No groups yet"
-        description="Create your first group to start organizing pickleball events and tracking rankings."
+        title="No clubs yet"
+        description="Create your first club to start organizing pickleball events and tracking rankings."
+        court
       >
         <template #icon><ClipboardList class="size-7" /></template>
         <template #action>
           <AppButton @click="showCreateSheet = true">
             <Plus class="size-4" />
-            Create your first group
+            Create your first club
           </AppButton>
         </template>
       </AppEmptyState>
 
       <div v-else class="flex flex-col gap-6">
         <section v-if="groups.length > 0" class="flex flex-col gap-3">
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">My groups</h2>
+          <h2 class="eyebrow text-ink-faint">Organizing</h2>
           <div class="grid gap-3 md:grid-cols-2">
             <div
               v-for="group in groups"
               :key="group.id"
-              class="flex items-center rounded-xl border border-line bg-surface-1 transition-colors hover:bg-surface-2"
+              class="flex items-center rounded-[20px] ticket-clip border border-line bg-surface-1 transition-colors hover:bg-surface-2"
             >
               <button
                 type="button"
-                class="flex min-h-16 min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                class="flex min-h-16 min-w-0 flex-1 items-center gap-3 px-4 py-3.5 text-left"
                 @click="router.push(`/groups/${group.id}`)"
               >
-                <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span class="truncate text-sm font-semibold text-ink">{{ group.name }}</span>
-                  <span class="truncate text-sm text-ink-faint">
-                    <span class="font-mono tabular-nums">{{ group.playerCount }}</span>
-                    players · {{ formatDate(group.createdAt) }}
+                <span class="flex min-w-0 flex-1 flex-col gap-1">
+                  <span class="display-wide truncate text-lg leading-tight text-ink">
+                    {{ group.name }}
                   </span>
+                  <span class="eyebrow truncate text-ink-faint">{{ clubCaption(group) }}</span>
                 </span>
                 <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
               </button>
@@ -232,24 +236,23 @@ async function archiveGroup() {
         </section>
 
         <section v-if="memberGroups.length > 0" class="flex flex-col gap-3">
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">Member of</h2>
+          <h2 class="eyebrow text-ink-faint">Member of</h2>
           <div class="grid gap-3 md:grid-cols-2">
             <button
               v-for="group in memberGroups"
               :key="group.id"
               type="button"
-              class="flex min-h-16 min-w-0 items-center gap-3 rounded-xl border border-line bg-surface-1 px-4 py-3 text-left transition-colors hover:bg-surface-2"
+              class="flex min-h-16 min-w-0 items-center gap-3 rounded-[20px] ticket-clip border border-line bg-surface-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
               @click="router.push(`/groups/${group.id}`)"
             >
-              <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
                 <Users class="size-4" />
               </span>
-              <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span class="truncate text-sm font-semibold text-ink">{{ group.name }}</span>
-                <span class="truncate text-sm text-ink-faint">
-                  <span class="font-mono tabular-nums">{{ group.playerCount }}</span>
-                  players · {{ formatDate(group.createdAt) }}
+              <span class="flex min-w-0 flex-1 flex-col gap-1">
+                <span class="display-wide truncate text-lg leading-tight text-ink">
+                  {{ group.name }}
                 </span>
+                <span class="eyebrow truncate text-ink-faint">{{ clubCaption(group) }}</span>
               </span>
               <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
             </button>
@@ -259,7 +262,7 @@ async function archiveGroup() {
     </div>
   </PullRefresh>
 
-  <Fab label="New group" @click="showCreateSheet = true">
+  <Fab label="New club" @click="showCreateSheet = true">
     <Plus class="size-5" />
   </Fab>
 
@@ -287,7 +290,7 @@ async function archiveGroup() {
     <div v-else class="flex flex-col">
       <button
         type="button"
-        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
+        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
         @click="renameMode = true"
       >
         <Pencil class="size-5 text-ink-muted" />
@@ -295,7 +298,7 @@ async function archiveGroup() {
       </button>
       <button
         type="button"
-        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
+        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
         :disabled="isDuplicating"
         @click="duplicateGroup"
       >
@@ -304,7 +307,7 @@ async function archiveGroup() {
       </button>
       <button
         type="button"
-        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
+        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
         :disabled="isRecalculating"
         @click="recalculateRatings"
       >
@@ -313,7 +316,7 @@ async function archiveGroup() {
       </button>
       <button
         type="button"
-        class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-loss transition-colors hover:bg-loss/10 disabled:opacity-50"
+        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-loss transition-colors hover:bg-loss/10 disabled:opacity-50"
         :disabled="isArchiving"
         @click="archiveGroup"
       >

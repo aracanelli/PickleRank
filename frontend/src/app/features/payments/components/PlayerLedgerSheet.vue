@@ -59,7 +59,7 @@ function formatDate(dateStr: string): string {
 <template>
   <Sheet v-model="open" :title="player?.displayName || 'Payment history'" size="lg">
     <div v-if="player" class="flex flex-col gap-4">
-      <div class="flex flex-col gap-3 rounded-xl border border-line bg-surface-1 p-4">
+      <div class="flex flex-col gap-3 rounded-[14px] border border-line bg-surface-1 p-4">
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium text-ink-muted">Current balance</span>
           <span
@@ -100,7 +100,7 @@ function formatDate(dateStr: string): string {
         <template #icon><History class="size-7" /></template>
       </AppEmptyState>
 
-      <div v-else-if="history" class="overflow-hidden rounded-xl border border-line bg-surface-1">
+      <div v-else-if="history" class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
         <div class="divide-y divide-line">
           <div v-for="item in history.history" :key="item.id" class="flex items-start gap-3 px-4 py-3">
             <div class="flex min-w-0 flex-1 flex-col gap-0.5">
