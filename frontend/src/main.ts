@@ -7,6 +7,10 @@ import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
 import { initApiClient } from './app/core/http/api-client'
 import './styles/tailwind.css'
+import { registerSW } from 'virtual:pwa-register'
+
+// PWA: auto-updating service worker (offline app shell; API is NetworkOnly)
+registerSW({ immediate: true })
 
 async function bootstrap() {
   const app = createApp(App)
