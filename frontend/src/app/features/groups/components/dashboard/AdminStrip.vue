@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Settings, DollarSign, Upload } from 'lucide-vue-next'
+import { Users, Settings, DollarSign, Upload, Trophy } from 'lucide-vue-next'
 import { formatCurrency } from '@/app/features/payments/components/currency'
 
 // Quiet organizer toolbar — pills, not cards, so it never competes with the
@@ -39,6 +39,10 @@ const pillClass =
         >
           {{ formatCurrency(totalOwed, currency) }}
         </span>
+      </RouterLink>
+      <RouterLink :to="`/groups/${groupId}/awards`" :class="pillClass">
+        <Trophy class="size-4 text-ink-muted" aria-hidden="true" />
+        Awards
       </RouterLink>
       <button type="button" :class="pillClass" @click="emit('import')">
         <Upload class="size-4 text-ink-muted" aria-hidden="true" />

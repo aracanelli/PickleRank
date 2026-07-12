@@ -88,6 +88,12 @@ const router = createRouter({
       meta: { requiresAuth: true, nav: 'group', title: 'Payments' }
     },
     {
+      path: '/groups/:groupId/awards',
+      name: 'awards',
+      component: () => import('@/app/features/awards/views/AwardsPage.vue'),
+      meta: { requiresAuth: true, nav: 'group', title: 'Awards' }
+    },
+    {
       path: '/link-player',
       name: 'link-player',
       component: () => import('@/app/features/players/views/LinkPlayerPage.vue'),

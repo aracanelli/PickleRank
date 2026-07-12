@@ -12,7 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.deps.rate_limit import limiter
 from app.api.middleware.security import add_security_headers
-from app.api.routers import events, games, groups, health, payments, players, rankings
+from app.api.routers import awards, events, games, groups, health, payments, players, rankings
 from app.config import get_settings
 from app.exceptions import AppException
 from app.infrastructure.db.connection import close_db_pool, init_db_pool
@@ -174,6 +174,7 @@ def create_app() -> FastAPI:
     app.include_router(games.router, prefix="/api", tags=["Games"])
     app.include_router(rankings.router, prefix="/api", tags=["Rankings"])
     app.include_router(payments.router, prefix="/api", tags=["Payments"])
+    app.include_router(awards.router, prefix="/api", tags=["Awards"])
 
     return app
 

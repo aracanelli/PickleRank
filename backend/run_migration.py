@@ -102,7 +102,73 @@ async def run_migrations():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_sub_payments_event ON sub_payments(event_id)
         """)
-        
+
+        # 7. Create Awards feature tables (editions, categories, votes)
+        print("Creating award_editions table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS award_editions (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'VOTING_OPEN', 'CLOSED')),
+                stat_awards JSONB NOT NULL DEFAULT '[]'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_award_editions_group ON award_editions(group_id)
+        """)
+
+        print("Creating award_categories table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS award_categories (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                edition_id UUID NOT NULL REFERENCES award_editions(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                description TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_award_categories_edition ON award_categories(edition_id)
+        """)
+
+        print("Creating award_votes table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS award_votes (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                category_id UUID NOT NULL REFERENCES award_categories(id) ON DELETE CASCADE,
+                voter_group_player_id UUID NOT NULL REFERENCES group_players(id) ON DELETE CASCADE,
+                nominee_group_player_id UUID NOT NULL REFERENCES group_players(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (category_id, voter_group_player_id)
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_award_votes_category ON award_votes(category_id)
+        """)
+
+        # updated_at triggers for awards tables (drop-then-create for idempotency)
+        print("Creating awards updated_at triggers...")
+        await conn.execute("""
+            DROP TRIGGER IF EXISTS update_award_editions_updated_at ON award_editions
+        """)
+        await conn.execute("""
+            CREATE TRIGGER update_award_editions_updated_at
+                BEFORE UPDATE ON award_editions
+                FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+        """)
+        await conn.execute("""
+            DROP TRIGGER IF EXISTS update_award_votes_updated_at ON award_votes
+        """)
+        await conn.execute("""
+            CREATE TRIGGER update_award_votes_updated_at
+                BEFORE UPDATE ON award_votes
+                FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+        """)
+
         print("Migrations complete.")
 
     await pool.close()

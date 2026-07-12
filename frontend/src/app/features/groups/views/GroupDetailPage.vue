@@ -6,8 +6,9 @@ import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
 import { paymentsApi } from '@/app/features/payments/services/payments.api'
+import { awardsApi } from '@/app/features/awards/services/awards.api'
 import { api } from '@/app/core/http/api-client'
-import type { GroupDto, EventListItemDto, RankingEntryDto } from '@/app/core/models/dto'
+import type { GroupDto, EventListItemDto, RankingEntryDto, AwardEditionDto } from '@/app/core/models/dto'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
 import { useToast } from '@/app/core/ui/composables/useToast'
@@ -31,6 +32,7 @@ import PodiumStrip from '../components/dashboard/PodiumStrip.vue'
 import HotColdRow from '../components/dashboard/HotColdRow.vue'
 import RecentResults from '../components/dashboard/RecentResults.vue'
 import AdminStrip from '../components/dashboard/AdminStrip.vue'
+import AwardsTeaser from '../components/dashboard/AwardsTeaser.vue'
 import type { PodiumItem } from '../components/dashboard/types'
 
 const router = useRouter()
@@ -45,6 +47,7 @@ const groupId = computed(() => route.params.groupId as string)
 const group = ref<GroupDto | null>(null)
 const events = ref<EventListItemDto[]>([])
 const rankings = ref<RankingEntryDto[]>([])
+const awardsEdition = ref<AwardEditionDto | null>(null)
 const totalOwed = ref<number | null>(null)
 const isLoading = ref(true)
 const error = ref('')
@@ -97,6 +100,11 @@ async function loadDashboardExtras() {
       .getRankings(groupId.value)
       .then((res) => (rankings.value = res.rankings))
       .catch((e) => console.error('Failed to load rankings:', e)),
+    // Awards teaser is fail-soft: hide the card if the lookup fails.
+    awardsApi
+      .getAwards(groupId.value)
+      .then((res) => (awardsEdition.value = res))
+      .catch((e) => console.error('Failed to load awards:', e)),
     loadPaymentsBadge()
   ])
 }
@@ -302,6 +310,8 @@ async function refresh() {
         <HotColdRow :hot="streaks.hot" :cold="streaks.cold" :group-id="groupId" />
 
         <RecentResults :matches="recentMatches" :group-id="groupId" />
+
+        <AwardsTeaser v-if="awardsEdition" :group-id="groupId" :edition="awardsEdition" />
 
         <AdminStrip
           v-if="canManage"
