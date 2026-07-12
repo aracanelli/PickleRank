@@ -849,8 +849,10 @@ watch(eventId, () => loadEvent())
 
 <!-- Tiny keyframe Tailwind can't express: the completion flash pop. -->
 <style scoped>
-.celebrate-flash {
-  animation: celebrate-flash-in 0.5s var(--ease-spring) both;
+@media (prefers-reduced-motion: no-preference) {
+  .celebrate-flash {
+    animation: celebrate-flash-in 0.5s var(--ease-spring) both;
+  }
 }
 @keyframes celebrate-flash-in {
   from {
