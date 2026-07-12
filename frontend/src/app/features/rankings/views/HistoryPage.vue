@@ -1,27 +1,34 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { ChartColumn, SlidersHorizontal, Settings2, X, AlertTriangle } from 'lucide-vue-next'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { ChartColumn, SlidersHorizontal, Settings2, X, AlertTriangle, Swords } from 'lucide-vue-next'
 import { rankingsApi } from '../services/rankings.api'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { api } from '@/app/core/http/api-client'
-import type { MatchHistoryEntryDto, GroupDto, GroupPlayerDto, EventListItemDto } from '@/app/core/models/dto'
+import type { MatchHistoryEntryDto, GroupDto, EventListItemDto } from '@/app/core/models/dto'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
 import { useToast } from '@/app/core/ui/composables/useToast'
 import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
+import { usePlayerIndex } from '@/app/features/players/composables/usePlayerIndex'
+import { computeH2H } from '@/app/features/players/utils/head-to-head'
+import { groupByEvent, outcomeFor, type EventGroup } from '../utils/match-derivations'
 import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
 import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
 import ErrorState from '@/app/core/ui/components/ErrorState.vue'
 import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
 import AppButton from '@/app/core/ui/components/AppButton.vue'
 import Sheet from '@/app/core/ui/components/Sheet.vue'
+import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
 import MatchCard from '../components/MatchCard.vue'
+import VersusPicker from '../components/VersusPicker.vue'
+import H2HBar from '../components/H2HBar.vue'
 import FilterSheet, { emptyFilters, type HistoryFilters } from '../components/FilterSheet.vue'
 import EventEditSheet, { type EventEditData } from '../components/EventEditSheet.vue'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const groupContext = useGroupContextStore()
 const toast = useToast()
@@ -29,7 +36,8 @@ const toast = useToast()
 const groupId = computed(() => route.params.groupId as string)
 
 const group = ref<GroupDto | null>(null)
-const players = ref<GroupPlayerDto[]>([])
+const playerIndex = usePlayerIndex(groupId)
+const players = playerIndex.players
 const events = ref<EventListItemDto[]>([])
 const matches = ref<MatchHistoryEntryDto[]>([])
 const isLoading = ref(true)
@@ -41,8 +49,53 @@ const showFilterSheet = ref(false)
 
 const canManage = computed(() => groupContext.canManage)
 
+// --- FEED | HEAD-TO-HEAD mode (driven by ?h2h presence) ----------------------
+// ?h2h=P1 or ?h2h=P1,P2 — GLOBAL player ids in the URL, shareable.
+
+type HistoryMode = 'feed' | 'h2h'
+
+const mode = ref<HistoryMode>(route.query.h2h !== undefined ? 'h2h' : 'feed')
+const h2hP1 = ref('')
+const h2hP2 = ref('')
+
+{
+  const param = route.query.h2h
+  if (typeof param === 'string' && param) {
+    const [p1, p2] = param.split(',')
+    h2hP1.value = p1 || ''
+    h2hP2.value = p2 || ''
+  }
+}
+
+const modeOptions = [
+  { label: 'FEED', value: 'feed' },
+  { label: 'HEAD-TO-HEAD', value: 'h2h' }
+]
+
+// SegmentedControl models a plain string; bridge to the narrowed union type
+const modeModel = computed({
+  get: () => mode.value as string,
+  set: (value: string) => {
+    mode.value = value === 'h2h' ? 'h2h' : 'feed'
+  }
+})
+
+// Keep the URL in sync so H2H links are shareable
+function syncModeQuery() {
+  const query: LocationQueryRaw = { ...route.query }
+  if (mode.value === 'h2h') {
+    query.h2h = [h2hP1.value, h2hP2.value].filter(Boolean).join(',')
+  } else {
+    delete query.h2h
+  }
+  const current = route.query.h2h
+  if (current !== query.h2h) router.replace({ query })
+}
+
+watch([mode, h2hP1, h2hP2], syncModeQuery)
+
 onMounted(async () => {
-  await Promise.all([loadGroup(), loadPlayers(), loadEvents()])
+  await Promise.all([loadGroup(), playerIndex.load(), loadEvents()])
   syncGroupContext()
 
   // Check for playerId query param first, else auto-filter by the signed-in
@@ -55,7 +108,9 @@ onMounted(async () => {
     if (myPlayer) filters.value.playerId = myPlayer.playerId
   }
 
-  await loadHistory()
+  const jobs: Promise<void>[] = [loadHistory()]
+  if (bothPicked.value) jobs.push(loadH2H())
+  await Promise.all(jobs)
 })
 
 function syncGroupContext() {
@@ -78,14 +133,6 @@ async function loadGroup() {
     group.value = await groupsApi.get(groupId.value)
   } catch (e) {
     error.value = getApiErrorMessage(e)
-  }
-}
-
-async function loadPlayers() {
-  try {
-    players.value = (await groupsApi.getPlayers(groupId.value)).players
-  } catch (e) {
-    console.error('Failed to load players:', e)
   }
 }
 
@@ -140,7 +187,7 @@ function applyFilters(next: HistoryFilters) {
 // --- Filter chips -----------------------------------------------------------
 
 function playerName(playerId: string): string {
-  return players.value.find((p) => p.playerId === playerId)?.displayName || 'Player'
+  return playerIndex.byGlobalPlayerId.value.get(playerId)?.displayName || 'Player'
 }
 
 function eventLabel(eventId: string): string {
@@ -201,23 +248,7 @@ const activeFilterCount = computed(() => filterChips.value.length)
 const PAGE_SIZE = 5
 const visibleEventCount = ref(PAGE_SIZE)
 
-const matchesByEvent = computed(() => {
-  const eventsMap = new Map<string, { id: string; name: string; date: string; matches: MatchHistoryEntryDto[] }>()
-  for (const match of matches.value) {
-    if (!eventsMap.has(match.eventId)) {
-      eventsMap.set(match.eventId, {
-        id: match.eventId,
-        name: match.eventName || 'Event',
-        date: match.date,
-        matches: []
-      })
-    }
-    eventsMap.get(match.eventId)!.matches.push(match)
-  }
-  return Array.from(eventsMap.values()).sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  )
-})
+const matchesByEvent = computed<EventGroup[]>(() => groupByEvent(matches.value))
 
 const visibleEvents = computed(() => matchesByEvent.value.slice(0, visibleEventCount.value))
 const hasMore = computed(() => matchesByEvent.value.length > visibleEventCount.value)
@@ -234,6 +265,130 @@ function formatDate(dateStr: string): string {
     year: 'numeric'
   })
 }
+
+// --- Head-to-head data --------------------------------------------------------
+
+const bothPicked = computed(() => !!h2hP1.value && !!h2hP2.value)
+
+const h2hOpponentMatches = ref<MatchHistoryEntryDto[]>([])
+const h2hTeammateMatches = ref<MatchHistoryEntryDto[]>([])
+const isH2hLoading = ref(false)
+const h2hError = ref('')
+
+async function loadH2H() {
+  if (!bothPicked.value) return
+  isH2hLoading.value = true
+  h2hError.value = ''
+  try {
+    const [opponents, teammates] = await Promise.all([
+      rankingsApi.getHistory(groupId.value, {
+        playerId: h2hP1.value,
+        secondaryPlayerId: h2hP2.value,
+        relationship: 'opponent'
+      }),
+      rankingsApi.getHistory(groupId.value, {
+        playerId: h2hP1.value,
+        secondaryPlayerId: h2hP2.value,
+        relationship: 'teammate'
+      })
+    ])
+    h2hOpponentMatches.value = opponents.matches
+    h2hTeammateMatches.value = teammates.matches
+  } catch (e) {
+    h2hError.value = getApiErrorMessage(e, 'Failed to load head-to-head')
+  } finally {
+    isH2hLoading.value = false
+  }
+}
+
+watch([h2hP1, h2hP2], () => {
+  if (bothPicked.value) loadH2H()
+})
+
+// History team ids are GROUP-PLAYER ids — map the global P1 id via the index
+const p1GroupPlayerId = computed(() =>
+  h2hP1.value ? playerIndex.toGroupPlayerId(h2hP1.value) : undefined
+)
+
+const h2h = computed(() =>
+  p1GroupPlayerId.value ? computeH2H(h2hOpponentMatches.value, p1GroupPlayerId.value) : null
+)
+
+const teammateRecord = computed(() => {
+  const gpId = p1GroupPlayerId.value
+  if (!gpId) return null
+  let wins = 0
+  let losses = 0
+  let ties = 0
+  for (const match of h2hTeammateMatches.value) {
+    const outcome = outcomeFor(match, gpId)
+    if (outcome === 'W') wins++
+    else if (outcome === 'L') losses++
+    else if (outcome === 'T') ties++
+  }
+  return { wins, losses, ties, games: wins + losses + ties }
+})
+
+const p1Name = computed(() => playerName(h2hP1.value))
+const p2Name = computed(() => playerName(h2hP2.value))
+
+interface TapeRow {
+  label: string
+  left: string
+  right: string
+  leftPct: number
+  rightPct: number
+}
+
+const tapeRows = computed<TapeRow[]>(() => {
+  const rec = h2h.value
+  if (!rec || rec.games === 0) return []
+
+  const p2WinRate = (rec.losses + 0.5 * rec.ties) / rec.games
+  const rows: TapeRow[] = [
+    {
+      label: 'Record',
+      left: `${rec.wins}-${rec.losses}-${rec.ties}`,
+      right: `${rec.losses}-${rec.wins}-${rec.ties}`,
+      leftPct: (rec.wins / rec.games) * 100,
+      rightPct: (rec.losses / rec.games) * 100
+    },
+    {
+      label: 'Win %',
+      left: `${Math.round(rec.winRate * 100)}%`,
+      right: `${Math.round(p2WinRate * 100)}%`,
+      leftPct: rec.winRate * 100,
+      rightPct: p2WinRate * 100
+    },
+    {
+      label: 'Avg points',
+      left: rec.avgPointsFor.toFixed(1),
+      right: rec.avgPointsAgainst.toFixed(1),
+      leftPct:
+        rec.avgPointsFor + rec.avgPointsAgainst > 0
+          ? (rec.avgPointsFor / (rec.avgPointsFor + rec.avgPointsAgainst)) * 100
+          : 0,
+      rightPct:
+        rec.avgPointsFor + rec.avgPointsAgainst > 0
+          ? (rec.avgPointsAgainst / (rec.avgPointsFor + rec.avgPointsAgainst)) * 100
+          : 0
+    }
+  ]
+
+  // Current streak shows on the leader's side (P1's L streak = P2's W streak)
+  const streak = rec.streak
+  if (streak) {
+    if (streak.type === 'T') {
+      rows.push({ label: 'Current streak', left: `T${streak.length}`, right: `T${streak.length}`, leftPct: 50, rightPct: 50 })
+    } else if (streak.type === 'W') {
+      rows.push({ label: 'Current streak', left: `W${streak.length}`, right: '—', leftPct: 100, rightPct: 0 })
+    } else {
+      rows.push({ label: 'Current streak', left: '—', right: `W${streak.length}`, leftPct: 0, rightPct: 100 })
+    }
+  }
+
+  return rows
+})
 
 // --- Per-game quick score edit (ported legacy edit modal) --------------------
 
@@ -279,10 +434,10 @@ async function saveMatchEdit() {
 const showEventEditSheet = ref(false)
 const editingEvent = ref<EventEditData | null>(null)
 
-async function openEventEdit(event: { id: string; name: string; date: string }) {
+async function openEventEdit(event: EventGroup) {
   try {
     // Fetch full event data to get ALL games, not just filtered ones
-    const fullEvent = await eventsApi.get(event.id)
+    const fullEvent = await eventsApi.get(event.eventId)
 
     const allMatches: MatchHistoryEntryDto[] = fullEvent.games.map((game) => ({
       gameId: game.id,
@@ -302,7 +457,12 @@ async function openEventEdit(event: { id: string; name: string; date: string }) 
       team2Elo: game.team2Elo
     }))
 
-    editingEvent.value = { id: event.id, name: event.name, date: event.date, matches: allMatches }
+    editingEvent.value = {
+      id: event.eventId,
+      name: event.eventName || 'Event',
+      date: event.date,
+      matches: allMatches
+    }
     showEventEditSheet.value = true
   } catch (e) {
     console.error('Failed to load event for editing:', e)
@@ -318,7 +478,9 @@ function handleEventEditSaved() {
 
 async function refreshData() {
   api.invalidateCache(`/api/groups/${groupId.value}/history`)
-  await loadHistory()
+  const jobs: Promise<void>[] = [loadHistory()]
+  if (mode.value === 'h2h' && bothPicked.value) jobs.push(loadH2H())
+  await Promise.all(jobs)
 }
 </script>
 
@@ -326,73 +488,174 @@ async function refreshData() {
   <PullRefresh :on-refresh="refreshData">
     <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
       <div class="flex flex-col gap-4">
-        <!-- Filter button + applied chips -->
-        <div class="flex flex-wrap items-center gap-2">
-          <AppButton variant="secondary" size="sm" @click="showFilterSheet = true">
-            <SlidersHorizontal class="size-4" />
-            Filters
-            <span
-              v-if="activeFilterCount > 0"
-              class="flex size-5 items-center justify-center rounded-full bg-brand font-mono text-xs font-bold tabular-nums text-brand-contrast"
+        <SegmentedControl v-model="modeModel" :options="modeOptions" />
+
+        <!-- ============================== FEED ============================== -->
+        <template v-if="mode === 'feed'">
+          <!-- Filter button + applied chips -->
+          <div class="flex flex-wrap items-center gap-2">
+            <AppButton variant="secondary" size="sm" @click="showFilterSheet = true">
+              <SlidersHorizontal class="size-4" />
+              Filters
+              <span
+                v-if="activeFilterCount > 0"
+                class="flex size-5 items-center justify-center rounded-full bg-accent-fill numeral text-xs text-accent-contrast"
+              >
+                {{ activeFilterCount }}
+              </span>
+            </AppButton>
+
+            <button
+              v-for="chip in filterChips"
+              :key="chip.key"
+              type="button"
+              class="flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface-1 px-3 text-sm text-ink transition-colors hover:bg-surface-2"
+              :aria-label="`Remove filter: ${chip.label}`"
+              @click="chip.remove()"
             >
-              {{ activeFilterCount }}
-            </span>
-          </AppButton>
+              {{ chip.label }}
+              <X class="size-3.5 text-ink-faint" />
+            </button>
+          </div>
 
-          <button
-            v-for="chip in filterChips"
-            :key="chip.key"
-            type="button"
-            class="flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface-1 px-3 text-sm text-ink transition-colors hover:bg-surface-2"
-            :aria-label="`Remove filter: ${chip.label}`"
-            @click="chip.remove()"
+          <SkeletonList v-if="isLoading" :rows="4" />
+
+          <ErrorState v-else-if="error" :message="error" @retry="loadHistory" />
+
+          <AppEmptyState
+            v-else-if="matches.length === 0"
+            court
+            title="No match history yet"
+            :description="
+              activeFilterCount > 0
+                ? 'No matches found for the selected filters.'
+                : 'Complete some events to see match history here.'
+            "
           >
-            {{ chip.label }}
-            <X class="size-3.5 text-ink-faint" />
-          </button>
-        </div>
+            <template #icon><ChartColumn class="size-7" /></template>
+          </AppEmptyState>
 
-        <SkeletonList v-if="isLoading" :rows="4" />
-
-        <ErrorState v-else-if="error" :message="error" @retry="loadHistory" />
-
-        <AppEmptyState
-          v-else-if="matches.length === 0"
-          title="No match history yet"
-          :description="
-            activeFilterCount > 0
-              ? 'No matches found for the selected filters.'
-              : 'Complete some events to see match history here.'
-          "
-        >
-          <template #icon><ChartColumn class="size-7" /></template>
-        </AppEmptyState>
-
-        <template v-else>
-          <section v-for="event in visibleEvents" :key="event.id" class="flex flex-col gap-2">
-            <div class="flex items-center justify-between gap-3 border-b border-line pb-2">
-              <div class="min-w-0">
-                <h2 class="truncate text-base font-semibold text-ink">{{ event.name }}</h2>
-                <p class="text-xs text-ink-faint">{{ formatDate(event.date) }}</p>
+          <template v-else>
+            <section v-for="event in visibleEvents" :key="event.eventId" class="flex flex-col gap-2">
+              <!-- Sticky date/event eyebrow header -->
+              <div
+                class="sticky top-14 z-10 -mx-4 flex items-center justify-between gap-3 border-b border-line bg-surface-page/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6"
+              >
+                <div class="min-w-0">
+                  <p class="eyebrow text-ink-faint">{{ formatDate(event.date) }}</p>
+                  <h2 class="display-wide truncate text-base text-ink">
+                    {{ event.eventName || 'Event' }}
+                  </h2>
+                </div>
+                <AppButton v-if="canManage" variant="ghost" size="sm" @click="openEventEdit(event)">
+                  <Settings2 class="size-4" />
+                  Edit event
+                </AppButton>
               </div>
-              <AppButton v-if="canManage" variant="ghost" size="sm" @click="openEventEdit(event)">
-                <Settings2 class="size-4" />
-                Edit event
-              </AppButton>
-            </div>
 
-            <div class="grid gap-2 md:grid-cols-2">
-              <MatchCard
-                v-for="match in event.matches"
-                :key="match.gameId"
-                :match="match"
-                :editable="canManage"
-                @edit="openEditMatch"
-              />
-            </div>
-          </section>
+              <div class="grid gap-2 md:grid-cols-2">
+                <MatchCard
+                  v-for="match in event.matches"
+                  :key="match.gameId"
+                  :match="match"
+                  :editable="canManage"
+                  @edit="openEditMatch"
+                />
+              </div>
+            </section>
 
-          <AppButton v-if="hasMore" variant="secondary" block @click="loadMore">Load more</AppButton>
+            <AppButton v-if="hasMore" variant="secondary" block @click="loadMore">Load more</AppButton>
+          </template>
+        </template>
+
+        <!-- =========================== HEAD-TO-HEAD ========================== -->
+        <template v-else>
+          <VersusPicker
+            v-model:player-one="h2hP1"
+            v-model:player-two="h2hP2"
+            :players="players"
+          />
+
+          <AppEmptyState
+            v-if="!bothPicked"
+            court
+            title="Pick your matchup"
+            description="Choose two players to run the tale of the tape."
+          >
+            <template #icon><Swords class="size-7" /></template>
+          </AppEmptyState>
+
+          <template v-else>
+            <SkeletonList v-if="isH2hLoading || playerIndex.isLoading.value" :rows="3" />
+
+            <ErrorState v-else-if="h2hError" :message="h2hError" @retry="loadH2H" />
+
+            <template v-else-if="h2h">
+              <AppEmptyState
+                v-if="h2h.games === 0"
+                court
+                title="These two have never crossed the net"
+                description="No games with these players on opposite sides yet."
+              >
+                <template #icon><Swords class="size-7" /></template>
+              </AppEmptyState>
+
+              <!-- Tale of the tape -->
+              <section
+                v-else
+                class="ticket-clip stadium-glow rounded-[20px] border border-line bg-surface-1 p-4 md:p-5"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <span class="min-w-0 flex-1 truncate display-wide text-sm text-accent-text">
+                    {{ p1Name }}
+                  </span>
+                  <span class="shrink-0 eyebrow text-ink-faint">Tale of the tape</span>
+                  <span class="min-w-0 flex-1 truncate text-right display-wide text-sm text-info">
+                    {{ p2Name }}
+                  </span>
+                </div>
+                <div class="mt-4 flex flex-col gap-4">
+                  <H2HBar
+                    v-for="row in tapeRows"
+                    :key="row.label"
+                    :label="row.label"
+                    :left="row.left"
+                    :right="row.right"
+                    :left-pct="row.leftPct"
+                    :right-pct="row.rightPct"
+                  />
+                </div>
+              </section>
+
+              <!-- As teammates -->
+              <section
+                v-if="teammateRecord && teammateRecord.games > 0"
+                class="rounded-[14px] border border-line bg-surface-1 p-4"
+              >
+                <h2 class="eyebrow text-ink-faint">As teammates</h2>
+                <div class="mt-2 flex items-baseline gap-3">
+                  <span class="numeral text-3xl text-ink">
+                    {{ teammateRecord.wins }}-{{ teammateRecord.losses }}-{{ teammateRecord.ties }}
+                  </span>
+                  <span class="text-sm text-ink-muted">
+                    W-L-T across {{ teammateRecord.games }}
+                    {{ teammateRecord.games === 1 ? 'game' : 'games' }} together
+                  </span>
+                </div>
+              </section>
+
+              <!-- Last meetings -->
+              <section v-if="h2h.lastMeetings.length > 0" class="flex flex-col gap-2">
+                <h2 class="eyebrow text-ink-faint">Last meetings</h2>
+                <MatchCard
+                  v-for="match in h2h.lastMeetings"
+                  :key="match.gameId"
+                  :match="match"
+                  show-caption
+                />
+              </section>
+            </template>
+          </template>
         </template>
       </div>
     </div>
@@ -410,8 +673,8 @@ async function refreshData() {
   <!-- Quick score edit sheet -->
   <Sheet v-model="showEditSheet" title="Edit match score">
     <div v-if="editingMatch" class="flex flex-col gap-4">
-      <div class="rounded-xl bg-surface-2 p-3.5">
-        <p class="text-[10px] font-bold uppercase tracking-widest text-ink-faint">Team 1</p>
+      <div class="rounded-[14px] bg-surface-2 p-3.5">
+        <p class="eyebrow text-ink-faint">Team 1</p>
         <p class="mt-1 text-sm font-medium text-ink">{{ editingMatch.team1.join(' & ') }}</p>
         <input
           type="number"
@@ -419,14 +682,14 @@ async function refreshData() {
           placeholder="0"
           inputmode="numeric"
           aria-label="Team 1 score"
-          class="mt-2 w-full rounded-xl border border-line bg-surface-1 py-2.5 text-center font-mono text-2xl font-bold tabular-nums text-brand focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+          class="mt-2 w-full rounded-[10px] border border-line bg-surface-1 py-2.5 text-center numeral text-2xl text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
           :value="editScore1"
           @input="editScore1 = parseScoreInput(($event.target as HTMLInputElement).value)"
         />
       </div>
-      <p class="text-center text-xs font-bold uppercase tracking-widest text-ink-faint">vs</p>
-      <div class="rounded-xl bg-surface-2 p-3.5">
-        <p class="text-[10px] font-bold uppercase tracking-widest text-ink-faint">Team 2</p>
+      <p class="text-center eyebrow text-ink-faint">vs</p>
+      <div class="rounded-[14px] bg-surface-2 p-3.5">
+        <p class="eyebrow text-ink-faint">Team 2</p>
         <p class="mt-1 text-sm font-medium text-ink">{{ editingMatch.team2.join(' & ') }}</p>
         <input
           type="number"
@@ -434,12 +697,12 @@ async function refreshData() {
           placeholder="0"
           inputmode="numeric"
           aria-label="Team 2 score"
-          class="mt-2 w-full rounded-xl border border-line bg-surface-1 py-2.5 text-center font-mono text-2xl font-bold tabular-nums text-brand focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+          class="mt-2 w-full rounded-[10px] border border-line bg-surface-1 py-2.5 text-center numeral text-2xl text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
           :value="editScore2"
           @input="editScore2 = parseScoreInput(($event.target as HTMLInputElement).value)"
         />
       </div>
-      <div class="flex items-start gap-2 rounded-xl bg-warn/10 px-3.5 py-3 text-xs text-warn">
+      <div class="flex items-start gap-2 rounded-[14px] bg-warn/10 px-3.5 py-3 text-xs text-warn">
         <AlertTriangle class="mt-0.5 size-4 shrink-0" />
         <span>
           Updating this score will recalculate ratings for the entire group from this event onwards.

@@ -23,7 +23,7 @@ const chips = computed(() => {
     <span
       v-for="chip in chips"
       :key="chip.key"
-      class="inline-flex max-w-40 items-center truncate rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[0.6875rem] tabular-nums text-ink-muted"
+      class="inline-flex max-w-40 items-center truncate rounded-[4px] bg-surface-2 px-2.5 py-1 font-mono text-xs tabular-nums text-ink-muted"
     >
       {{ chip.label }}
     </span>

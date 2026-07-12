@@ -51,11 +51,11 @@ function onCardClick() {
     @keydown.enter="onCardClick"
   >
     <div class="flex items-center justify-between gap-2 px-4 pt-3" :class="showMenu ? 'pb-0' : 'pb-1'">
-      <span class="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+      <span class="eyebrow text-ink-faint">
         Court {{ game.courtIndex + 1 }}
       </span>
       <span class="flex items-center gap-1">
-        <span v-if="saving" class="flex items-center gap-1 text-xs text-brand" aria-live="polite">
+        <span v-if="saving" class="flex items-center gap-1 text-xs text-accent-text" aria-live="polite">
           <Loader2 class="size-3.5 animate-spin" aria-hidden="true" /> Saving
         </span>
         <span v-else-if="saved" class="flex items-center gap-1 text-xs text-win" aria-live="polite">
@@ -86,11 +86,13 @@ function onCardClick() {
             ELO {{ Math.round((side === 1 ? game.team1Elo : game.team2Elo) || 0) }}
           </p>
         </div>
-        <span
-          class="shrink-0 font-mono text-2xl font-bold tabular-nums"
-          :class="(side === 1 ? game.scoreTeam1 : game.scoreTeam2) == null ? 'text-ink-faint' : ''"
-        >
-          {{ (side === 1 ? game.scoreTeam1 : game.scoreTeam2) ?? '–' }}
+        <span class="flex h-8 shrink-0 items-center">
+          <span
+            class="numeral text-2xl leading-none"
+            :class="(side === 1 ? game.scoreTeam1 : game.scoreTeam2) == null ? 'text-ink-faint' : ''"
+          >
+            {{ (side === 1 ? game.scoreTeam1 : game.scoreTeam2) ?? '–' }}
+          </span>
         </span>
       </div>
     </div>

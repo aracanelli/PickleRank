@@ -4,6 +4,8 @@ import { Pencil } from 'lucide-vue-next'
 import type { MatchHistoryEntryDto } from '@/app/core/models/dto'
 import IconButton from '@/app/core/ui/components/IconButton.vue'
 
+// Broadcast result row: stacked team names with scoreboard numerals on the
+// right. Winner reads in win color; ties read tie on both sides.
 const props = withDefaults(
   defineProps<{
     match: MatchHistoryEntryDto
@@ -21,9 +23,9 @@ const isTie = computed(() => props.match.result === 'TIE')
 const team1Won = computed(() => props.match.result === 'TEAM1_WIN')
 const team2Won = computed(() => props.match.result === 'TEAM2_WIN')
 
-function teamClass(won: boolean): string {
+function nameClass(won: boolean): string {
   if (isTie.value) return 'text-tie'
-  return won ? 'text-win font-semibold' : 'text-ink-muted'
+  return won ? 'font-semibold text-win' : 'text-ink-muted'
 }
 
 function scoreClass(won: boolean): string {
@@ -42,43 +44,58 @@ const captionDate = computed(() =>
 </script>
 
 <template>
-  <div class="rounded-xl border border-line bg-surface-1 p-3.5">
-    <p v-if="showCaption" class="mb-2 truncate text-xs text-ink-faint">
+  <div class="rounded-[14px] border border-line bg-surface-1 px-3.5 py-3">
+    <p v-if="showCaption" class="mb-2 truncate eyebrow text-ink-faint">
       {{ match.eventName || 'Event' }} · {{ captionDate }}
     </p>
 
-    <div class="flex items-center gap-3">
-      <!-- Team 1 -->
-      <div class="min-w-0 flex-1">
-        <p v-for="name in match.team1" :key="name" class="truncate text-sm" :class="teamClass(team1Won)">
-          {{ name }}
-        </p>
-        <p v-if="match.team1Elo" class="mt-0.5 font-mono text-[10px] tabular-nums text-ink-faint">
-          ELO {{ match.team1Elo.toFixed(1) }}
-        </p>
+    <div class="flex flex-col gap-1">
+      <!-- Team 1 row -->
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <p
+            v-for="name in match.team1"
+            :key="name"
+            class="truncate text-sm leading-5"
+            :class="nameClass(team1Won)"
+          >
+            {{ name }}
+          </p>
+        </div>
+        <span
+          class="w-9 shrink-0 text-right numeral text-xl"
+          :class="scoreClass(team1Won)"
+        >{{ match.scoreTeam1 ?? '–' }}</span>
       </div>
 
-      <!-- Scores -->
-      <div class="flex shrink-0 items-center gap-1.5 font-mono text-2xl font-bold tabular-nums">
-        <span :class="scoreClass(team1Won)">{{ match.scoreTeam1 ?? '–' }}</span>
-        <span class="text-sm font-medium text-ink-faint">:</span>
-        <span :class="scoreClass(team2Won)">{{ match.scoreTeam2 ?? '–' }}</span>
-      </div>
+      <div class="h-px bg-line" aria-hidden="true" />
 
-      <!-- Team 2 -->
-      <div class="min-w-0 flex-1 text-right">
-        <p v-for="name in match.team2" :key="name" class="truncate text-sm" :class="teamClass(team2Won)">
-          {{ name }}
-        </p>
-        <p v-if="match.team2Elo" class="mt-0.5 font-mono text-[10px] tabular-nums text-ink-faint">
-          ELO {{ match.team2Elo.toFixed(1) }}
-        </p>
+      <!-- Team 2 row -->
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <p
+            v-for="name in match.team2"
+            :key="name"
+            class="truncate text-sm leading-5"
+            :class="nameClass(team2Won)"
+          >
+            {{ name }}
+          </p>
+        </div>
+        <span
+          class="w-9 shrink-0 text-right numeral text-xl"
+          :class="scoreClass(team2Won)"
+        >{{ match.scoreTeam2 ?? '–' }}</span>
       </div>
     </div>
 
-    <div class="mt-2 flex items-center justify-between">
+    <!-- Caption + edit -->
+    <div class="mt-1.5 flex min-h-5 items-center justify-between gap-2">
       <p class="text-xs text-ink-faint">
         Round {{ match.roundIndex + 1 }} · Court {{ match.courtIndex + 1 }}
+        <template v-if="match.team1Elo != null && match.team2Elo != null">
+          · ELO {{ match.team1Elo.toFixed(0) }}–{{ match.team2Elo.toFixed(0) }}
+        </template>
         <span v-if="isTie" class="ml-1 font-semibold text-tie">Tie</span>
       </p>
       <IconButton v-if="editable" label="Edit score" @click="emit('edit', match)">

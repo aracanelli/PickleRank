@@ -1,29 +1,37 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Settings, Users, Plus, CalendarDays, Upload, DollarSign, UserPlus } from 'lucide-vue-next'
+import { Plus, CalendarDays, UserPlus } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
+import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
+import { paymentsApi } from '@/app/features/payments/services/payments.api'
 import { api } from '@/app/core/http/api-client'
-import type { GroupDto, GroupPlayerDto, EventListItemDto } from '@/app/core/models/dto'
+import type { GroupDto, EventListItemDto, RankingEntryDto } from '@/app/core/models/dto'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
 import { useToast } from '@/app/core/ui/composables/useToast'
 import { useConfirm } from '@/app/core/ui/composables/useConfirm'
 import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import HeaderActions from '@/app/core/layout/HeaderActions.vue'
-import IconButton from '@/app/core/ui/components/IconButton.vue'
+import { usePlayerIndex } from '@/app/features/players/composables/usePlayerIndex'
+import { useGroupHistory, bustGroupHistory } from '@/app/features/rankings/composables/useGroupHistory'
+import { hotAndCold, groupByEvent } from '@/app/features/rankings/utils/match-derivations'
 import AppButton from '@/app/core/ui/components/AppButton.vue'
 import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
 import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
+import Skeleton from '@/app/core/ui/components/Skeleton.vue'
 import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
-import ListItem from '@/app/core/ui/components/ListItem.vue'
 import Fab from '@/app/core/ui/components/Fab.vue'
 import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
-import GroupStatsRow from '../components/GroupStatsRow.vue'
+import CourtLines from '@/app/core/ui/components/CourtLines.vue'
 import EventCard from '../components/EventCard.vue'
 import ImportHistorySheet from '../components/ImportHistorySheet.vue'
+import HeroEventCard from '../components/dashboard/HeroEventCard.vue'
+import PodiumStrip from '../components/dashboard/PodiumStrip.vue'
+import HotColdRow from '../components/dashboard/HotColdRow.vue'
+import RecentResults from '../components/dashboard/RecentResults.vue'
+import AdminStrip from '../components/dashboard/AdminStrip.vue'
+import type { PodiumItem } from '../components/dashboard/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -35,12 +43,16 @@ const { confirm } = useConfirm()
 const groupId = computed(() => route.params.groupId as string)
 
 const group = ref<GroupDto | null>(null)
-const players = ref<GroupPlayerDto[]>([])
 const events = ref<EventListItemDto[]>([])
+const rankings = ref<RankingEntryDto[]>([])
+const totalOwed = ref<number | null>(null)
 const isLoading = ref(true)
 const error = ref('')
 const statusFilter = ref('all')
 const showImportSheet = ref(false)
+
+const playerIndex = usePlayerIndex(groupId)
+const history = useGroupHistory(groupId)
 
 const statusOptions = [
   { label: 'All', value: 'all' },
@@ -55,29 +67,54 @@ async function loadAll(silent = false) {
   error.value = ''
   try {
     // Events failing shouldn't take down the whole page (ported behavior)
-    const [groupRes, playersRes, eventsRes] = await Promise.all([
+    const [groupRes, , eventsRes] = await Promise.all([
       groupsApi.get(groupId.value),
-      groupsApi.getPlayers(groupId.value),
+      playerIndex.load(),
       eventsApi.list(groupId.value).catch((e) => {
         console.error('Failed to load events:', e)
         return { events: [] as EventListItemDto[] }
       })
     ])
+    // usePlayerIndex swallows its own errors; players are load-bearing here
+    if (playerIndex.error.value) throw new Error(playerIndex.error.value)
     group.value = groupRes
-    players.value = playersRes.players
     events.value = eventsRes.events
     syncGroupContext()
   } catch (e) {
     error.value = getApiErrorMessage(e, 'Failed to load group')
-  } finally {
     isLoading.value = false
+    return
+  }
+  isLoading.value = false
+  // Dashboard extras are all fail-soft: their sections simply hide.
+  await loadDashboardExtras()
+}
+
+async function loadDashboardExtras() {
+  await Promise.all([
+    history.load(),
+    rankingsApi
+      .getRankings(groupId.value)
+      .then((res) => (rankings.value = res.rankings))
+      .catch((e) => console.error('Failed to load rankings:', e)),
+    loadPaymentsBadge()
+  ])
+}
+
+async function loadPaymentsBadge() {
+  totalOwed.value = null
+  if (!canManage.value || !trackPayments.value) return
+  try {
+    totalOwed.value = (await paymentsApi.getBalances(groupId.value)).totalOwed
+  } catch (e) {
+    console.error('Failed to load payment balances:', e)
   }
 }
 
 function syncGroupContext() {
   if (!group.value) return
   const userId = authStore.userId
-  const myPlayer = players.value.find((p) => p.userId && p.userId === userId) || null
+  const myPlayer = playerIndex.players.value.find((p) => p.userId && p.userId === userId) || null
   let role: GroupRole = null
   if (userId && group.value.ownerUserId === userId) role = 'OWNER'
   else if (myPlayer) role = myPlayer.role
@@ -91,15 +128,76 @@ function syncGroupContext() {
 
 const canManage = computed(() => groupContext.canManage)
 
-const permanentPlayers = computed(() => players.value.filter((p) => p.membershipType === 'PERMANENT'))
+const permanentPlayers = computed(() =>
+  playerIndex.players.value.filter((p) => p.membershipType === 'PERMANENT')
+)
 
-const ratingSystemLabel = computed(() => {
-  switch (group.value?.settings.ratingSystem) {
-    case 'CATCH_UP': return 'Catch-Up Mode'
-    case 'RACS_ELO': return "Rac's ELO"
-    default: return 'Serious ELO'
-  }
+const trackPayments = computed(() => !!group.value?.settings.paymentSettings?.trackPayments)
+const currency = computed(() => group.value?.settings.paymentSettings?.currency || 'USD')
+
+const mastheadEyebrow = computed(() => {
+  const sport = group.value?.sport || 'Pickleball'
+  const count = playerIndex.players.value.length
+  return `${sport} · ${count} ${count === 1 ? 'player' : 'players'}`
 })
+
+// --- Hero event: live beats scheduled beats empty ---------------------------
+
+const liveEvent = computed(() => events.value.find((e) => e.status === 'IN_PROGRESS') ?? null)
+
+const nextEvent = computed(() => {
+  const pending = events.value.filter((e) => e.status === 'DRAFT' || e.status === 'GENERATED')
+  if (pending.length === 0) return null
+  const now = Date.now()
+  const startsAtMs = (e: EventListItemDto) => (e.startsAt ? new Date(e.startsAt).getTime() : NaN)
+  const future = pending
+    .filter((e) => startsAtMs(e) >= now)
+    .sort((a, b) => startsAtMs(a) - startsAtMs(b))
+  if (future.length > 0) return future[0]
+  // Fallback: newest non-completed (undated events keep list order)
+  return [...pending].sort((a, b) => (startsAtMs(b) || 0) - (startsAtMs(a) || 0))[0]
+})
+
+const heroEvent = computed(() => liveEvent.value ?? nextEvent.value)
+
+function openHeroEvent() {
+  const event = heroEvent.value
+  if (!event) return
+  router.push(
+    event.status === 'IN_PROGRESS' ? `/events/${event.id}?mode=live` : `/events/${event.id}`
+  )
+}
+
+// --- Podium / streaks / feed derivations ------------------------------------
+
+const podiumItems = computed<PodiumItem[]>(() => {
+  const ranked = rankings.value
+    .filter((r) => r.gamesPlayed > 0)
+    .slice()
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 3)
+  if (ranked.length < 3) return []
+  return ranked.map((r) => ({
+    rank: r.rank,
+    playerId: r.playerId,
+    groupPlayerId: playerIndex.toGroupPlayerId(r.playerId),
+    name: r.displayName,
+    rating: r.rating,
+    delta: playerIndex.byGlobalPlayerId.value.get(r.playerId)?.ratingDelta
+  }))
+})
+
+const streaks = computed(() =>
+  hotAndCold(history.matches.value, playerIndex.namesByGroupPlayerId.value)
+)
+
+const recentMatches = computed(() =>
+  groupByEvent(history.matches.value)
+    .flatMap((g) => g.matches)
+    .slice(0, 3)
+)
+
+// --- Events list (ported) ----------------------------------------------------
 
 const filteredEvents = computed(() => {
   if (statusFilter.value === 'active') return events.value.filter((e) => e.status !== 'COMPLETED')
@@ -107,14 +205,17 @@ const filteredEvents = computed(() => {
   return events.value
 })
 
-const trackPayments = computed(() => !!group.value?.settings.paymentSettings?.trackPayments)
-
 async function reloadEvents() {
   try {
     events.value = (await eventsApi.list(groupId.value)).events
   } catch (e) {
     console.error('Failed to load events:', e)
   }
+}
+
+async function onHistoryImported() {
+  bustGroupHistory(groupId.value)
+  await Promise.all([reloadEvents(), loadDashboardExtras()])
 }
 
 async function deleteEvent(event: EventListItemDto) {
@@ -138,33 +239,44 @@ async function refresh() {
   api.invalidateCache(`/api/groups/${groupId.value}`)
   api.invalidateCache(`/api/groups/${groupId.value}/players`)
   api.invalidateCache(`/api/groups/${groupId.value}/rankings`)
+  bustGroupHistory(groupId.value)
   await loadAll(true)
 }
 </script>
 
 <template>
-  <HeaderActions>
-    <template v-if="canManage">
-      <IconButton label="Manage players" @click="router.push(`/groups/${groupId}/players/manage`)">
-        <Users class="size-5" />
-      </IconButton>
-      <IconButton label="Group settings" @click="router.push(`/groups/${groupId}/settings`)">
-        <Settings class="size-5" />
-      </IconButton>
-    </template>
-  </HeaderActions>
-
   <PullRefresh :on-refresh="refresh">
     <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
-      <SkeletonList v-if="isLoading || !authStore.isInitialized" :rows="5" />
+      <!-- Skeletons sized like the dashboard: masthead, hero, podium, rows -->
+      <div v-if="isLoading || !authStore.isInitialized" class="flex flex-col gap-5">
+        <div class="flex flex-col gap-2">
+          <Skeleton class="h-3 w-40" />
+          <Skeleton class="h-9 w-2/3" />
+        </div>
+        <Skeleton class="h-44 rounded-[20px]" />
+        <div class="grid grid-cols-3 items-end gap-2">
+          <Skeleton class="h-36" />
+          <Skeleton class="h-44" />
+          <Skeleton class="h-36" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <Skeleton class="h-24" />
+          <Skeleton class="h-24" />
+        </div>
+      </div>
 
       <ErrorState v-else-if="error" :message="error" @retry="loadAll()" />
 
       <div v-else-if="group" class="flex flex-col gap-5">
-        <section class="flex flex-col gap-2">
-          <GroupStatsRow :players="players" :events="events" />
-          <p class="text-xs text-ink-faint">{{ ratingSystemLabel }}</p>
-        </section>
+        <!-- Masthead: broadcast title block, not a card -->
+        <header class="stadium-glow relative overflow-hidden">
+          <CourtLines crop="corner" class="absolute -right-2 -top-3 h-28 w-auto" />
+          <p class="eyebrow relative text-ink-faint">{{ mastheadEyebrow }}</p>
+          <h1 class="display-wide relative mt-1 text-3xl text-ink md:text-4xl">
+            {{ group.name }}
+          </h1>
+          <div class="kitchen-line relative mt-3" />
+        </header>
 
         <AppEmptyState
           v-if="canManage && permanentPlayers.length === 0"
@@ -179,7 +291,26 @@ async function refresh() {
           </template>
         </AppEmptyState>
 
+        <HeroEventCard :event="heroEvent" :can-manage="canManage" @open="openHeroEvent" />
+
+        <PodiumStrip v-if="podiumItems.length" :items="podiumItems" :group-id="groupId" />
+
+        <HotColdRow :hot="streaks.hot" :cold="streaks.cold" :group-id="groupId" />
+
+        <RecentResults :matches="recentMatches" :group-id="groupId" />
+
+        <AdminStrip
+          v-if="canManage"
+          :group-id="groupId"
+          :track-payments="trackPayments"
+          :total-owed="totalOwed"
+          :currency="currency"
+          @import="showImportSheet = true"
+        />
+
+        <!-- All events (ported filter + list) -->
         <section class="flex flex-col gap-3">
+          <h2 class="eyebrow text-ink-faint">All events</h2>
           <SegmentedControl v-model="statusFilter" :options="statusOptions" />
 
           <AppEmptyState
@@ -190,6 +321,7 @@ async function refresh() {
                 ? 'Completed events will show up here.'
                 : 'Create a new event to start organizing games.'
             "
+            court
           >
             <template #icon><CalendarDays class="size-7" /></template>
             <template v-if="canManage && statusFilter !== 'done'" #action>
@@ -211,24 +343,6 @@ async function refresh() {
             />
           </div>
         </section>
-
-        <!-- Organizer tools without another home: history import, payments -->
-        <section v-if="canManage" class="overflow-hidden rounded-xl border border-line bg-surface-1">
-          <div class="divide-y divide-line">
-            <ListItem title="Import history" subtitle="Load past games from a CSV" @click="showImportSheet = true">
-              <template #leading><Upload class="size-5" /></template>
-            </ListItem>
-            <ListItem
-              v-if="trackPayments"
-              title="Payments"
-              subtitle="Track sub fees and attendance"
-              chevron
-              @click="router.push(`/groups/${groupId}/payments`)"
-            >
-              <template #leading><DollarSign class="size-5" /></template>
-            </ListItem>
-          </div>
-        </section>
       </div>
     </div>
   </PullRefresh>
@@ -237,5 +351,5 @@ async function refresh() {
     <Plus class="size-5" />
   </Fab>
 
-  <ImportHistorySheet v-model="showImportSheet" :group-id="groupId" @imported="reloadEvents" />
+  <ImportHistorySheet v-model="showImportSheet" :group-id="groupId" @imported="onHistoryImported" />
 </template>
