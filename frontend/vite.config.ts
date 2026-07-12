@@ -30,6 +30,12 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
+        // The Clerk vendor chunk is ~2.6 MB (only when a publishable key is
+        // set at build time) and must be precached: bootstrap dynamically
+        // imports it, so an uncached chunk would break offline launches.
+        // Precache re-fetches hit the immutable /assets HTTP cache, so the
+        // real cost is storage, not network.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
         // Never let the SPA fallback or caches touch the API or Clerk flows
         navigateFallbackDenylist: [/^\/api\//, /__clerk/],
