@@ -173,12 +173,16 @@ function openHeroEvent() {
 const podiumItems = computed<PodiumItem[]>(() => {
   const ranked = rankings.value
     .filter((r) => r.gamesPlayed > 0)
+    // Permanent regulars only — subs don't belong on the club podium.
+    // Unknown/unmapped counts as permanent, matching the Ladder filter.
+    .filter((r) => playerIndex.byGlobalPlayerId.value.get(r.playerId)?.membershipType !== 'SUB')
     .slice()
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 3)
   if (ranked.length < 3) return []
-  return ranked.map((r) => ({
-    rank: r.rank,
+  // Re-rank 1·2·3 so medals stay contiguous after subs are removed
+  return ranked.map((r, index) => ({
+    rank: index + 1,
     playerId: r.playerId,
     groupPlayerId: playerIndex.toGroupPlayerId(r.playerId),
     name: r.displayName,
