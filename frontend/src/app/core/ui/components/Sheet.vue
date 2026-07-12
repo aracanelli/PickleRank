@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
             @touchmove.passive="onTouchMove"
             @touchend.passive="onTouchEnd"
           >
-            <h2 class="display-wide text-base text-ink">{{ title }}</h2>
+            <h2 class="display-wide min-w-0 flex-1 truncate text-base text-ink">{{ title }}</h2>
             <IconButton v-if="!persistent" label="Close" @click="close">
               <X class="size-5" />
             </IconButton>

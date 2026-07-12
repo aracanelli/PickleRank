@@ -40,7 +40,7 @@ const delta = computed(() => props.item.delta ?? 0)
       class="numeral h-4 text-xs leading-4"
       :class="delta > 0 ? 'text-win' : 'text-loss'"
     >
-      {{ delta > 0 ? '▲' : '▼' }} {{ Math.abs(delta) }}
+      {{ delta > 0 ? '▲' : '▼' }} {{ Math.abs(delta).toFixed(2) }}
     </span>
   </component>
 </template>

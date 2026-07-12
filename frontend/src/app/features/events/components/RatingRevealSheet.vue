@@ -52,7 +52,7 @@ function deltaClasses(delta: number) {
           </p>
         </div>
         <span class="flex h-8 w-16 items-center justify-end text-xl" :class="deltaClasses(update.delta)">
-          <CountUpNumber :value="update.delta" :decimals="1" signed />
+          <CountUpNumber :value="update.delta" :decimals="2" signed />
         </span>
       </div>
     </div>

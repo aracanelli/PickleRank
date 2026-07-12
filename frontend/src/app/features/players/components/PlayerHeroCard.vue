@@ -62,7 +62,7 @@ const ratingDelta = computed(() => props.player.ratingDelta)
           :class="ratingDelta > 0 ? 'text-win' : 'text-loss'"
         >
           <span aria-hidden="true">{{ ratingDelta > 0 ? '▲' : '▼' }}</span>
-          <CountUpNumber :value="ratingDelta" :decimals="1" signed class="text-sm" />
+          <CountUpNumber :value="ratingDelta" :decimals="2" signed class="text-sm" />
           <span class="sr-only">rating change</span>
         </span>
       </div>

@@ -378,7 +378,7 @@ async function exportAsImage() {
                       :class="getRatingDelta(item.playerId)! > 0 ? 'text-win' : 'text-loss'"
                     >
                       {{ getRatingDelta(item.playerId)! > 0 ? '▲' : '▼' }}
-                      {{ Math.abs(getRatingDelta(item.playerId)!).toFixed(1) }}
+                      {{ Math.abs(getRatingDelta(item.playerId)!).toFixed(2) }}
                     </span>
                   </span>
                   <span
@@ -454,7 +454,7 @@ async function exportAsImage() {
                   :class="getRatingDelta(item.playerId)! > 0 ? 'text-win' : 'text-loss'"
                 >
                   {{ getRatingDelta(item.playerId)! > 0 ? '▲' : '▼' }}
-                  {{ Math.abs(getRatingDelta(item.playerId)!).toFixed(1) }}
+                  {{ Math.abs(getRatingDelta(item.playerId)!).toFixed(2) }}
                 </span>
               </div>
             </template>

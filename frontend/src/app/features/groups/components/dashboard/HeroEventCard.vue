@@ -13,6 +13,9 @@ import CourtLines from '@/app/core/ui/components/CourtLines.vue'
 const props = defineProps<{
   event: EventListItemDto | null
   canManage: boolean
+  /** Group has completed events — flips the empty-state copy from
+   *  "first event" to "next event". */
+  hasHistory?: boolean
 }>()
 
 const emit = defineEmits<{ open: [] }>()
@@ -86,7 +89,7 @@ const setupCaption = computed(() => {
       <div>
         <TapeChip variant="live"><LiveDot /> LIVE</TapeChip>
       </div>
-      <h2 class="display-wide text-xl text-ink">{{ title }}</h2>
+      <h2 class="display-wide break-words text-xl text-ink">{{ title }}</h2>
       <div v-if="totalGames !== null" class="flex flex-col gap-2">
         <p class="eyebrow text-ink-faint">{{ scoredGames }} / {{ totalGames }} games scored</p>
         <div class="h-1.5 overflow-hidden rounded-full bg-surface-3">
@@ -107,7 +110,7 @@ const setupCaption = computed(() => {
         <TapeChip variant="info">UP NEXT</TapeChip>
       </div>
       <div class="flex flex-col gap-1">
-        <h2 class="display-wide text-xl text-ink">{{ title }}</h2>
+        <h2 class="display-wide break-words text-xl text-ink">{{ title }}</h2>
         <p v-if="dayTime" class="numeral h-7 text-xl text-accent-text">{{ dayTime }}</p>
       </div>
       <p class="text-sm text-ink-faint">{{ setupCaption }}</p>
@@ -118,14 +121,22 @@ const setupCaption = computed(() => {
 
     <!-- EMPTY: nothing on the schedule -->
     <div v-else class="relative flex flex-col gap-2 p-5 py-8">
-      <h2 class="display-wide text-lg text-ink">
-        {{ canManage ? 'Schedule your first event' : 'No upcoming events' }}
+      <h2 class="display-wide break-words text-lg text-ink">
+        {{
+          !canManage
+            ? 'No upcoming events'
+            : hasHistory
+              ? 'Schedule the next event'
+              : 'Schedule your first event'
+        }}
       </h2>
       <p class="max-w-sm text-sm text-ink-muted">
         {{
-          canManage
-            ? 'Set up courts and rounds — matchups generate themselves.'
-            : 'Check back once your organizer schedules the next game night.'
+          !canManage
+            ? 'Check back once your organizer schedules the next game night.'
+            : hasHistory
+              ? "The last one's in the books — set up the next game night."
+              : 'Set up courts and rounds — matchups generate themselves.'
         }}
       </p>
     </div>
