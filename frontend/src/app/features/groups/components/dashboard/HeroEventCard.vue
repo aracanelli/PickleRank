@@ -8,14 +8,10 @@ import LiveDot from '@/app/core/ui/components/LiveDot.vue'
 import CourtLines from '@/app/core/ui/components/CourtLines.vue'
 
 // The one big billboard on the club dashboard: the live event if a game night
-// is running, otherwise the next scheduled event, otherwise a court-motif
-// empty state.
+// is running, otherwise the next scheduled event. The dashboard hides the
+// card entirely when there's nothing on the schedule.
 const props = defineProps<{
   event: EventListItemDto | null
-  canManage: boolean
-  /** Group has completed events — flips the empty-state copy from
-   *  "first event" to "next event". */
-  hasHistory?: boolean
 }>()
 
 const emit = defineEmits<{ open: [] }>()
@@ -119,26 +115,5 @@ const setupCaption = computed(() => {
       </div>
     </div>
 
-    <!-- EMPTY: nothing on the schedule -->
-    <div v-else class="relative flex flex-col gap-2 p-5 py-8">
-      <h2 class="display-wide break-words text-lg text-ink">
-        {{
-          !canManage
-            ? 'No upcoming events'
-            : hasHistory
-              ? 'Schedule the next event'
-              : 'Schedule your first event'
-        }}
-      </h2>
-      <p class="max-w-sm text-sm text-ink-muted">
-        {{
-          !canManage
-            ? 'Check back once your organizer schedules the next game night.'
-            : hasHistory
-              ? "The last one's in the books — set up the next game night."
-              : 'Set up courts and rounds — matchups generate themselves.'
-        }}
-      </p>
-    </div>
   </section>
 </template>

@@ -3,14 +3,14 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ClipboardList,
-  Users,
   Plus,
   ChevronRight,
   EllipsisVertical,
   Pencil,
   Copy,
   RefreshCw,
-  Archive
+  Archive,
+  CircleHelp
 } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
 import { api } from '@/app/core/http/api-client'
@@ -28,6 +28,11 @@ import IconButton from '@/app/core/ui/components/IconButton.vue'
 import Sheet from '@/app/core/ui/components/Sheet.vue'
 import Fab from '@/app/core/ui/components/Fab.vue'
 import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
+import Avatar from '@/app/core/ui/components/Avatar.vue'
+import ListItem from '@/app/core/ui/components/ListItem.vue'
+import CourtLines from '@/app/core/ui/components/CourtLines.vue'
+import HeaderActions from '@/app/core/layout/HeaderActions.vue'
+import HelpSheet from '@/app/core/layout/HelpSheet.vue'
 import CreateGroupSheet from '../components/CreateGroupSheet.vue'
 
 const router = useRouter()
@@ -40,6 +45,7 @@ const memberGroups = ref<GroupListItemDto[]>([])
 const isLoading = ref(true)
 const error = ref('')
 const showCreateSheet = ref(false)
+const showHelpSheet = ref(false)
 
 // Per-group actions sheet
 const showActionsSheet = ref(false)
@@ -178,11 +184,18 @@ async function archiveGroup() {
 <template>
   <PullRefresh :on-refresh="refresh">
     <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
+      <HeaderActions>
+        <IconButton label="How PickleRank works" @click="showHelpSheet = true">
+          <CircleHelp class="size-5" />
+        </IconButton>
+      </HeaderActions>
+
       <!-- Masthead -->
-      <header class="mb-5">
-        <p class="eyebrow text-ink-faint">Your leagues</p>
-        <h1 class="display-wide mt-1 text-3xl text-ink">My Clubs</h1>
-        <div class="kitchen-line mt-3" />
+      <header class="relative mb-5 overflow-hidden stadium-glow">
+        <CourtLines crop="corner" class="absolute -right-4 -top-2 h-24 w-auto" />
+        <p class="eyebrow relative text-ink-faint">Your leagues</p>
+        <h1 class="display-wide relative mt-1 text-3xl text-ink">My Clubs</h1>
+        <div class="kitchen-line relative mt-3" />
       </header>
 
       <SkeletonList v-if="isLoading" :rows="4" />
@@ -197,10 +210,16 @@ async function archiveGroup() {
       >
         <template #icon><ClipboardList class="size-7" /></template>
         <template #action>
-          <AppButton @click="showCreateSheet = true">
-            <Plus class="size-4" />
-            Create your first club
-          </AppButton>
+          <div class="flex flex-col items-center gap-2">
+            <AppButton @click="showCreateSheet = true">
+              <Plus class="size-4" />
+              Create your first club
+            </AppButton>
+            <AppButton variant="ghost" size="sm" @click="showHelpSheet = true">
+              <CircleHelp class="size-4" />
+              How PickleRank works
+            </AppButton>
+          </div>
         </template>
       </AppEmptyState>
 
@@ -211,15 +230,16 @@ async function archiveGroup() {
             <div
               v-for="group in groups"
               :key="group.id"
-              class="flex items-center rounded-[20px] ticket-clip border border-line bg-surface-1 transition-colors hover:bg-surface-2"
+              class="flex min-w-0 items-center rounded-[20px] ticket-clip border border-line bg-surface-1 transition-colors hover:bg-surface-2"
             >
               <button
                 type="button"
-                class="flex min-h-16 min-w-0 flex-1 items-center gap-3 px-4 py-3.5 text-left"
+                class="flex min-h-18 min-w-0 flex-1 items-center gap-3 px-4 py-3.5 text-left"
                 @click="router.push(`/groups/${group.id}`)"
               >
+                <Avatar :name="group.name" :seed="group.id" size="md" />
                 <span class="flex min-w-0 flex-1 flex-col gap-1">
-                  <span class="display-wide truncate text-lg leading-tight text-ink">
+                  <span class="display-wide truncate text-base leading-tight text-ink">
                     {{ group.name }}
                   </span>
                   <span class="eyebrow truncate text-ink-faint">{{ clubCaption(group) }}</span>
@@ -242,14 +262,12 @@ async function archiveGroup() {
               v-for="group in memberGroups"
               :key="group.id"
               type="button"
-              class="flex min-h-16 min-w-0 items-center gap-3 rounded-[20px] ticket-clip border border-line bg-surface-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
+              class="flex min-h-18 min-w-0 items-center gap-3 rounded-[20px] ticket-clip border border-line bg-surface-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
               @click="router.push(`/groups/${group.id}`)"
             >
-              <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-                <Users class="size-4" />
-              </span>
+              <Avatar :name="group.name" :seed="group.id" size="md" />
               <span class="flex min-w-0 flex-1 flex-col gap-1">
-                <span class="display-wide truncate text-lg leading-tight text-ink">
+                <span class="display-wide truncate text-base leading-tight text-ink">
                   {{ group.name }}
                 </span>
                 <span class="eyebrow truncate text-ink-faint">{{ clubCaption(group) }}</span>
@@ -257,6 +275,22 @@ async function archiveGroup() {
               <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
             </button>
           </div>
+        </section>
+
+        <!-- Help entry -->
+        <section class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
+          <ListItem
+            title="New here?"
+            subtitle="See how PickleRank works for organizers and players"
+            chevron
+            @click="showHelpSheet = true"
+          >
+            <template #leading>
+              <span class="flex size-9 items-center justify-center rounded-full bg-accent-soft text-accent-text">
+                <CircleHelp class="size-4" />
+              </span>
+            </template>
+          </ListItem>
         </section>
       </div>
     </div>
@@ -267,6 +301,7 @@ async function archiveGroup() {
   </Fab>
 
   <CreateGroupSheet v-model="showCreateSheet" />
+  <HelpSheet v-model="showHelpSheet" />
 
   <!-- Per-group actions -->
   <Sheet

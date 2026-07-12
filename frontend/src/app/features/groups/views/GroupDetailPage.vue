@@ -160,9 +160,6 @@ const nextEvent = computed(() => {
 
 const heroEvent = computed(() => liveEvent.value ?? nextEvent.value)
 
-// Completed events exist: the empty hero should say "next", not "first"
-const hasCompletedEvents = computed(() => events.value.some((e) => e.status === 'COMPLETED'))
-
 function openHeroEvent() {
   const event = heroEvent.value
   if (!event) return
@@ -294,7 +291,7 @@ async function refresh() {
           </template>
         </AppEmptyState>
 
-        <HeroEventCard :event="heroEvent" :can-manage="canManage" :has-history="hasCompletedEvents" @open="openHeroEvent" />
+        <HeroEventCard v-if="heroEvent" :event="heroEvent" @open="openHeroEvent" />
 
         <PodiumStrip v-if="podiumItems.length" :items="podiumItems" :group-id="groupId" />
 

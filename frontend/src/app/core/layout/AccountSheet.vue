@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { LogOut, Check } from 'lucide-vue-next'
+import { LogOut, Check, CircleHelp, ChevronRight } from 'lucide-vue-next'
 import Sheet from '@/app/core/ui/components/Sheet.vue'
 import Avatar from '@/app/core/ui/components/Avatar.vue'
 import ThemeToggle from '@/app/core/ui/components/ThemeToggle.vue'
+import HelpSheet from './HelpSheet.vue'
 import { useAuthStore } from '@/stores/auth'
 import { signOut, getClerk, getSessions, switchSession } from '@/app/core/auth/clerk'
 
 const open = defineModel<boolean>({ required: true })
+
+const showHelpSheet = ref(false)
+
+function openHelp() {
+  open.value = false
+  showHelpSheet.value = true
+}
 
 const authStore = useAuthStore()
 
@@ -72,10 +80,21 @@ async function handleSignOut() {
         </div>
       </div>
 
+      <!-- Help -->
+      <button
+        type="button"
+        class="flex min-h-11 w-full items-center gap-3 rounded-[10px] border border-line px-3 text-left transition-colors hover:bg-surface-2"
+        @click="openHelp"
+      >
+        <CircleHelp class="size-4 shrink-0 text-accent-text" />
+        <span class="flex-1 text-sm font-medium text-ink">How PickleRank works</span>
+        <ChevronRight class="size-4 shrink-0 text-ink-faint" />
+      </button>
+
       <!-- Sign out -->
       <button
         type="button"
-        class="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-loss/30 font-semibold text-loss transition-colors hover:bg-loss/10"
+        class="flex min-h-11 items-center justify-center gap-2 rounded-[10px] border border-loss/30 font-semibold text-loss transition-colors hover:bg-loss/10"
         @click="handleSignOut"
       >
         <LogOut class="size-4" />
@@ -83,4 +102,6 @@ async function handleSignOut() {
       </button>
     </div>
   </Sheet>
+
+  <HelpSheet v-model="showHelpSheet" />
 </template>
