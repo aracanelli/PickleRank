@@ -290,6 +290,9 @@ async function refresh() {
           <div class="kitchen-line relative mt-3" />
         </header>
 
+        <!-- Awards headline the dashboard once they exist -->
+        <AwardsTeaser v-if="awardsEdition" :group-id="groupId" :edition="awardsEdition" />
+
         <AppEmptyState
           v-if="canManage && permanentPlayers.length === 0"
           title="No permanent players yet"
@@ -310,8 +313,6 @@ async function refresh() {
         <HotColdRow :hot="streaks.hot" :cold="streaks.cold" :group-id="groupId" />
 
         <RecentResults :matches="recentMatches" :group-id="groupId" />
-
-        <AwardsTeaser v-if="awardsEdition" :group-id="groupId" :edition="awardsEdition" />
 
         <AdminStrip
           v-if="canManage"

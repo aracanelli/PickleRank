@@ -311,6 +311,9 @@ export interface PaymentResponseDto {
 // Award DTOs
 export type AwardEditionStatus = 'DRAFT' | 'VOTING_OPEN' | 'CLOSED'
 
+/** Which player pool a stat award was computed over. */
+export type AwardDivision = 'ALL' | 'PERMANENT'
+
 /** A frozen stat-award winner, computed client-side at creation. Stored as
  *  JSONB on the edition and echoed back verbatim by the API. */
 export interface StatAwardDto {
@@ -325,6 +328,8 @@ export interface StatAwardDto {
   value: number
   /** Optional secondary line (e.g. "24 wins · 68% win rate"). */
   detail?: string
+  /** Player pool the award was computed over. Absent on old snapshots (treat as ALL). */
+  division?: AwardDivision
 }
 
 export interface AwardWinnerRef {

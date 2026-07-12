@@ -67,7 +67,7 @@ function openWinner() {
         <span class="block truncate text-sm font-semibold text-ink">{{ names }}</span>
         <span class="mt-1 flex items-baseline gap-1.5">
           <span class="numeral text-3xl leading-none text-accent-text">
-            <CountUpNumber :value="award.value" />
+            <CountUpNumber :value="award.value" :decimals="Number.isInteger(award.value) ? 0 : 1" />
           </span>
           <span v-if="award.detail" class="truncate text-xs text-ink-faint">{{ award.detail }}</span>
         </span>

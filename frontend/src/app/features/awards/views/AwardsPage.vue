@@ -22,6 +22,7 @@ import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
 import ErrorState from '@/app/core/ui/components/ErrorState.vue'
 import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
 import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
+import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
 import TapeChip from '@/app/core/ui/components/TapeChip.vue'
 import LiveDot from '@/app/core/ui/components/LiveDot.vue'
 import CourtLines from '@/app/core/ui/components/CourtLines.vue'
@@ -113,6 +114,24 @@ const statusChip = computed(() => {
   }
 })
 
+// --- Stat-award divisions (Regulars vs Everyone incl. subs) ------------------
+
+const divisionFilter = ref('PERMANENT')
+const divisionOptions = [
+  { label: 'Regulars', value: 'PERMANENT' },
+  { label: 'Everyone', value: 'ALL' }
+]
+// Old snapshots have no division field; treat them as a single ALL pool.
+const hasDivisionSplit = computed(() => {
+  const list = edition.value?.statAwards ?? []
+  return list.some((a) => a.division === 'PERMANENT') && list.some((a) => (a.division ?? 'ALL') === 'ALL')
+})
+const visibleStatAwards = computed(() => {
+  const list = edition.value?.statAwards ?? []
+  if (!hasDivisionSplit.value) return list
+  return list.filter((a) => (a.division ?? 'ALL') === divisionFilter.value)
+})
+
 const categories = computed(() => edition.value?.categories ?? [])
 const activeCategory = computed(
   () => categories.value.find((c) => c.id === activeCategoryId.value) ?? null
@@ -140,8 +159,7 @@ async function createAwards() {
     const statAwards = computeStatAwards({
       rankings: rankingsRes.rankings,
       matches: historyRes.matches,
-      players: playerIndex.players.value,
-      initialRating: group.value.settings.initialRating
+      players: playerIndex.players.value
     })
     await awardsApi.createEdition(groupId.value, {
       title: `${group.value.name} Awards`,
@@ -336,10 +354,16 @@ async function refresh() {
         <!-- Stat awards wall -->
         <section v-if="edition.statAwards.length" class="flex flex-col gap-3">
           <h2 class="eyebrow text-ink-faint">Season superlatives</h2>
+          <template v-if="hasDivisionSplit">
+            <SegmentedControl v-model="divisionFilter" :options="divisionOptions" />
+            <p class="text-xs text-ink-faint">
+              Regulars counts permanent players only · Everyone includes subs.
+            </p>
+          </template>
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             <StatAwardCard
-              v-for="award in edition.statAwards"
-              :key="award.key"
+              v-for="award in visibleStatAwards"
+              :key="`${award.division ?? 'ALL'}:${award.key}`"
               :award="award"
               :group-id="groupId"
             />
