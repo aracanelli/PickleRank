@@ -307,3 +307,59 @@ export interface PaymentResponseDto {
   newBalance: number
   createdAt: string
 }
+
+// Award DTOs
+export type AwardEditionStatus = 'DRAFT' | 'VOTING_OPEN' | 'CLOSED'
+
+/** A frozen stat-award winner, computed client-side at creation. Stored as
+ *  JSONB on the edition and echoed back verbatim by the API. */
+export interface StatAwardDto {
+  key: string
+  emoji: string
+  title: string
+  blurb: string
+  winner: AwardWinnerRef
+  /** Set for pairing awards (Dream Team, Biggest Upset) — the second player. */
+  partner?: AwardWinnerRef
+  /** Headline number (rating, wins, streak length, …). */
+  value: number
+  /** Optional secondary line (e.g. "24 wins · 68% win rate"). */
+  detail?: string
+}
+
+export interface AwardWinnerRef {
+  groupPlayerId: string
+  playerId: string
+  displayName: string
+}
+
+export interface AwardResultDto {
+  nomineeGroupPlayerId: string
+  displayName: string
+  votes: number
+}
+
+export interface AwardCategoryDto {
+  id: string
+  title: string
+  description?: string
+  /** The caller's current pick (group-player id), if they've voted. */
+  myVote?: string
+  /** Present only when the edition is CLOSED. */
+  results?: AwardResultDto[]
+  totalVotes?: number
+}
+
+export interface AwardEditionDto {
+  id: string
+  title: string
+  status: AwardEditionStatus
+  statAwards: StatAwardDto[]
+  categories: AwardCategoryDto[]
+  /** True when status is VOTING_OPEN and the caller has a linked player. */
+  canVote: boolean
+  createdAt: string
+}
+
+/** GET awards returns the latest edition, or null when none exists yet. */
+export type AwardsResponse = AwardEditionDto | null
