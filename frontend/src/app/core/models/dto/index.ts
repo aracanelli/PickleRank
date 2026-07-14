@@ -368,3 +368,62 @@ export interface AwardEditionDto {
 
 /** GET awards returns the latest edition, or null when none exists yet. */
 export type AwardsResponse = AwardEditionDto | null
+
+// Spond integration DTOs
+export interface SpondStatusDto {
+  connected: boolean
+  email?: string
+}
+
+export interface SpondGroupDto {
+  spondGroupId: string
+  name: string
+  memberCount: number
+}
+
+export interface SpondGroupListResponse {
+  groups: SpondGroupDto[]
+}
+
+export interface SpondGroupLinkDto {
+  linked: boolean
+  spondGroupId?: string
+  spondGroupName?: string
+}
+
+export interface SpondEventDto {
+  spondEventId: string
+  name: string
+  startsAt?: string
+  acceptedCount: number
+}
+
+export interface SpondEventListResponse {
+  events: SpondEventDto[]
+}
+
+export interface SpondResolvedAttendeeDto {
+  spondMemberId: string
+  name: string
+  /** Set when a saved link already resolves this attendee to a roster player. */
+  matchedGroupPlayerId?: string
+  /** A best-guess roster match for an unmatched attendee (organizer confirms). */
+  suggestedGroupPlayerId?: string
+}
+
+export interface SpondResolveResponse {
+  attendees: SpondResolvedAttendeeDto[]
+  matchedGroupPlayerIds: string[]
+}
+
+export interface SpondAttendeeLinkInput {
+  spondMemberId: string
+  /** Link to an existing group player... */
+  groupPlayerId?: string
+  /** ...or create a new player with this name and add them to the group. */
+  createName?: string
+}
+
+export interface SpondConfirmLinksResponse {
+  groupPlayerIds: string[]
+}

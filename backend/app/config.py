@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     secret_key: Optional[str] = None
 
+    # Spond integration
+    # Fernet key (urlsafe base64, 32 bytes) used to encrypt stored Spond credentials.
+    # Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    spond_encryption_key: Optional[str] = None
+
     # Environment
     environment: str = "development"
     debug: bool = False

@@ -1,20 +1,27 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { LogOut, Check, CircleHelp, ChevronRight } from 'lucide-vue-next'
+import { LogOut, Check, CircleHelp, ChevronRight, CalendarSync } from 'lucide-vue-next'
 import Sheet from '@/app/core/ui/components/Sheet.vue'
 import Avatar from '@/app/core/ui/components/Avatar.vue'
 import ThemeToggle from '@/app/core/ui/components/ThemeToggle.vue'
 import HelpSheet from './HelpSheet.vue'
+import SpondConnectSheet from '@/app/features/spond/components/SpondConnectSheet.vue'
 import { useAuthStore } from '@/stores/auth'
 import { signOut, getClerk, getSessions, switchSession } from '@/app/core/auth/clerk'
 
 const open = defineModel<boolean>({ required: true })
 
 const showHelpSheet = ref(false)
+const showSpondSheet = ref(false)
 
 function openHelp() {
   open.value = false
   showHelpSheet.value = true
+}
+
+function openSpond() {
+  open.value = false
+  showSpondSheet.value = true
 }
 
 const authStore = useAuthStore()
@@ -80,6 +87,17 @@ async function handleSignOut() {
         </div>
       </div>
 
+      <!-- Connect Spond -->
+      <button
+        type="button"
+        class="flex min-h-11 w-full items-center gap-3 rounded-[10px] border border-line px-3 text-left transition-colors hover:bg-surface-2"
+        @click="openSpond"
+      >
+        <CalendarSync class="size-4 shrink-0 text-accent-text" />
+        <span class="flex-1 text-sm font-medium text-ink">Connect Spond</span>
+        <ChevronRight class="size-4 shrink-0 text-ink-faint" />
+      </button>
+
       <!-- Help -->
       <button
         type="button"
@@ -104,4 +122,5 @@ async function handleSignOut() {
   </Sheet>
 
   <HelpSheet v-model="showHelpSheet" />
+  <SpondConnectSheet v-model="showSpondSheet" />
 </template>

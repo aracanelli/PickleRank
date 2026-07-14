@@ -15,7 +15,9 @@ import Stepper from '@/app/core/ui/components/Stepper.vue'
 import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
 import ErrorState from '@/app/core/ui/components/ErrorState.vue'
 import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
+import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
 import ParticipantPicker from '../components/ParticipantPicker.vue'
+import SpondImportPanel from '@/app/features/spond/components/SpondImportPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -40,6 +42,23 @@ const rounds = ref(4)
 // Mobile 2-step wizard (both sections are visible on md+)
 const step = ref<1 | 2>(1)
 const startsAtId = useId()
+
+// Participant source: manual selection (default) or import from a Spond event.
+const source = ref<'manual' | 'spond'>('manual')
+const sourceOptions = [
+  { label: 'Manual', value: 'manual' },
+  { label: 'Spond', value: 'spond' }
+]
+
+// Called when SpondImportPanel resolves an event into group_player IDs.
+async function onSpondPopulate(ids: string[]) {
+  // Reload the roster first so any newly-created players are known, then apply
+  // the selection (after loadPlayers' watch has run its default auto-select).
+  await loadPlayers()
+  const validIds = new Set(players.value.map((p) => p.id))
+  selectedPlayerIds.value = [...new Set(ids)].filter((id) => validIds.has(id))
+  source.value = 'manual'
+}
 
 const namePlaceholder = `e.g. ${new Date().toLocaleDateString(undefined, {
   weekday: 'long',
@@ -223,27 +242,41 @@ async function createEvent() {
           class="mt-5 flex-col gap-3 md:mt-0"
           :class="step === 2 ? 'flex' : 'hidden md:flex'"
         >
-          <h2 class="eyebrow text-ink-faint md:px-1">Step 2 — Players</h2>
+          <div class="flex items-center justify-between gap-3 md:px-1">
+            <h2 class="eyebrow text-ink-faint">Step 2 — Players</h2>
+            <div class="w-40"><SegmentedControl v-model="source" :options="sourceOptions" /></div>
+          </div>
 
-          <AppEmptyState
-            v-if="players.length === 0"
-            title="No players in this group yet"
-            description="Add players to the group before creating an event."
-          >
-            <template #icon><Users class="size-7" /></template>
-            <template #action>
-              <AppButton @click="router.push(`/groups/${groupId}/players/manage`)">
-                Manage players
-              </AppButton>
-            </template>
-          </AppEmptyState>
-
-          <ParticipantPicker
-            v-else
-            v-model="selectedPlayerIds"
+          <!-- Import participants from a Spond event -->
+          <SpondImportPanel
+            v-if="source === 'spond'"
+            :group-id="groupId"
             :players="players"
-            :max="requiredPlayers"
+            @populate="onSpondPopulate"
           />
+
+          <!-- Manual selection -->
+          <template v-else>
+            <AppEmptyState
+              v-if="players.length === 0"
+              title="No players in this group yet"
+              description="Add players to the group, or import them from a Spond event."
+            >
+              <template #icon><Users class="size-7" /></template>
+              <template #action>
+                <AppButton @click="router.push(`/groups/${groupId}/players/manage`)">
+                  Manage players
+                </AppButton>
+              </template>
+            </AppEmptyState>
+
+            <ParticipantPicker
+              v-else
+              v-model="selectedPlayerIds"
+              :players="players"
+              :max="requiredPlayers"
+            />
+          </template>
         </section>
       </div>
 

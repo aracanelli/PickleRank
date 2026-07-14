@@ -309,3 +309,44 @@ WHERE e.status = 'COMPLETED';
 
 
 
+
+## Spond Integration Tables
+
+These tables back the optional Spond event-import feature (see `backend/app/infrastructure/spond/`).
+
+```sql
+-- One Spond connection per user. The password is Fernet-encrypted at rest
+-- (SPOND_ENCRYPTION_KEY) so we can silently re-authenticate when the token expires.
+CREATE TABLE spond_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    spond_email TEXT NOT NULL,
+    encrypted_credentials TEXT NOT NULL,   -- Fernet ciphertext of the Spond password
+    access_token TEXT,                      -- cached Spond access token
+    token_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Maps a PickleRank group to a single Spond group.
+CREATE TABLE spond_group_links (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    group_id UUID NOT NULL UNIQUE REFERENCES groups(id) ON DELETE CASCADE,
+    spond_group_id TEXT NOT NULL,
+    spond_group_name TEXT,
+    linked_by_user_id UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Maps a Spond attendee (member) to a PickleRank player, scoped per group.
+-- This is what makes a previously-seen attendee auto-recognized next time.
+CREATE TABLE spond_member_links (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    spond_member_id TEXT NOT NULL,
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (group_id, spond_member_id)
+);
+CREATE INDEX idx_spond_member_links_group ON spond_member_links(group_id);
+```

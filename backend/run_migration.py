@@ -169,6 +169,58 @@ async def run_migrations():
                 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
         """)
 
+        # 8. Spond integration tables
+        print("Creating spond_accounts table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS spond_accounts (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                spond_email TEXT NOT NULL,
+                encrypted_credentials TEXT NOT NULL,
+                access_token TEXT,
+                token_expires_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        print("Creating spond_group_links table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS spond_group_links (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                group_id UUID NOT NULL UNIQUE REFERENCES groups(id) ON DELETE CASCADE,
+                spond_group_id TEXT NOT NULL,
+                spond_group_name TEXT,
+                linked_by_user_id UUID REFERENCES users(id),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        print("Creating spond_member_links table...")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS spond_member_links (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                spond_member_id TEXT NOT NULL,
+                player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (group_id, spond_member_id)
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_spond_member_links_group ON spond_member_links(group_id)
+        """)
+
+        # updated_at trigger for spond_accounts
+        await conn.execute("""
+            DROP TRIGGER IF EXISTS update_spond_accounts_updated_at ON spond_accounts
+        """)
+        await conn.execute("""
+            CREATE TRIGGER update_spond_accounts_updated_at
+                BEFORE UPDATE ON spond_accounts
+                FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+        """)
+
         print("Migrations complete.")
 
     await pool.close()
