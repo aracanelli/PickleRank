@@ -103,6 +103,16 @@ cd frontend
 npm run test
 ```
 
+Run the complete project check (backend lint/format/typecheck/tests and
+frontend lint/typecheck/tests/build):
+
+```bash
+npm run check
+```
+
+Known backend lint, format, and mypy findings are reported as explicit CI
+baseline warnings; see [`docs/CI-BASELINES.md`](docs/CI-BASELINES.md).
+
 ## Deployment
 
 The application is designed to be deployed on Vercel:
@@ -125,6 +135,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## License
 
 MIT
-
 
 
