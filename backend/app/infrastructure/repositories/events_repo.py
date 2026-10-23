@@ -99,6 +99,22 @@ class EventsRepository:
         )
         return self._row_to_dict(row) if row else None
 
+    async def get_by_id_for_update(self, event_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get an event while locking it for an atomic state transition."""
+        row = await self.conn.fetchrow(
+            """
+            SELECT e.id, e.group_id, e.name, e.starts_at, e.courts, e.rounds,
+                   e.status, e.generation_meta, e.created_at, e.updated_at,
+                   g.owner_user_id
+            FROM events e
+            JOIN groups g ON g.id = e.group_id
+            WHERE e.id = $1
+            FOR UPDATE OF e
+            """,
+            event_id,
+        )
+        return self._row_to_dict(row) if row else None
+
     async def list_by_group(
         self, group_id: UUID, status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -223,7 +239,6 @@ class EventsRepository:
             if isinstance(data["generation_meta"], str):
                 data["generation_meta"] = json.loads(data["generation_meta"])
         return data
-
 
 
 

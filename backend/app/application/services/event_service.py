@@ -99,8 +99,15 @@ class EventService:
         # Group by round
         games_by_round = defaultdict(list)
         for game in games:
-            if game["result"] != "UNSET":
-                games_by_round[game["round_index"]].append(game)
+            if game["result"] == "UNSET":
+                raise BadRequestError("Cannot complete an event with unfinished games")
+            if game["result"] == "TIE" and (
+                game.get("score_team1") is None
+                or game.get("score_team2") is None
+                or game["score_team1"] != game["score_team2"]
+            ):
+                raise BadRequestError("A tied game must have equal, completed scores")
+            games_by_round[game["round_index"]].append(game)
 
         # Initialize current ratings
         current_ratings = starting_ratings.copy()
@@ -637,7 +644,7 @@ class EventService:
         raise NotFoundError("Game", str(game_id))
 
     async def complete_event(self, user_id: str, event_id: UUID) -> CompleteResponse:
-        """Complete an event and calculate rating updates."""
+        """Complete an event atomically and make retries safe."""
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
@@ -645,6 +652,41 @@ class EventService:
         group = await self.groups_repo.get_by_id(event["group_id"])
         if not await self._is_owner_or_organizer(user_id, group):
             raise ForbiddenError("Only owners and organizers can complete events")
+
+        async with self.conn.transaction():
+            event = await self.events_repo.get_by_id_for_update(event_id)
+            if not event:
+                raise NotFoundError("Event", str(event_id))
+
+            if event["status"] == "COMPLETED":
+                # A completed event may have been created by an older version
+                # which charged after finalizing. Re-running the idempotent
+                # charge repairs that case without replaying ratings.
+                from app.application.services.payment_service import PaymentService
+                await PaymentService(self.conn).charge_subs_for_event(
+                    event_id, event["group_id"], user_id
+                )
+                updates = await self.rating_updates_repo.list_by_event(event_id)
+                return CompleteResponse(
+                    status=EventStatus.COMPLETED,
+                    ratingUpdates=[
+                        RatingUpdate(
+                            playerId=u["group_player_id"],
+                            displayName=u["display_name"],
+                            ratingBefore=float(u["rating_before"]),
+                            ratingAfter=float(u["rating_after"]),
+                            delta=float(u["delta"]),
+                        )
+                        for u in updates
+                    ],
+                )
+
+            return await self._complete_event_locked(user_id, event_id, event)
+
+    async def _complete_event_locked(
+        self, user_id: str, event_id: UUID, event: Dict[str, Any]
+    ) -> CompleteResponse:
+        """Apply completion side effects; caller must hold the event lock."""
 
         if event["status"] == "COMPLETED":
             raise BadRequestError("Event is already completed")
@@ -670,12 +712,6 @@ class EventService:
         # Player info for response
         player_info = {p["group_player_id"]: p["display_name"] for p in participants}
 
-        # Debug: Log the rating system settings being used
-        print(f"[DEBUG complete_event] Event ID: {event_id}")
-        print(f"[DEBUG complete_event] Rating System: {settings.get('ratingSystem', 'SERIOUS_ELO')}")
-        print(f"[DEBUG complete_event] K-Factor: {settings.get('kFactor', 32)}")
-        print(f"[DEBUG complete_event] ELO Const: {settings.get('eloConst')}")
-        
         rating_system = create_rating_system(
             settings.get("ratingSystem", "SERIOUS_ELO"),
             k_factor=settings.get("kFactor", 32),
@@ -803,14 +839,12 @@ class EventService:
         # Update event status
         await self.events_repo.update_status(event_id, "COMPLETED")
 
-        # Charge subs if payment tracking is enabled
-        try:
-            from app.application.services.payment_service import PaymentService
-            payment_service = PaymentService(self.conn)
-            await payment_service.charge_subs_for_event(event_id, event["group_id"], user_id)
-        except Exception as e:
-            # Log but don't fail event completion if payment charging fails
-            print(f"[WARNING] Failed to charge subs for event {event_id}: {e}")
+        # This is inside the same transaction as ratings and event status.
+        # Any payment failure rolls back every completion side effect.
+        from app.application.services.payment_service import PaymentService
+        await PaymentService(self.conn).charge_subs_for_event(
+            event_id, event["group_id"], user_id
+        )
 
         return CompleteResponse(
             status=EventStatus.COMPLETED,
@@ -1106,8 +1140,6 @@ class EventService:
             "gamesImported": total_games,
             "events": created_events,
         }
-
-
 
 
 
