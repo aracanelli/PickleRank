@@ -7,6 +7,36 @@ on:
     branches: [main, initial]
 
 jobs:
+  aggregate-check:
+    name: Aggregate project check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies and check tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt ruff mypy
+
+      - name: Run aggregate project check
+        run: npm run check
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+
   backend-lint:
     name: Backend Lint & Type Check
     runs-on: ubuntu-latest
