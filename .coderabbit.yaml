@@ -9,7 +9,7 @@ reviews:
   # Enable review status
   review_status: true
   # Collapse walkthrough above this many files
-  collapse_walkthrough: 5
+  collapse_walkthrough: false
   # Auto review enabled
   auto_review:
     enabled: true
