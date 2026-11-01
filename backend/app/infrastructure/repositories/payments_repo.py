@@ -199,16 +199,23 @@ class PaymentsRepository:
             if existing:
                 continue  # Already charged
             
-            payment = await self.record_payment(
-                group_id=group_id,
-                group_player_id=group_player_id,
-                amount=charge_amount,
-                payment_type="ATTENDANCE",
-                created_by=created_by,
-                event_id=event_id,
-                notes=None,
+            payment = await self.conn.fetchrow(
+                """
+                INSERT INTO sub_payments
+                    (group_id, group_player_id, amount, payment_type, event_id, notes, created_by)
+                VALUES ($1, $2, $3, 'ATTENDANCE', $4, NULL, $5)
+                ON CONFLICT DO NOTHING
+                RETURNING id, group_id, group_player_id, amount, payment_type,
+                          event_id, notes, created_by, created_at
+                """,
+                group_id,
+                group_player_id,
+                charge_amount,
+                event_id,
+                created_by,
             )
-            created.append(payment)
+            if payment:
+                created.append(dict(payment))
         
         return created
 
