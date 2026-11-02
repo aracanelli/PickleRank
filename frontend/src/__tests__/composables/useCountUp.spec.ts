@@ -58,7 +58,7 @@ describe('useCountUp', () => {
     expect(result.display.value).toBeGreaterThan(0)
     expect(result.display.value).toBeLessThan(100)
 
-    await vi.advanceTimersByTimeAsync(100) // run remaining frames
+    await vi.runAllTimersAsync() // run remaining frames
     expect(result.display.value).toBe(100)
   })
 
@@ -78,7 +78,7 @@ describe('useCountUp', () => {
 
     target.value = 10
     await nextTick()
-    await vi.advanceTimersByTimeAsync(200)
+    await vi.runAllTimersAsync()
     expect(result.display.value).toBe(10)
   })
 
@@ -86,7 +86,7 @@ describe('useCountUp', () => {
     const { target, result } = setup(ref(0), { duration: 300, decimals: 1 })
     target.value = 5.5
     await nextTick()
-    await vi.advanceTimersByTimeAsync(200)
+    await vi.runAllTimersAsync()
     expect(result.display.value).toBe(5.5)
   })
 
