@@ -44,7 +44,6 @@ class RatingUpdatesRepository:
             """
             INSERT INTO rating_updates (event_id, group_player_id, rating_before, rating_after, delta, system)
             VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (event_id, group_player_id) DO NOTHING
             """,
             [
                 (

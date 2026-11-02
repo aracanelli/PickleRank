@@ -99,14 +99,14 @@ class EventService:
         # Group by round
         games_by_round = defaultdict(list)
         for game in games:
-            if game["result"] == "UNSET":
-                raise BadRequestError("Cannot complete an event with unfinished games")
             if game["result"] == "TIE" and (
                 game.get("score_team1") is None
                 or game.get("score_team2") is None
                 or game["score_team1"] != game["score_team2"]
             ):
                 raise BadRequestError("A tied game must have equal, completed scores")
+            if game["result"] == "UNSET":
+                continue
             games_by_round[game["round_index"]].append(game)
 
         # Initialize current ratings
@@ -725,6 +725,12 @@ class EventService:
         # Games in the same round happen simultaneously, so they use the same starting ratings
         games_by_round = defaultdict(list)
         for game in games:
+            if game["result"] == "TIE" and (
+                game.get("score_team1") is None
+                or game.get("score_team2") is None
+                or game["score_team1"] != game["score_team2"]
+            ):
+                raise BadRequestError("A tied game must have equal, completed scores")
             if game["result"] != "UNSET":
                 games_by_round[game["round_index"]].append(game)
         
