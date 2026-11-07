@@ -1,59 +1,59 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Check, ChevronRight, Lock } from 'lucide-vue-next'
+/** A voting category row. A button when the caller can vote; plain text otherwise. */
+import { Check, ChevronRight } from 'lucide-vue-next'
 import type { AwardCategoryDto } from '@/app/core/models/dto'
 
-const props = defineProps<{
+defineProps<{
   category: AwardCategoryDto
-  /** Name of the caller's current pick, if any (resolved by the parent). */
+  /** Name of the caller's current pick, resolved by the parent. */
   myVoteName?: string | null
-  /** Whether the caller can vote (has a linked player). */
+  /** Whether the caller can vote (voting open and a linked player). */
   canVote: boolean
 }>()
 
 const emit = defineEmits<{ voteClick: [] }>()
-
-const hasVoted = computed(() => !!props.category.myVote && !!props.myVoteName)
-
-function onClick() {
-  if (!props.canVote) return
-  emit('voteClick')
-}
 </script>
 
 <template>
-  <component
-    :is="canVote ? 'button' : 'div'"
-    :type="canVote ? 'button' : undefined"
-    class="flex w-full items-center gap-3 rounded-[14px] border border-line bg-surface-1 p-4 text-left transition-colors"
-    :class="
-      canVote
-        ? 'hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand'
-        : 'opacity-70'
-    "
-    @click="onClick"
-  >
-    <div class="min-w-0 flex-1">
-      <h3 class="text-sm font-semibold text-ink">{{ category.title }}</h3>
-      <p v-if="category.description" class="mt-0.5 text-xs text-ink-muted">
-        {{ category.description }}
-      </p>
-      <p
-        v-if="!canVote"
-        class="mt-2 inline-flex items-center gap-1 text-xs text-ink-faint"
-      >
-        <Lock class="size-3.5" aria-hidden="true" />
-        Voting locked
-      </p>
-      <p
-        v-else-if="hasVoted"
-        class="mt-2 inline-flex items-center gap-1 text-xs text-accent-text"
-      >
-        <Check class="size-3.5" aria-hidden="true" />
-        You picked {{ myVoteName }} · Tap to change
-      </p>
-      <p v-else class="mt-2 text-xs font-medium text-accent-text">Tap to vote</p>
-    </div>
-    <ChevronRight v-if="canVote" class="size-5 shrink-0 text-ink-faint" aria-hidden="true" />
-  </component>
+  <button v-if="canVote" type="button" class="cat cat--btn" @click="emit('voteClick')">
+    <span class="cat__text">
+      <span class="cat__title">{{ category.title }}</span>
+      <span v-if="category.description" class="muted cat__desc">{{ category.description }}</span>
+      <span v-if="myVoteName" class="cat__vote">
+        <Check :size="16" aria-hidden="true" />Your vote: {{ myVoteName }}
+      </span>
+      <span v-else class="cat__vote cat__vote--todo">Not voted yet</span>
+    </span>
+    <ChevronRight :size="20" aria-hidden="true" class="cat__chev" />
+  </button>
+  <div v-else class="cat">
+    <span class="cat__text">
+      <span class="cat__title">{{ category.title }}</span>
+      <span v-if="category.description" class="muted cat__desc">{{ category.description }}</span>
+    </span>
+  </div>
 </template>
+
+<style scoped>
+.cat {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--s3) 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.cat--btn:hover { background: var(--surface-sunk); }
+.cat__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cat__title { font-weight: 700; overflow-wrap: anywhere; }
+.cat__desc { font-size: var(--text-sm); }
+.cat__vote { display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--text-sm); font-weight: 700; color: var(--ok); overflow-wrap: anywhere; }
+.cat__vote svg { flex: none; }
+.cat__vote--todo { color: var(--court); }
+.cat__chev { flex: none; color: var(--ink-2); }
+</style>

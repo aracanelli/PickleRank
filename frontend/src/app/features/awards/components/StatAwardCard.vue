@@ -1,79 +1,59 @@
 <script setup lang="ts">
+/** One season award row: title, winner (and partner for pairings) as profile links, the figure, and why. */
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
+import { ChevronRight } from 'lucide-vue-next'
 import type { StatAwardDto } from '@/app/core/models/dto'
-import Avatar from '@/app/core/ui/components/Avatar.vue'
-import CountUpNumber from '@/app/core/ui/components/CountUpNumber.vue'
 
 const props = defineProps<{
   award: StatAwardDto
   groupId: string
 }>()
 
-const router = useRouter()
-
-const isChampion = computed(() => props.award.key === 'champion')
-
-// Winner + optional partner names, joined for pairing awards.
-const names = computed(() => {
-  if (props.award.partner) {
-    return `${props.award.winner.displayName} & ${props.award.partner.displayName}`
-  }
-  return props.award.winner.displayName
-})
-
-function openWinner() {
-  router.push(`/groups/${props.groupId}/players/${props.award.winner.groupPlayerId}`)
-}
+const winners = computed(() => (props.award.partner ? [props.award.winner, props.award.partner] : [props.award.winner]))
 </script>
 
 <template>
-  <div
-    class="relative flex flex-col gap-3 overflow-hidden border border-line p-4"
-    :class="
-      isChampion
-        ? 'stadium-glow ticket-clip rounded-[20px] bg-surface-court'
-        : 'rounded-[14px] bg-surface-1'
-    "
-  >
-    <div class="flex items-center gap-3">
-      <span class="text-3xl leading-none" aria-hidden="true">{{ award.emoji }}</span>
-      <div class="min-w-0 flex-1">
-        <h3 class="display-wide text-sm text-ink">{{ award.title }}</h3>
-      </div>
-    </div>
-
-    <button
-      type="button"
-      class="flex items-center gap-3 rounded-[10px] text-left transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-      @click="openWinner"
-    >
-      <span class="flex shrink-0 items-center">
-        <Avatar
-          :name="award.winner.displayName"
-          :seed="award.winner.playerId"
-          size="lg"
-          :brand="isChampion"
-        />
-        <Avatar
-          v-if="award.partner"
-          :name="award.partner.displayName"
-          :seed="award.partner.playerId"
-          size="lg"
-          class="-ml-4 ring-2 ring-surface-1"
-        />
-      </span>
-      <span class="min-w-0 flex-1">
-        <span class="block truncate text-sm font-semibold text-ink">{{ names }}</span>
-        <span class="mt-1 flex items-baseline gap-1.5">
-          <span class="numeral text-3xl leading-none text-accent-text">
-            <CountUpNumber :value="award.value" :decimals="Number.isInteger(award.value) ? 0 : 1" />
-          </span>
-          <span v-if="award.detail" class="truncate text-xs text-ink-faint">{{ award.detail }}</span>
-        </span>
-      </span>
-    </button>
-
-    <p class="text-xs leading-relaxed text-ink-muted">{{ award.blurb }}</p>
-  </div>
+  <article class="stat">
+    <h3>{{ award.title }}</h3>
+    <ul role="list" class="stat__who">
+      <li v-for="w in winners" :key="w.groupPlayerId">
+        <RouterLink :to="`/groups/${groupId}/players/${w.groupPlayerId}`" class="stat__link">
+          <span class="truncate">{{ w.displayName }}</span>
+          <ChevronRight :size="18" aria-hidden="true" />
+        </RouterLink>
+      </li>
+    </ul>
+    <p class="stat__fig">
+      <span class="num stat__value">{{ Number.isInteger(award.value) ? award.value : award.value.toFixed(1) }}</span>
+      <span v-if="award.detail" class="muted">{{ award.detail }}</span>
+    </p>
+    <p class="muted stat__blurb">{{ award.blurb }}</p>
+  </article>
 </template>
+
+<style scoped>
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s4) 0;
+  border-bottom: 1px solid var(--line);
+}
+.stat__who { display: flex; flex-direction: column; }
+.stat__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  min-height: var(--tap);
+  font-weight: 700;
+  font-size: var(--text-lg);
+  color: var(--ink);
+  text-decoration: none;
+}
+.stat__link svg { flex: none; color: var(--ink-2); }
+.stat__fig { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); }
+.stat__value { font-size: var(--num-md); line-height: 1; color: var(--court); }
+.stat__blurb { font-size: var(--text-sm); }
+</style>

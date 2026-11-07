@@ -177,3 +177,77 @@ CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_games_updated_at BEFORE UPDATE ON games
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ---------------------------------------------------------------------------
+-- Added on main after 0e17ac8 (backend/run_migration.py sections 7-8 and
+-- docs/migrations/20261023_event_completion_idempotency.sql)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE award_editions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'VOTING_OPEN', 'CLOSED')),
+    stat_awards JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_award_editions_group ON award_editions(group_id);
+
+CREATE TABLE award_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    edition_id UUID NOT NULL REFERENCES award_editions(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_award_categories_edition ON award_categories(edition_id);
+
+CREATE TABLE award_votes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category_id UUID NOT NULL REFERENCES award_categories(id) ON DELETE CASCADE,
+    voter_group_player_id UUID NOT NULL REFERENCES group_players(id) ON DELETE CASCADE,
+    nominee_group_player_id UUID NOT NULL REFERENCES group_players(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (category_id, voter_group_player_id)
+);
+CREATE INDEX idx_award_votes_category ON award_votes(category_id);
+CREATE TRIGGER update_award_editions_updated_at BEFORE UPDATE ON award_editions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_award_votes_updated_at BEFORE UPDATE ON award_votes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE spond_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    spond_email TEXT NOT NULL,
+    encrypted_credentials TEXT NOT NULL,
+    access_token TEXT,
+    token_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE spond_group_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID NOT NULL UNIQUE REFERENCES groups(id) ON DELETE CASCADE,
+    spond_group_id TEXT NOT NULL,
+    spond_group_name TEXT,
+    linked_by_user_id UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE spond_member_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    spond_member_id TEXT NOT NULL,
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (group_id, spond_member_id)
+);
+CREATE INDEX idx_spond_member_links_group ON spond_member_links(group_id);
+CREATE TRIGGER update_spond_accounts_updated_at BEFORE UPDATE ON spond_accounts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE UNIQUE INDEX uq_rating_updates_event_player ON rating_updates (event_id, group_player_id);
+CREATE UNIQUE INDEX uq_sub_payments_attendance_event_player
+    ON sub_payments (event_id, group_player_id, payment_type) WHERE payment_type = 'ATTENDANCE';

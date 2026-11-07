@@ -1,31 +1,24 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { Trophy, Plus, Trash2, Link2 } from 'lucide-vue-next'
+/**
+ * League awards. Organizers create an edition (stat awards frozen from rankings and history),
+ * add voting categories, open voting, then close it to show results. Members vote while it is open.
+ * Tallies only exist once voting is closed; the API leaves them out before that.
+ */
+import { ref, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { RefreshCw, Plus, Trash2, Link2 } from 'lucide-vue-next'
+import { useLeagueStore } from '@/stores/league'
 import { awardsApi } from '../services/awards.api'
-import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
 import { api } from '@/app/core/http/api-client'
-import type { GroupDto, AwardEditionDto } from '@/app/core/models/dto'
-import { useAuthStore } from '@/stores/auth'
-import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { useConfirm } from '@/app/core/ui/composables/useConfirm'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { usePlayerIndex } from '@/app/features/players/composables/usePlayerIndex'
-import { useCelebration } from '@/app/features/events/composables/useCelebration'
+import type { AwardEditionDto, AwardCategoryDto } from '@/app/core/models/dto'
 import { computeStatAwards } from '../utils/awards-derivations'
-import HeaderActions from '@/app/core/layout/HeaderActions.vue'
-import IconButton from '@/app/core/ui/components/IconButton.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
-import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
-import TapeChip from '@/app/core/ui/components/TapeChip.vue'
-import LiveDot from '@/app/core/ui/components/LiveDot.vue'
-import CourtLines from '@/app/core/ui/components/CourtLines.vue'
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import AccountButton from '@/app/core/layout/AccountButton.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import ActionBar from '@/app/core/ui/ActionBar.vue'
+import { confirm, toast } from '@/app/core/ui/feedback'
 import StatAwardCard from '../components/StatAwardCard.vue'
 import VotingCategoryCard from '../components/VotingCategoryCard.vue'
 import AwardResultsCard from '../components/AwardResultsCard.vue'
@@ -33,500 +26,410 @@ import VoteSheet from '../components/VoteSheet.vue'
 import CategoryManagerSheet from '../components/CategoryManagerSheet.vue'
 
 const route = useRoute()
-const router = useRouter()
-const authStore = useAuthStore()
-const groupContext = useGroupContextStore()
-const toast = useToast()
-const { confirm } = useConfirm()
-const { flashVisible, celebrate, skip } = useCelebration()
-
+const league = useLeagueStore()
 const groupId = computed(() => route.params.groupId as string)
 
-const group = ref<GroupDto | null>(null)
 const edition = ref<AwardEditionDto | null>(null)
-const isLoading = ref(true)
-const error = ref('')
-const isCreating = ref(false)
-const isMutating = ref(false)
-
+const loading = ref(true)
+const loadError = ref('')
+const refreshing = ref(false)
+const creating = ref(false)
+const mutating = ref(false)
 const showCategorySheet = ref(false)
-const showVoteSheet = ref(false)
-const activeCategoryId = ref<string | null>(null)
-const hasCelebrated = ref(false)
+const voteCategoryId = ref<string | null>(null)
+const savingVote = ref<string | null>(null)
 
-const playerIndex = usePlayerIndex(groupId)
+const errMsg = (e: unknown, fallback: string) => (e as { message?: string }).message || fallback
 
-onMounted(() => loadData())
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  await league.load(groupId.value)
+  if (!league.error) {
+    try {
+      edition.value = (await awardsApi.getAwards(groupId.value)) ?? null
+    } catch (e) {
+      loadError.value = errMsg(e, 'Check your connection and try again.')
+    }
+  }
+  loading.value = false
+}
+watch(groupId, () => { void load() }, { immediate: true })
 
-async function loadData(silent = false) {
-  if (!silent) isLoading.value = true
-  error.value = ''
+/** Re-read after a change without flashing the loading state. */
+async function reload() {
   try {
-    const [editionRes, groupRes] = await Promise.all([
-      awardsApi.getAwards(groupId.value),
-      groupsApi.get(groupId.value),
-      playerIndex.load()
-    ])
-    if (playerIndex.error.value) throw new Error(playerIndex.error.value)
-    group.value = groupRes
-    edition.value = editionRes
-    syncGroupContext()
-    maybeCelebrate()
+    edition.value = (await awardsApi.getAwards(groupId.value)) ?? null
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load awards')
-  } finally {
-    isLoading.value = false
+    toast(errMsg(e, 'Awards did not refresh. Pull the latest with Refresh.'), 'bad')
   }
 }
 
-function syncGroupContext() {
-  if (!group.value) return
-  const userId = authStore.userId
-  const myPlayer = playerIndex.players.value.find((p) => p.userId && p.userId === userId) || null
-  let role: GroupRole = null
-  if (userId && group.value.ownerUserId === userId) role = 'OWNER'
-  else if (myPlayer) role = myPlayer.role
-  groupContext.setGroup({
-    groupId: groupId.value,
-    groupName: group.value.name,
-    myPlayerId: myPlayer?.id ?? null,
-    role
-  })
+async function refresh() {
+  refreshing.value = true
+  api.invalidateCache(`/api/groups/${groupId.value}/awards`)
+  api.invalidateCache(`/api/groups/${groupId.value}`)
+  await league.load(groupId.value, true)
+  await load()
+  refreshing.value = false
+  if (!loadError.value && !league.error) toast('Awards refreshed')
 }
 
-function maybeCelebrate() {
-  if (edition.value?.status === 'CLOSED' && !hasCelebrated.value) {
-    hasCelebrated.value = true
-    void celebrate()
-  }
-}
-
-const canManage = computed(() => groupContext.canManage)
-
-const statusChip = computed(() => {
-  switch (edition.value?.status) {
-    case 'VOTING_OPEN':
-      return { variant: 'live' as const, label: 'Voting open', live: true }
-    case 'CLOSED':
-      return { variant: 'win' as const, label: 'Final', live: false }
-    default:
-      return { variant: 'muted' as const, label: 'Setup', live: false }
-  }
-})
-
-// --- Stat-award divisions (Regulars vs Everyone incl. subs) ------------------
-
-const divisionFilter = ref('PERMANENT')
-const divisionOptions = [
-  { label: 'Regulars', value: 'PERMANENT' },
-  { label: 'Everyone', value: 'ALL' }
-]
+// --- Stat-award divisions (Regulars vs Everyone incl. subs) ---
+const division = ref<'PERMANENT' | 'ALL'>('PERMANENT')
 // Old snapshots have no division field; treat them as a single ALL pool.
 const hasDivisionSplit = computed(() => {
   const list = edition.value?.statAwards ?? []
-  return list.some((a) => a.division === 'PERMANENT') && list.some((a) => (a.division ?? 'ALL') === 'ALL')
+  return list.some(a => a.division === 'PERMANENT') && list.some(a => (a.division ?? 'ALL') === 'ALL')
 })
-const visibleStatAwards = computed(() => {
+const statAwards = computed(() => {
   const list = edition.value?.statAwards ?? []
-  if (!hasDivisionSplit.value) return list
-  return list.filter((a) => (a.division ?? 'ALL') === divisionFilter.value)
+  return hasDivisionSplit.value ? list.filter(a => (a.division ?? 'ALL') === division.value) : list
 })
 
 const categories = computed(() => edition.value?.categories ?? [])
-const activeCategory = computed(
-  () => categories.value.find((c) => c.id === activeCategoryId.value) ?? null
-)
+const voted = computed(() => categories.value.filter(c => c.myVote).length)
+const voteCategory = computed(() => categories.value.find(c => c.id === voteCategoryId.value) ?? null)
+const nameFor = (gpId?: string | null) => (gpId ? league.players.find(p => p.id === gpId)?.displayName ?? null : null)
 
-function nameFor(groupPlayerId?: string | null): string | null {
-  if (!groupPlayerId) return null
-  return playerIndex.byGroupPlayerId.value.get(groupPlayerId)?.displayName ?? null
-}
+const subtitle = computed(() => {
+  switch (edition.value?.status) {
+    case 'DRAFT': return league.isOrganizer ? 'Draft. Members see the season awards; voting is not open yet.' : 'Voting has not opened yet.'
+    case 'VOTING_OPEN': return 'Voting is open. Results stay hidden until the organizer closes voting.'
+    case 'CLOSED': return 'Voting is closed. Results are final.'
+    default: return undefined
+  }
+})
 
-function seedFor(groupPlayerId: string): string | undefined {
-  return playerIndex.byGroupPlayerId.value.get(groupPlayerId)?.playerId
-}
-
-// --- Organizer: create ------------------------------------------------------
-
+// --- Organizer actions ---
 async function createAwards() {
-  if (!group.value || isCreating.value) return
-  isCreating.value = true
+  if (!league.group || creating.value) return
+  creating.value = true
   try {
-    const [rankingsRes, historyRes] = await Promise.all([
-      rankingsApi.getRankings(groupId.value),
-      rankingsApi.getHistory(groupId.value)
-    ])
-    const statAwards = computeStatAwards({
-      rankings: rankingsRes.rankings,
-      matches: historyRes.matches,
-      players: playerIndex.players.value
-    })
-    await awardsApi.createEdition(groupId.value, {
-      title: `${group.value.name} Awards`,
-      statAwards
-    })
-    toast.success('Awards created')
-    await loadData(true)
+    const [r, h] = await Promise.all([rankingsApi.getRankings(groupId.value), rankingsApi.getHistory(groupId.value)])
+    const awards = computeStatAwards({ rankings: r.rankings, matches: h.matches, players: league.players })
+    await awardsApi.createEdition(groupId.value, { title: `${league.group.name} awards`, statAwards: awards })
+    toast('Awards created')
+    await reload()
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to create awards'))
+    toast(errMsg(e, 'Awards not created. Try again.'), 'bad')
   } finally {
-    isCreating.value = false
+    creating.value = false
   }
 }
 
-// --- Organizer: status transitions -----------------------------------------
-
-async function transition(status: 'DRAFT' | 'VOTING_OPEN' | 'CLOSED', prompt: {
-  title: string
-  message: string
-  confirmLabel: string
-  successMessage: string
-}) {
-  if (!edition.value || isMutating.value) return
-  const ok = await confirm({
-    title: prompt.title,
-    message: prompt.message,
-    confirmLabel: prompt.confirmLabel
-  })
-  if (!ok) return
-  isMutating.value = true
+async function setStatus(status: 'VOTING_OPEN' | 'CLOSED', ask: { title: string; body: string; confirmLabel: string }, done: string) {
+  if (!edition.value || mutating.value) return
+  if (!(await confirm(ask))) return
+  mutating.value = true
   try {
     await awardsApi.updateEdition(groupId.value, edition.value.id, { status })
-    toast.success(prompt.successMessage)
-    await loadData(true)
+    toast(done)
+    await reload()
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to update awards'))
+    toast(errMsg(e, 'Awards not updated. Try again.'), 'bad')
   } finally {
-    isMutating.value = false
+    mutating.value = false
   }
 }
 
-function openVoting() {
-  transition('VOTING_OPEN', {
-    title: 'Open voting?',
-    message: 'Members with a linked player will be able to cast votes. You can still close voting later.',
-    confirmLabel: 'Open voting',
-    successMessage: 'Voting is open'
-  })
-}
+const openVoting = () => setStatus('VOTING_OPEN', {
+  title: 'Open voting?',
+  body: 'Members with a linked player can vote once in each category. You cannot add categories after this.',
+  confirmLabel: 'Open voting'
+}, 'Voting opened')
 
-function closeVoting() {
-  transition('CLOSED', {
-    title: 'Close voting & reveal?',
-    message: 'This locks voting and reveals the results to everyone. You can reopen voting afterwards.',
-    confirmLabel: 'Close & reveal',
-    successMessage: 'Results are live'
-  })
-}
+const closeVoting = () => setStatus('CLOSED', {
+  title: 'Close voting and show results?',
+  body: 'Votes are locked and everyone in the league sees the results. You can reopen voting later.',
+  confirmLabel: 'Close voting'
+}, 'Voting closed. Results are showing.')
 
-function reopenVoting() {
-  transition('VOTING_OPEN', {
-    title: 'Reopen voting?',
-    message: 'Results will be hidden again and members can change their votes.',
-    confirmLabel: 'Reopen',
-    successMessage: 'Voting reopened'
-  })
-}
+const reopenVoting = () => setStatus('VOTING_OPEN', {
+  title: 'Reopen voting?',
+  body: 'Results are hidden again and members can change their votes.',
+  confirmLabel: 'Reopen voting'
+}, 'Voting reopened')
 
-async function deleteCategory(categoryId: string, title: string) {
-  const ok = await confirm({
-    title: 'Delete category?',
-    message: `Delete "${title}"? Any votes cast for it will be lost.`,
-    confirmLabel: 'Delete',
-    danger: true
-  })
+async function deleteCategory(c: AwardCategoryDto) {
+  const ok = await confirm({ title: `Delete ${c.title}?`, body: 'Any votes cast in this category are lost.', confirmLabel: 'Delete category', danger: true })
   if (!ok) return
   try {
-    await awardsApi.deleteCategory(groupId.value, categoryId)
-    toast.success('Category deleted')
-    await loadData(true)
+    await awardsApi.deleteCategory(groupId.value, c.id)
+    toast('Category deleted')
+    await reload()
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to delete category'))
+    toast(errMsg(e, 'Category not deleted. Try again.'), 'bad')
   }
 }
 
 async function deleteEdition() {
   if (!edition.value) return
   const ok = await confirm({
-    title: 'Delete awards?',
-    message: 'This permanently deletes this awards edition, its categories, and all votes. This cannot be undone.',
-    confirmLabel: 'Delete',
+    title: 'Delete these awards?',
+    body: 'The season awards, every category, and all votes are removed. This cannot be undone.',
+    confirmLabel: 'Delete awards',
     danger: true
   })
   if (!ok) return
   try {
     await awardsApi.deleteEdition(groupId.value, edition.value.id)
-    toast.success('Awards deleted')
-    await loadData(true)
+    toast('Awards deleted')
+    await reload()
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to delete awards'))
+    toast(errMsg(e, 'Awards not deleted. Try again.'), 'bad')
   }
 }
 
-// --- Voting -----------------------------------------------------------------
-
-function openVoteSheet(categoryId: string) {
-  activeCategoryId.value = categoryId
-  showVoteSheet.value = true
-}
-
-async function onVoteSelect(nomineeGroupPlayerId: string) {
-  if (!activeCategoryId.value) return
+// --- Voting ---
+async function vote(nomineeId: string) {
+  const c = voteCategory.value
+  if (!c || savingVote.value) return
+  savingVote.value = nomineeId
   try {
-    await awardsApi.vote(groupId.value, activeCategoryId.value, nomineeGroupPlayerId)
-    toast.success('Vote recorded')
-    showVoteSheet.value = false
-    await loadData(true)
+    await awardsApi.vote(groupId.value, c.id, nomineeId)
+    toast(`Vote saved: ${nameFor(nomineeId) ?? 'player'} for ${c.title}`)
+    voteCategoryId.value = null
+    await reload()
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to record vote'))
+    toast(errMsg(e, 'Vote not saved. Try again.'), 'bad')
+  } finally {
+    savingVote.value = null
   }
-}
-
-async function refresh() {
-  api.invalidateCache(`/api/groups/${groupId.value}/awards`)
-  api.invalidateCache(`/api/groups/${groupId.value}`)
-  api.invalidateCache(`/api/groups/${groupId.value}/players`)
-  await loadData(true)
 }
 </script>
 
 <template>
-  <HeaderActions>
-    <IconButton
-      v-if="canManage && edition"
-      label="Delete awards"
-      variant="danger"
-      @click="deleteEdition"
-    >
-      <Trash2 class="size-5" />
-    </IconButton>
-  </HeaderActions>
+  <div class="page">
+    <UiState v-if="(loading || league.loading) && !league.group" kind="loading" title="Loading awards" />
 
-  <PullRefresh :on-refresh="refresh">
-    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
-      <SkeletonList v-if="isLoading" :rows="4" avatar />
+    <UiState
+      v-else-if="league.error?.status === 403 || league.error?.status === 404"
+      kind="denied"
+      heading="h1"
+      title="This league isn't available to you"
+      body="It may have been archived, or your account isn't on its roster. Ask the organizer to send you an invite link."
+      action-label="See your leagues"
+      action-to="/groups"
+    />
+    <UiState v-else-if="league.error" kind="error" heading="h1" title="League didn't load" :body="league.error.message" @retry="refresh" />
 
-      <ErrorState v-else-if="error" :message="error" @retry="loadData()" />
+    <template v-else-if="league.group">
+      <PageHeader
+        :title="edition?.title || 'Awards'"
+        :back-to="`/groups/${groupId}`"
+        :back-label="league.group.name"
+        :subtitle="subtitle"
+      >
+        <template #actions>
+          <button type="button" class="icon-btn" aria-label="Refresh awards" :disabled="refreshing" @click="refresh">
+            <RefreshCw :size="20" :class="{ spin: refreshing }" aria-hidden="true" />
+          </button>
+          <AccountButton />
+        </template>
+      </PageHeader>
 
-      <!-- No edition yet -->
+      <UiState v-if="loading" kind="loading" title="Loading awards" />
+      <UiState v-else-if="loadError" kind="error" title="Awards didn't load" :body="loadError" @retry="refresh" />
+
       <template v-else-if="!edition">
-        <AppEmptyState
-          v-if="!canManage"
+        <UiState
+          v-if="league.isOrganizer"
+          kind="empty"
           title="No awards yet"
-          description="When your organizer wraps up the season, the club awards will appear here."
-          court
-        >
-          <template #icon><Trophy class="size-7" /></template>
-        </AppEmptyState>
-
-        <AppEmptyState
+          body="Create awards to hand out season honors from your rankings and game history. Then add categories for members to vote on."
+        />
+        <UiState
           v-else
-          title="Hand out the hardware"
-          description="Compute this season's stat awards from your rankings and match history, then open fan voting for the fun categories."
-          court
-        >
-          <template #icon><Trophy class="size-7" /></template>
-          <template #action>
-            <AppButton variant="broadcast" :loading="isCreating" @click="createAwards">
-              Create awards
-            </AppButton>
-          </template>
-        </AppEmptyState>
+          kind="empty"
+          title="No awards yet"
+          body="When the organizer wraps up the season, the league awards appear here."
+        />
+        <ActionBar v-if="league.isOrganizer" above-tabs>
+          <template #meta>Uses rankings and game history as of today.</template>
+          <UiButton variant="primary" size="lg" :loading="creating" @click="createAwards">Create awards</UiButton>
+        </ActionBar>
       </template>
 
-      <!-- Edition present -->
-      <div v-else class="flex flex-col gap-6">
-        <!-- Masthead -->
-        <header class="stadium-glow relative overflow-hidden">
-          <CourtLines crop="corner" class="absolute -right-2 -top-3 h-28 w-auto" />
-          <div class="relative flex flex-wrap items-center gap-3">
-            <h1 class="display-wide min-w-0 break-words text-2xl leading-tight text-ink md:text-4xl">
-              {{ edition.title }}
-            </h1>
-            <TapeChip :variant="statusChip.variant">
-              <LiveDot v-if="statusChip.live" />
-              {{ statusChip.label }}
-            </TapeChip>
+      <template v-else>
+        <!-- Draft: organizer sets up categories -->
+        <section v-if="edition.status === 'DRAFT' && league.isOrganizer" class="section" aria-labelledby="cats-h">
+          <div class="section-head">
+            <h2 id="cats-h">Voting categories</h2>
+            <UiButton variant="quiet" @click="showCategorySheet = true">
+              <Plus :size="18" aria-hidden="true" />Add category
+            </UiButton>
           </div>
-          <div class="kitchen-line relative mt-3" />
-        </header>
+          <p v-if="!categories.length" class="muted">Add at least one category before opening voting.</p>
+          <ul v-else role="list">
+            <li v-for="c in categories" :key="c.id" class="row-item">
+              <span class="row-item__text">
+                <span class="row-item__title">{{ c.title }}</span>
+                <span v-if="c.description" class="muted row-item__sub">{{ c.description }}</span>
+              </span>
+              <button type="button" class="icon-btn icon-btn--bad" :aria-label="`Delete ${c.title}`" @click="deleteCategory(c)">
+                <Trash2 :size="20" aria-hidden="true" />
+              </button>
+            </li>
+          </ul>
+        </section>
 
-        <!-- Stat awards wall -->
-        <section v-if="edition.statAwards.length" class="flex flex-col gap-3">
-          <h2 class="eyebrow text-ink-faint">Season superlatives</h2>
+        <!-- Voting open: everyone -->
+        <section v-else-if="edition.status === 'VOTING_OPEN'" class="section" aria-labelledby="vote-h">
+          <div class="section-head">
+            <h2 id="vote-h">Vote</h2>
+            <span v-if="edition.canVote && categories.length" class="muted"><span class="num">{{ voted }}</span> of <span class="num">{{ categories.length }}</span> done</span>
+          </div>
+          <div v-if="!edition.canVote" class="notice">
+            <Link2 :size="20" aria-hidden="true" />
+            <p>Your account isn't linked to a player in this league, so you can't vote. {{ league.isOrganizer ? 'Link yourself from the roster with an invite link to vote.' : 'Ask the organizer for your invite link.' }}</p>
+          </div>
+          <p v-if="!categories.length" class="muted">No voting categories were set up.</p>
+          <ul v-else role="list">
+            <li v-for="c in categories" :key="c.id">
+              <VotingCategoryCard :category="c" :my-vote-name="nameFor(c.myVote)" :can-vote="edition.canVote" @vote-click="voteCategoryId = c.id" />
+            </li>
+          </ul>
+        </section>
+
+        <!-- Closed: results for everyone -->
+        <section v-else-if="edition.status === 'CLOSED'" class="section" aria-labelledby="results-h">
+          <h2 id="results-h">Voting results</h2>
+          <p v-if="!categories.length" class="muted">No voting categories were set up.</p>
+          <ul v-else role="list">
+            <li v-for="c in categories" :key="c.id">
+              <AwardResultsCard :category="c" :group-id="groupId" />
+            </li>
+          </ul>
+        </section>
+
+        <!-- Season awards -->
+        <section class="section" aria-labelledby="season-h">
+          <h2 id="season-h">Season awards</h2>
           <template v-if="hasDivisionSplit">
-            <SegmentedControl v-model="divisionFilter" :options="divisionOptions" />
-            <p class="text-xs text-ink-faint">
-              Regulars counts permanent players only · Everyone includes subs.
-            </p>
+            <fieldset class="seg">
+              <legend class="visually-hidden">Players counted</legend>
+              <label class="seg__opt">
+                <input v-model="division" type="radio" name="award-division" value="PERMANENT" class="visually-hidden">
+                <span>Regulars</span>
+              </label>
+              <label class="seg__opt">
+                <input v-model="division" type="radio" name="award-division" value="ALL" class="visually-hidden">
+                <span>Everyone</span>
+              </label>
+            </fieldset>
+            <p class="muted note">{{ division === 'PERMANENT' ? 'Counts regulars only.' : 'Includes subs.' }}</p>
           </template>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            <StatAwardCard
-              v-for="award in visibleStatAwards"
-              :key="`${award.division ?? 'ALL'}:${award.key}`"
-              :award="award"
-              :group-id="groupId"
-            />
-          </div>
+          <p v-if="!statAwards.length" class="muted">Not enough games were played to award season honors.</p>
+          <ul v-else role="list">
+            <li v-for="a in statAwards" :key="`${a.division ?? 'ALL'}:${a.key}`">
+              <StatAwardCard :award="a" :group-id="groupId" />
+            </li>
+          </ul>
         </section>
 
-        <!-- Voting: DRAFT (organizers only) -->
-        <section v-if="edition.status === 'DRAFT' && canManage" class="flex flex-col gap-3">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="eyebrow text-ink-faint">Voting categories</h2>
-            <AppButton variant="secondary" size="sm" @click="showCategorySheet = true">
-              <Plus class="size-4" />
-              Add category
-            </AppButton>
-          </div>
-
-          <div v-if="categories.length" class="flex flex-col gap-2">
-            <div
-              v-for="category in categories"
-              :key="category.id"
-              class="flex items-center gap-3 rounded-[14px] border border-line bg-surface-1 p-4"
-            >
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium text-ink">{{ category.title }}</p>
-                <p v-if="category.description" class="truncate text-xs text-ink-faint">
-                  {{ category.description }}
-                </p>
-              </div>
-              <IconButton
-                label="Delete category"
-                variant="danger"
-                @click="deleteCategory(category.id, category.title)"
-              >
-                <Trash2 class="size-5" />
-              </IconButton>
-            </div>
-          </div>
-          <p v-else class="text-sm text-ink-faint">
-            Add at least one category before opening fan voting.
-          </p>
-
-          <AppButton
-            variant="broadcast"
-            :disabled="categories.length === 0 || isMutating"
-            @click="openVoting"
-          >
-            Open voting
-          </AppButton>
+        <section v-if="league.isOrganizer" class="section danger-zone" aria-labelledby="manage-h">
+          <h2 id="manage-h">Start over</h2>
+          <p class="muted">Deleting removes the season awards, categories, and votes so you can create them again.</p>
+          <UiButton variant="danger" @click="deleteEdition">
+            <Trash2 :size="18" aria-hidden="true" />Delete awards
+          </UiButton>
         </section>
 
-        <!-- Voting: VOTING_OPEN (everyone) -->
-        <section v-else-if="edition.status === 'VOTING_OPEN'" class="flex flex-col gap-3">
-          <h2 class="eyebrow text-ink-faint">Cast your votes</h2>
+        <ActionBar v-if="league.isOrganizer" above-tabs>
+          <template #meta>
+            <template v-if="edition.status === 'DRAFT'">
+              {{ categories.length ? `${categories.length} ${categories.length === 1 ? 'category' : 'categories'} ready.` : 'Add a category to open voting.' }}
+            </template>
+            <template v-else-if="edition.status === 'VOTING_OPEN'">Results are hidden until you close voting.</template>
+            <template v-else>Reopening hides results and lets members change votes.</template>
+          </template>
+          <UiButton v-if="edition.status === 'DRAFT'" variant="primary" size="lg" :disabled="!categories.length" :loading="mutating" @click="openVoting">Open voting</UiButton>
+          <UiButton v-else-if="edition.status === 'VOTING_OPEN'" variant="primary" size="lg" :loading="mutating" @click="closeVoting">Close voting and show results</UiButton>
+          <UiButton v-else variant="secondary" size="lg" :loading="mutating" @click="reopenVoting">Reopen voting</UiButton>
+        </ActionBar>
 
-          <div
-            v-if="!edition.canVote"
-            class="flex items-center gap-3 rounded-[14px] border border-line bg-surface-2 p-4"
-          >
-            <Link2 class="size-5 shrink-0 text-ink-muted" aria-hidden="true" />
-            <div class="min-w-0 flex-1 text-sm text-ink-muted">
-              Link your account to a player to vote in these categories.
-            </div>
-            <AppButton variant="secondary" size="sm" @click="router.push('/link-player')">
-              Link player
-            </AppButton>
-          </div>
-
-          <div v-if="categories.length" class="flex flex-col gap-2">
-            <VotingCategoryCard
-              v-for="category in categories"
-              :key="category.id"
-              :category="category"
-              :my-vote-name="nameFor(category.myVote)"
-              :can-vote="edition.canVote"
-              @vote-click="openVoteSheet(category.id)"
-            />
-          </div>
-          <p v-else class="text-sm text-ink-faint">No voting categories were set up.</p>
-
-          <AppButton
-            v-if="canManage"
-            variant="broadcast"
-            :disabled="isMutating"
-            @click="closeVoting"
-          >
-            Close voting & reveal
-          </AppButton>
-        </section>
-
-        <!-- Voting: CLOSED (everyone) -->
-        <section v-else-if="edition.status === 'CLOSED'" class="flex flex-col gap-3">
-          <h2 class="eyebrow text-ink-faint">Fan-voted awards</h2>
-
-          <div v-if="categories.length" class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <AwardResultsCard
-              v-for="category in categories"
-              :key="category.id"
-              :category="category"
-              :group-id="groupId"
-              :resolve-seed="seedFor"
-            />
-          </div>
-          <p v-else class="text-sm text-ink-faint">No voting categories were set up.</p>
-
-          <div v-if="canManage" class="flex flex-col gap-2 sm:flex-row">
-            <AppButton variant="secondary" :disabled="isMutating" @click="reopenVoting">
-              Reopen voting
-            </AppButton>
-            <AppButton variant="danger" @click="deleteEdition">
-              <Trash2 class="size-4" />
-              Delete awards
-            </AppButton>
-          </div>
-        </section>
-      </div>
-    </div>
-  </PullRefresh>
-
-  <!-- Results reveal flash -->
-  <Transition name="flash">
-    <div
-      v-if="flashVisible"
-      class="fixed inset-0 z-[80] flex items-center justify-center bg-surface-page/90"
-      @click="skip"
-    >
-      <div class="text-center">
-        <Trophy class="mx-auto size-12 text-accent-text" aria-hidden="true" />
-        <p class="display-wide mt-3 text-3xl text-ink">Results are in</p>
-      </div>
-    </div>
-  </Transition>
-
-  <CategoryManagerSheet
-    v-if="edition"
-    v-model="showCategorySheet"
-    :group-id="groupId"
-    :edition-id="edition.id"
-    :categories="categories"
-    @changed="loadData(true)"
-  />
-
-  <VoteSheet
-    v-model="showVoteSheet"
-    :players="playerIndex.players.value"
-    :current-vote="activeCategory?.myVote ?? null"
-    :title="activeCategory?.title"
-    @select="onVoteSelect"
-  />
+        <CategoryManagerSheet
+          v-if="league.isOrganizer"
+          :open="showCategorySheet"
+          :group-id="groupId"
+          :edition-id="edition.id"
+          :count="categories.length"
+          @close="showCategorySheet = false"
+          @changed="reload"
+        />
+        <VoteSheet
+          :open="!!voteCategory"
+          :players="league.players"
+          :current-vote="voteCategory?.myVote ?? null"
+          :title="voteCategory?.title"
+          :description="voteCategory?.description"
+          :saving="savingVote"
+          @close="voteCategoryId = null"
+          @select="vote"
+        />
+      </template>
+    </template>
+  </div>
 </template>
 
 <style scoped>
-.flash-enter-active,
-.flash-leave-active {
-  transition: opacity 0.25s ease;
+.icon-btn {
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  flex: none;
+  border: 0; border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
 }
-.flash-enter-from,
-.flash-leave-to {
-  opacity: 0;
+.icon-btn:hover { background: var(--surface-sunk); }
+.icon-btn--bad { color: var(--bad); }
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: var(--s3) 0 0;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--surface-sunk);
 }
-@media (prefers-reduced-motion: reduce) {
-  .flash-enter-active,
-  .flash-leave-active {
-    transition: none;
-  }
+.seg__opt span {
+  display: grid; place-items: center;
+  min-height: var(--tap);
+  border-radius: 6px;
+  font-weight: 700;
+  color: var(--ink-2);
+  cursor: pointer;
 }
+.seg__opt input:checked + span { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 2px var(--line-strong); }
+.seg__opt input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 1px; }
+.note { font-size: var(--text-sm); margin-top: var(--s2); }
+
+.row-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 56px;
+  border-bottom: 1px solid var(--line);
+}
+.row-item__text { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: var(--s2) 0; }
+.row-item__title { font-weight: 700; overflow-wrap: anywhere; }
+.row-item__sub { font-size: var(--text-sm); }
+
+.notice {
+  display: flex;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+  padding: var(--s3);
+  border-radius: var(--r-tile);
+  background: var(--wait-tint);
+  color: var(--ink);
+}
+.notice svg { flex: none; margin-top: 2px; }
+
+.danger-zone { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); }
 </style>

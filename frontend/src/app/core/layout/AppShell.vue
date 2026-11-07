@@ -61,6 +61,9 @@ const showTabs = computed(() =>
 <style scoped>
 .skip {
   position: absolute;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
   left: 8px; top: -100px;
   z-index: 100;
   padding: var(--s2) var(--s3);
