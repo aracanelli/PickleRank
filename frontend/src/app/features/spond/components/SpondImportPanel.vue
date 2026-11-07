@@ -1,285 +1,246 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { CalendarClock, Users, ChevronRight, RefreshCw } from 'lucide-vue-next'
+import { ref, computed, watch, useId } from 'vue'
+import { ChevronRight, RefreshCw } from 'lucide-vue-next'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import SpondConnectSheet from './SpondConnectSheet.vue'
+import SpondAttendeeLinks, { type LinkChoice } from './SpondAttendeeLinks.vue'
 import { spondApi } from '../services/spond.api'
-import SpondLinkSheet from './SpondLinkSheet.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import AppSelect from '@/app/core/ui/components/AppSelect.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { useToast } from '@/app/core/ui/composables/useToast'
 import type {
   GroupPlayerDto,
   SpondEventDto,
-  SpondResolvedAttendeeDto,
-  SpondAttendeeLinkInput
+  SpondGroupDto,
+  SpondResolveResponse,
+  SpondAttendeeLinkInput,
+  SpondStatusDto
 } from '@/app/core/models/dto'
 
-const props = defineProps<{
-  groupId: string
-  players: GroupPlayerDto[]
-}>()
+export interface SpondImport {
+  /** group player ids to select (may include players created during the import) */
+  ids: string[]
+  /** everyone who said yes in Spond */
+  total: number
+  eventName: string
+}
 
-// Emits the resulting group_player IDs to pre-select in the participant picker.
-const emit = defineEmits<{ populate: [ids: string[]] }>()
+const props = defineProps<{ open: boolean; groupId: string; players: GroupPlayerDto[] }>()
+const emit = defineEmits<{ close: []; import: [result: SpondImport] }>()
 
-const toast = useToast()
-
-type Phase = 'loading' | 'not-connected' | 'need-group' | 'events'
+type Phase = 'loading' | 'error' | 'not-connected' | 'need-group' | 'events' | 'link'
+const groupFormId = useId()
 const phase = ref<Phase>('loading')
 const error = ref('')
+const busy = ref(false)
+const connectOpen = ref(false)
 
-const spondGroups = ref<{ label: string; value: string }[]>([])
-const selectedSpondGroup = ref('')
-const spondGroupName = ref<string | null>(null)
-
+const spondGroups = ref<SpondGroupDto[]>([])
+const chosenGroup = ref('')
+const spondGroupName = ref('')
 const events = ref<SpondEventDto[]>([])
-const selectedEventId = ref<string | null>(null)
-const isResolving = ref(false)
 
-// Link sheet state
-const showLinkSheet = ref(false)
-const unmatchedAttendees = ref<SpondResolvedAttendeeDto[]>([])
-const pendingMatchedIds = ref<string[]>([])
-const pendingEventId = ref<string | null>(null)
+const event = ref<SpondEventDto | null>(null)
+const resolved = ref<SpondResolveResponse | null>(null)
+const choices = ref<Record<string, LinkChoice>>({})
 
-onMounted(init)
+const msg = (e: unknown, fallback: string) => (e as { message?: string }).message || fallback
+const title = computed(() => phase.value === 'link' ? 'Check Spond names' : 'Import from Spond')
+const unmatched = computed(() => resolved.value?.attendees.filter(a => !a.matchedGroupPlayerId) ?? [])
+
+watch(() => props.open, isOpen => { if (isOpen) void init() })
+
+async function run(work: () => Promise<void>, fallback: string) {
+  error.value = ''
+  busy.value = true
+  try {
+    await work()
+  } catch (e) {
+    error.value = msg(e, fallback)
+  } finally {
+    busy.value = false
+  }
+}
 
 async function init() {
   phase.value = 'loading'
   error.value = ''
+  event.value = null
   try {
     const status = await spondApi.status()
-    if (!status.connected) {
-      phase.value = 'not-connected'
-      return
-    }
+    if (!status.connected) { phase.value = 'not-connected'; return }
     const link = await spondApi.getGroupLink(props.groupId)
     if (!link.linked) {
-      await loadSpondGroups()
+      spondGroups.value = (await spondApi.listGroups()).groups
+      chosenGroup.value = spondGroups.value.length === 1 ? spondGroups.value[0].spondGroupId : ''
       phase.value = 'need-group'
       return
     }
-    spondGroupName.value = link.spondGroupName ?? null
-    await loadEvents()
+    spondGroupName.value = link.spondGroupName || 'your Spond group'
+    events.value = (await spondApi.listEvents(props.groupId)).events
     phase.value = 'events'
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load Spond')
+    error.value = msg(e, 'Check your connection and try again.')
+    phase.value = 'error'
   }
 }
 
-async function loadSpondGroups() {
-  const res = await spondApi.listGroups()
-  spondGroups.value = res.groups.map((g) => ({
-    label: `${g.name} (${g.memberCount})`,
-    value: g.spondGroupId
-  }))
+function onConnectChange(s: SpondStatusDto) {
+  if (!s.connected) return
+  connectOpen.value = false
+  void init()
 }
 
-async function saveGroupLink() {
-  if (!selectedSpondGroup.value) return
-  error.value = ''
-  try {
-    const link = await spondApi.setGroupLink(props.groupId, selectedSpondGroup.value)
-    spondGroupName.value = link.spondGroupName ?? null
-    await loadEvents()
-    phase.value = 'events'
-  } catch (e) {
-    error.value = getApiErrorMessage(e, 'Could not link Spond group')
+const linkGroup = () => run(async () => {
+  if (!chosenGroup.value) { error.value = 'Choose a Spond group.'; return }
+  const link = await spondApi.setGroupLink(props.groupId, chosenGroup.value)
+  spondGroupName.value = link.spondGroupName || 'your Spond group'
+  events.value = (await spondApi.listEvents(props.groupId)).events
+  phase.value = 'events'
+}, 'Spond group not linked. Try again.')
+
+const refresh = () => run(async () => {
+  events.value = (await spondApi.listEvents(props.groupId)).events
+}, 'Events didn\'t load. Try again.')
+
+const pick = (ev: SpondEventDto) => run(async () => {
+  event.value = ev
+  const res = await spondApi.resolveEvent(props.groupId, ev.spondEventId)
+  resolved.value = res
+  if (!res.attendees.some(a => !a.matchedGroupPlayerId)) {
+    finish(res.matchedGroupPlayerIds)
+    return
   }
+  choices.value = Object.fromEntries(res.attendees.filter(a => !a.matchedGroupPlayerId)
+    .map(a => [a.spondMemberId, a.suggestedGroupPlayerId ?? 'create']))
+  phase.value = 'link'
+}, 'That Spond event didn\'t load. Try again.')
+
+const confirmLinks = () => run(async () => {
+  const res = resolved.value!
+  const links: SpondAttendeeLinkInput[] = []
+  for (const a of unmatched.value) {
+    const c = choices.value[a.spondMemberId]
+    if (c === 'skip') continue
+    links.push(c === 'create' ? { spondMemberId: a.spondMemberId, createName: a.name } : { spondMemberId: a.spondMemberId, groupPlayerId: c })
+  }
+  const added = links.length ? (await spondApi.confirmLinks(props.groupId, event.value!.spondEventId, links)).groupPlayerIds : []
+  finish([...res.matchedGroupPlayerIds, ...added])
+}, 'Names weren\'t saved. Try again.')
+
+function finish(ids: string[]) {
+  emit('import', { ids, total: resolved.value?.attendees.length ?? ids.length, eventName: event.value?.name || 'the Spond event' })
 }
 
-async function loadEvents() {
-  const res = await spondApi.listEvents(props.groupId)
-  events.value = res.events
-}
-
-function formatDate(iso?: string): string {
-  if (!iso) return ''
+function formatDate(iso?: string) {
+  if (!iso) return 'No date set'
   const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
+  return Number.isNaN(d.getTime()) ? 'No date set' : d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-
-async function selectEvent(ev: SpondEventDto) {
-  if (isResolving.value) return
-  selectedEventId.value = ev.spondEventId
-  isResolving.value = true
-  error.value = ''
-  try {
-    const res = await spondApi.resolveEvent(props.groupId, ev.spondEventId)
-    const unmatched = res.attendees.filter((a) => !a.matchedGroupPlayerId)
-    if (unmatched.length === 0) {
-      emit('populate', res.matchedGroupPlayerIds)
-      toast.success(`Imported ${res.matchedGroupPlayerIds.length} players from Spond`)
-    } else {
-      // Defer emit until the organizer resolves the unknown attendees.
-      pendingMatchedIds.value = res.matchedGroupPlayerIds
-      pendingEventId.value = ev.spondEventId
-      unmatchedAttendees.value = unmatched
-      showLinkSheet.value = true
-    }
-  } catch (e) {
-    error.value = getApiErrorMessage(e, 'Could not read the Spond event')
-  } finally {
-    isResolving.value = false
-  }
-}
-
-async function onConfirmLinks(links: SpondAttendeeLinkInput[]) {
-  if (!pendingEventId.value) return
-  try {
-    const res = await spondApi.confirmLinks(props.groupId, pendingEventId.value, links)
-    const finalIds = [...pendingMatchedIds.value, ...res.groupPlayerIds]
-    showLinkSheet.value = false
-    emit('populate', finalIds)
-    toast.success(`Imported ${finalIds.length} players from Spond`)
-  } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Could not link attendees'))
-  }
-}
-
-const hasEvents = computed(() => events.value.length > 0)
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <SkeletonList
-      v-if="phase === 'loading'"
-      :rows="4"
-    />
+  <UiSheet :open="open" :title="title" @close="emit('close')">
+    <UiState v-if="phase === 'loading'" kind="loading" title="Loading Spond" />
+    <UiState v-else-if="phase === 'error'" kind="error" title="Spond didn't load" :body="error" @retry="init" />
 
-    <ErrorState
-      v-else-if="error && phase !== 'events'"
-      :message="error"
-      @retry="init"
-    />
-
-    <!-- Not connected -->
-    <AppEmptyState
+    <UiState
       v-else-if="phase === 'not-connected'"
+      kind="empty"
       title="Spond isn't connected"
-      description="Connect your Spond account from the account menu (top right) to import event attendees."
-    >
-      <template #icon>
-        <CalendarClock class="size-7" />
-      </template>
-    </AppEmptyState>
-
-    <!-- Needs group mapping -->
-    <div
-      v-else-if="phase === 'need-group'"
-      class="flex flex-col gap-3"
-    >
-      <p class="text-sm text-ink-muted">
-        Which Spond group is this? We'll remember it and show its upcoming events here.
-      </p>
-      <AppSelect
-        v-model="selectedSpondGroup"
-        :options="spondGroups"
-        placeholder="Select a Spond group"
-        label="Spond group"
-      />
-      <AppButton
-        :disabled="!selectedSpondGroup"
-        @click="saveGroupLink"
-      >
-        Link group
-      </AppButton>
-      <p
-        v-if="error"
-        class="text-sm text-loss"
-      >
-        {{ error }}
-      </p>
-    </div>
-
-    <!-- Event list -->
-    <div
-      v-else
-      class="flex flex-col gap-3"
-    >
-      <div class="flex items-center justify-between">
-        <p class="text-sm text-ink-muted">
-          <span
-            v-if="spondGroupName"
-            class="font-medium text-ink"
-          >{{ spondGroupName }}</span>
-          <span v-else>Upcoming events</span>
-        </p>
-        <button
-          type="button"
-          class="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
-          @click="loadEvents"
-        >
-          <RefreshCw class="size-3.5" /> Refresh
-        </button>
-      </div>
-
-      <AppEmptyState
-        v-if="!hasEvents"
-        title="No upcoming events"
-        description="There are no upcoming events in this Spond group."
-      >
-        <template #icon>
-          <CalendarClock class="size-7" />
-        </template>
-      </AppEmptyState>
-
-      <div
-        v-else
-        class="flex flex-col gap-1.5"
-      >
-        <button
-          v-for="ev in events"
-          :key="ev.spondEventId"
-          type="button"
-          class="flex min-h-14 w-full items-center gap-3 rounded-xl border bg-surface-1 px-3 py-2 text-left transition-colors"
-          :class="[
-            selectedEventId === ev.spondEventId
-              ? 'border-brand ring-2 ring-brand/40'
-              : 'border-line hover:bg-surface-2',
-            isResolving ? 'opacity-60' : ''
-          ]"
-          :disabled="isResolving"
-          @click="selectEvent(ev)"
-        >
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold text-ink">
-              {{ ev.name }}
-            </p>
-            <p class="truncate text-xs text-ink-faint">
-              {{ formatDate(ev.startsAt) }}
-            </p>
-          </div>
-          <span class="inline-flex items-center gap-1 shrink-0 text-xs text-ink-muted">
-            <Users class="size-3.5" />{{ ev.acceptedCount }}
-          </span>
-          <ChevronRight class="size-4 shrink-0 text-ink-faint" />
-        </button>
-      </div>
-
-      <p
-        v-if="error"
-        class="text-sm text-loss"
-      >
-        {{ error }}
-      </p>
-    </div>
-
-    <SpondLinkSheet
-      v-model="showLinkSheet"
-      :attendees="unmatchedAttendees"
-      :players="players"
-      @confirm="onConfirmLinks"
+      body="Connect your Spond account once. Then you can import who said yes to a Spond event."
+      action-label="Connect Spond"
+      @action="connectOpen = true"
     />
-  </div>
+
+    <form v-else-if="phase === 'need-group'" :id="groupFormId" class="stack" @submit.prevent="linkGroup">
+      <fieldset class="choices">
+        <legend>Which Spond group is this league?</legend>
+        <p class="muted small">PickleRank remembers this for next time.</p>
+        <p v-if="!spondGroups.length" class="muted">Your Spond account isn't in any groups.</p>
+        <label v-for="g in spondGroups" :key="g.spondGroupId" class="choice">
+          <input v-model="chosenGroup" type="radio" name="spond-group" :value="g.spondGroupId">
+          <span class="choice__name truncate">{{ g.name }}</span>
+          <span class="muted num">{{ g.memberCount }} members</span>
+        </label>
+      </fieldset>
+    </form>
+
+    <div v-else-if="phase === 'events'" class="stack">
+      <p class="muted small">Upcoming events in {{ spondGroupName }}. Choose one to select the people who said yes.</p>
+      <p v-if="!events.length" class="muted">No upcoming events in {{ spondGroupName }}. Make the event in Spond, then refresh.</p>
+      <ul v-else role="list" class="events">
+        <li v-for="ev in events" :key="ev.spondEventId">
+          <button type="button" class="event" :disabled="busy" :aria-busy="busy && event?.spondEventId === ev.spondEventId || undefined" @click="pick(ev)">
+            <span class="event__text">
+              <strong class="truncate">{{ ev.name }}</strong>
+              <span class="muted small">{{ formatDate(ev.startsAt) }}</span>
+            </span>
+            <span class="event__count"><span class="num">{{ ev.acceptedCount }}</span> going</span>
+            <ChevronRight :size="20" aria-hidden="true" />
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <SpondAttendeeLinks
+      v-else-if="phase === 'link' && resolved"
+      v-model="choices"
+      :attendees="unmatched"
+      :matched="resolved.matchedGroupPlayerIds.length"
+      :total="resolved.attendees.length"
+      :players="players"
+    />
+
+    <p v-if="error && phase !== 'error'" class="error" role="alert">{{ error }}</p>
+
+    <template v-if="phase === 'need-group' || phase === 'events' || phase === 'link'" #actions>
+      <UiButton v-if="phase === 'need-group'" type="submit" :form="groupFormId" variant="primary" block :loading="busy" :disabled="!spondGroups.length">Link Spond group</UiButton>
+      <UiButton v-else-if="phase === 'events'" variant="secondary" block :loading="busy" @click="refresh"><RefreshCw :size="18" aria-hidden="true" /> Refresh events</UiButton>
+      <template v-else>
+        <UiButton variant="primary" block :loading="busy" @click="confirmLinks">Select these players</UiButton>
+        <UiButton variant="quiet" block :disabled="busy" @click="phase = 'events'">Back to events</UiButton>
+      </template>
+    </template>
+  </UiSheet>
+
+  <SpondConnectSheet :open="connectOpen" @close="connectOpen = false" @change="onConnectChange" />
 </template>
+
+<style scoped>
+.stack { display: flex; flex-direction: column; gap: var(--s3); }
+.small { font-size: var(--text-sm); }
+.error { color: var(--bad); font-weight: 700; margin-top: var(--s3); }
+
+.choices { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+legend { font-weight: 700; padding: 0; margin-bottom: var(--s1); }
+.choice {
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--tap-lg);
+  padding: 0 var(--s3);
+  border: 2px solid var(--line);
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+.choice:has(input:checked) { border-color: var(--court); background: var(--court-tint); }
+.choice:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 1px; }
+.choice input { width: 22px; height: 22px; margin: 0; accent-color: var(--court); flex: none; }
+.choice__name { flex: 1; font-weight: 700; }
+
+.events { display: flex; flex-direction: column; gap: var(--s2); }
+.event {
+  display: flex; align-items: center; gap: var(--s3);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--s2) var(--s3);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+.event:hover:not(:disabled) { background: var(--surface-sunk); }
+.event:disabled { color: var(--ink-2); }
+.event__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.event__count { flex: none; font-size: var(--text-sm); }
+.event__count .num { font-size: var(--text-md); font-weight: 700; }
+</style>

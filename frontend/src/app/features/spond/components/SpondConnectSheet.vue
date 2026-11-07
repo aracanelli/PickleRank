@@ -1,158 +1,135 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { Link2, Unlink, CheckCircle2 } from 'lucide-vue-next'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import AppInput from '@/app/core/ui/components/AppInput.vue'
+import { ref, watch, useId } from 'vue'
+import { CircleCheck } from 'lucide-vue-next'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiField from '@/app/core/ui/UiField.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import { confirm, toast } from '@/app/core/ui/feedback'
 import { spondApi } from '../services/spond.api'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { useToast } from '@/app/core/ui/composables/useToast'
+import type { SpondStatusDto } from '@/app/core/models/dto'
 
-const open = defineModel<boolean>({ required: true })
-const toast = useToast()
+const props = defineProps<{ open: boolean }>()
+const emit = defineEmits<{ close: []; change: [status: SpondStatusDto] }>()
 
-const isLoading = ref(false)
-const isSubmitting = ref(false)
-const connected = ref(false)
-const connectedEmail = ref<string | null>(null)
+const formId = useId()
+const status = ref<SpondStatusDto | null>(null)
+const loadError = ref('')
 const email = ref('')
+// Secret: kept only in this ref, cleared on success and on close; never logged or put in a URL.
 const password = ref('')
 const error = ref('')
+const busy = ref(false)
 
-watch(open, (isOpen) => {
-  if (isOpen) void loadStatus()
-})
+const msg = (e: unknown, fallback: string) => (e as { message?: string }).message || fallback
 
-async function loadStatus() {
-  isLoading.value = true
-  error.value = ''
+async function load() {
+  status.value = null
+  loadError.value = ''
   try {
-    const status = await spondApi.status()
-    connected.value = status.connected
-    connectedEmail.value = status.email ?? null
+    status.value = await spondApi.status()
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load Spond status')
-  } finally {
-    isLoading.value = false
+    loadError.value = msg(e, 'Check your connection and try again.')
   }
 }
 
+watch(() => props.open, isOpen => {
+  error.value = ''
+  password.value = ''
+  if (isOpen) void load()
+})
+
+function set(s: SpondStatusDto) {
+  status.value = s
+  emit('change', s)
+}
+
 async function connect() {
-  if (!email.value.trim() || !password.value) return
-  isSubmitting.value = true
+  if (busy.value) return
+  if (!email.value.trim() || !password.value) {
+    error.value = 'Enter your Spond email and password.'
+    return
+  }
+  busy.value = true
   error.value = ''
   try {
-    const status = await spondApi.connect(email.value.trim(), password.value)
-    connected.value = status.connected
-    connectedEmail.value = status.email ?? null
+    const s = await spondApi.connect(email.value.trim(), password.value)
     password.value = ''
-    toast.success('Spond account connected')
+    set(s)
+    toast('Spond connected')
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Could not connect to Spond')
+    error.value = msg(e, 'Spond didn\'t connect. Check your email and password and try again.')
   } finally {
-    isSubmitting.value = false
+    busy.value = false
   }
 }
 
 async function disconnect() {
-  isSubmitting.value = true
+  const ok = await confirm({
+    title: 'Disconnect Spond?',
+    body: 'PickleRank deletes your saved Spond sign-in. You can connect again any time.',
+    confirmLabel: 'Disconnect Spond',
+    danger: true
+  })
+  if (!ok) return
+  busy.value = true
   error.value = ''
   try {
     await spondApi.disconnect()
-    connected.value = false
-    connectedEmail.value = null
     email.value = ''
-    toast.info('Spond account disconnected')
+    set({ connected: false })
+    toast('Spond disconnected')
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Could not disconnect')
+    error.value = msg(e, 'Spond didn\'t disconnect. Try again.')
   } finally {
-    isSubmitting.value = false
+    busy.value = false
   }
 }
 </script>
 
 <template>
-  <Sheet
-    v-model="open"
-    title="Connect Spond"
-  >
-    <div class="flex flex-col gap-5">
-      <p class="text-sm text-ink-muted">
-        Connect your Spond account once to import event attendees when creating games. Your
-        credentials are encrypted and stored securely on the server — they are never shown again.
-      </p>
+  <UiSheet :open="open" title="Spond" description="Import who said yes to a Spond event when you start an event." @close="emit('close')">
+    <UiState v-if="loadError" kind="error" title="Spond status didn't load" :body="loadError" @retry="load" />
+    <UiState v-else-if="!status" kind="loading" title="Checking Spond" />
 
-      <!-- Connected state -->
-      <div
-        v-if="connected"
-        class="flex items-center gap-3 rounded-xl border border-win/30 bg-win/10 px-4 py-3"
-      >
-        <CheckCircle2 class="size-5 shrink-0 text-win" />
-        <div class="min-w-0">
-          <p class="text-sm font-semibold text-ink">
-            Connected
-          </p>
-          <p class="truncate text-sm text-ink-faint">
-            {{ connectedEmail }}
-          </p>
-        </div>
+    <div v-else-if="status.connected" class="ok" role="status">
+      <CircleCheck :size="22" aria-hidden="true" class="ok__icon" />
+      <div class="ok__text">
+        <strong>Connected</strong>
+        <span class="truncate muted">{{ status.email }}</span>
       </div>
-
-      <!-- Connect form -->
-      <form
-        v-else
-        class="flex flex-col gap-3"
-        @submit.prevent="connect"
-      >
-        <AppInput
-          v-model="email"
-          label="Spond email"
-          type="email"
-          inputmode="email"
-          autocomplete="username"
-          placeholder="you@example.com"
-        />
-        <AppInput
-          v-model="password"
-          label="Spond password"
-          type="password"
-          autocomplete="current-password"
-          placeholder="••••••••"
-        />
-        <p class="text-xs text-ink-faint">
-          Note: accounts with two-factor authentication enabled cannot be connected.
-        </p>
-      </form>
-
-      <p
-        v-if="error"
-        class="text-sm text-loss"
-      >
-        {{ error }}
-      </p>
     </div>
 
-    <template #footer>
-      <AppButton
-        v-if="connected"
-        variant="secondary"
-        block
-        :loading="isSubmitting"
-        @click="disconnect"
-      >
-        <Unlink class="size-4" />
-        Disconnect Spond
-      </AppButton>
-      <AppButton
-        v-else
-        block
-        :loading="isSubmitting || isLoading"
-        :disabled="!email.trim() || !password"
-        @click="connect"
-      >
-        <Link2 class="size-4" />
-        Connect
-      </AppButton>
+    <form v-else :id="formId" class="form" novalidate @submit.prevent="connect">
+      <UiField v-model="email" label="Spond email" type="email" inputmode="email" autocomplete="username" required />
+      <UiField
+        v-model="password"
+        label="Spond password"
+        type="password"
+        autocomplete="current-password"
+        required
+        hint="Saved encrypted on our server and never shown again. Accounts with two-step sign-in can't connect."
+      />
+    </form>
+
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
+
+    <template v-if="status && !loadError" #actions>
+      <UiButton v-if="status.connected" variant="danger" block :loading="busy" @click="disconnect">Disconnect Spond</UiButton>
+      <UiButton v-else type="submit" :form="formId" variant="primary" block :loading="busy">Connect Spond</UiButton>
     </template>
-  </Sheet>
+  </UiSheet>
 </template>
+
+<style scoped>
+.form { display: flex; flex-direction: column; gap: var(--s4); }
+.ok {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3);
+  border-radius: var(--r-control);
+  background: var(--ok-tint);
+}
+.ok__icon { color: var(--ok); flex: none; }
+.ok__text { display: flex; flex-direction: column; min-width: 0; }
+.error { color: var(--bad); font-weight: 700; margin-top: var(--s3); }
+</style>

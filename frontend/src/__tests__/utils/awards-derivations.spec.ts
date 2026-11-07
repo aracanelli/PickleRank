@@ -100,7 +100,7 @@ describe('computeStatAwards', () => {
     expect(surge).toBeDefined()
     expect(surge!.winner.groupPlayerId).toBe('gp1')
     expect(surge!.value).toBe(100)
-    expect(surge!.detail).toBe('0% → 100% win rate')
+    expect(surge!.detail).toBe('Win rate up from 0% to 100%')
   })
 
   it('needs at least 3 games in each half for Second Wind', () => {

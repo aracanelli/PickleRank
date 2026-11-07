@@ -232,7 +232,7 @@ function computeDivision(
       blurb: 'Top of the ladder when the dust settled.',
       winner: ref(gp.id)!,
       value: Math.round(champion.rating),
-      detail: `${champion.wins}W · ${Math.round(champion.winRate * 100)}% win rate`,
+      detail: `${champion.wins} wins, ${Math.round(champion.winRate * 100)}% win rate`,
       division
     })
   }
@@ -258,10 +258,10 @@ function computeDivision(
       key: 'secondWind',
       emoji: '🚀',
       title: 'Second Wind',
-      blurb: 'Flipped the script — biggest win-rate surge from their first half to their second.',
+      blurb: 'Flipped the script with the biggest win-rate surge from their first half to their second.',
       winner: ref(surge.gpId)!,
       value: Math.round(surge.lift * 100),
-      detail: `${Math.round(surge.early * 100)}% → ${Math.round(surge.late * 100)}% win rate`,
+      detail: `Win rate up from ${Math.round(surge.early * 100)}% to ${Math.round(surge.late * 100)}%`,
       division
     })
   }
@@ -276,7 +276,7 @@ function computeDivision(
       blurb: 'Racked up more victories than anyone.',
       winner: ref(mostWins.id)!,
       value: mostWins.wins,
-      detail: `${mostWins.wins}W in ${mostWins.gamesPlayed} games`,
+      detail: `${mostWins.wins} wins in ${mostWins.gamesPlayed} games`,
       division
     })
   }
@@ -293,7 +293,7 @@ function computeDivision(
       blurb: 'The deadliest win rate in the club.',
       winner: ref(sharp.id)!,
       value: Math.round(sharp.winRate * 100),
-      detail: `${Math.round(sharp.winRate * 100)}% · ${sharp.wins}-${sharp.losses}-${sharp.ties}`,
+      detail: `${Math.round(sharp.winRate * 100)}% win rate, ${sharp.wins}-${sharp.losses}-${sharp.ties}`,
       division
     })
   }
@@ -333,7 +333,7 @@ function computeDivision(
       key: 'iceVeins',
       emoji: '🧊',
       title: 'Ice in the Veins',
-      blurb: `Owns the tight ones — best record in games decided by ${TIGHT_MARGIN} points or less.`,
+      blurb: `Owns the tight ones, with the best record in games decided by ${TIGHT_MARGIN} points or less.`,
       winner: ref(clutch.p.id)!,
       value: Math.round(clutch.rate * 100),
       detail: `${clutch.agg!.tightWins}-${clutch.agg!.tightGames - clutch.agg!.tightWins} in nail-biters`,
@@ -375,7 +375,7 @@ function computeDivision(
       key: 'wreckingBall',
       emoji: '💥',
       title: 'Wrecking Ball',
-      blurb: 'Blows games open — biggest average scoring margin in the club.',
+      blurb: 'Blows games open, with the biggest average scoring margin in the club.',
       winner: ref(wrecker.p.id)!,
       value: diff,
       detail: `Outscores opponents by ${diff} a game`,
@@ -485,7 +485,7 @@ function computeDivision(
       key: 'bloodFeud',
       emoji: '🥊',
       title: 'Blood Feud',
-      blurb: 'The defining rivalry — nobody faced off across the net more.',
+      blurb: 'The defining rivalry. Nobody faced off across the net more.',
       winner: ref(leader)!,
       partner: ref(other)!,
       value: feud.games,
@@ -519,7 +519,7 @@ function computeDivision(
       key: 'heartbreak',
       emoji: '😅',
       title: 'Heartbreak Kid',
-      blurb: 'Endured the longest cold streak — it can only get better.',
+      blurb: 'Endured the longest cold streak. It can only get better.',
       winner: ref(heartbreak.gpId)!,
       value: heartbreak.len,
       detail: `${heartbreak.len} tough losses in a row`,

@@ -1,170 +1,121 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import {
-  ClipboardList,
-  Users,
-  CalendarPlus,
-  Shuffle,
-  Zap,
-  Trophy,
-  Home,
-  History,
-  User,
-  Link2,
-  ArrowDown,
-  Swords,
-  Smartphone,
-  Settings,
-  Wallet,
-  Pencil
-} from 'lucide-vue-next'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
 
-// Static how-to guide, openable from My Clubs and the Account sheet.
-const open = defineModel<boolean>({ required: true })
+// Static how-to guide, opened from the account sheet.
+defineProps<{ open: boolean }>()
+const emit = defineEmits<{ close: [] }>()
 
 const audience = ref<'organizers' | 'players'>('organizers')
-const audienceOptions = [
-  { label: 'Organizers', value: 'organizers' },
-  { label: 'Players', value: 'players' }
-]
 
 const organizerSteps = [
-  {
-    icon: ClipboardList,
-    title: 'Create a club',
-    text: 'A club is your league — its players, events, and ladder all live inside it.'
-  },
-  {
-    icon: Users,
-    title: 'Add your players',
-    text: 'Open Manage players from the club dashboard. Share a player’s invite link so they can sign in and follow their own stats.'
-  },
-  {
-    icon: CalendarPlus,
-    title: 'Schedule an event',
-    text: 'Tap New event, pick courts and rounds, then select exactly courts × 4 players.'
-  },
-  {
-    icon: Shuffle,
-    title: 'Generate matchups',
-    text: 'PickleRank builds fair 2v2 games — balanced teams, no repeat partners. Not happy? Regenerate.'
-  },
-  {
-    icon: Zap,
-    title: 'Score it live',
-    text: 'Hit Enter Scoreboard on game night. Swipe between rounds and tap a court to punch in scores — they save automatically.'
-  },
-  {
-    icon: Trophy,
-    title: 'Complete the event',
-    text: 'Once every game has a score, complete the event. Ratings update instantly and the ladder reshuffles.'
-  }
+  { title: 'Make a league', text: 'A league holds your players, events and rankings.' },
+  { title: 'Add your players', text: 'Open Players to add regulars and subs. Send a player their invite link so they can sign in and see their own stats.' },
+  { title: 'Start an event', text: 'Pick courts and rounds, then choose who is playing. Each court needs 4 players. If you use Spond, import who said yes.' },
+  { title: 'Make the schedule', text: 'PickleRank builds balanced doubles games and avoids repeat partners. Regenerate if you want a different set.' },
+  { title: 'Score each court', text: 'On the night, tap a court to enter its score. Scores save as you go.' },
+  { title: 'Complete the event', text: 'When every game has a score, complete the event. Ratings and rankings update straight away.' }
 ]
 
-const organizerExtras = [
-  { icon: Settings, text: 'Rating systems and matchmaking rules live in the club Settings.' },
-  { icon: Wallet, text: 'Track sub fees in Payments (enable it in Settings first).' },
-  { icon: Pencil, text: 'Fix a past score from the Feed — ratings recalculate for you.' }
+const organizerTips = [
+  'Rating system and matchmaking rules are in league Settings.',
+  'Turn on payments in Settings to track sub fees under Payments.',
+  'Connect Spond from your account menu to import who said yes when you start an event.'
 ]
 
 const playerTabs = [
-  { icon: Home, title: 'Club', text: 'The dashboard: live or upcoming event, podium, and recent results.' },
-  { icon: Trophy, title: 'Ladder', text: 'Full rankings with rating changes after every event.' },
-  { icon: History, title: 'Feed', text: 'Every result, filterable — plus head-to-head comparisons.' },
-  { icon: User, title: 'Me', text: 'Your player card: form, rating history, rivals and teammates.' }
+  { title: 'Home', text: 'Tonight\'s event or the next one, and recent results.' },
+  { title: 'Rankings', text: 'Everyone\'s rating and how it changed after each event.' },
+  { title: 'History', text: 'Every past event and its scores.' },
+  { title: 'Me', text: 'Your rating history, form, partners and opponents.' }
 ]
 
 const playerTips = [
-  {
-    icon: Link2,
-    text: 'Got an invite link from your organizer? Open it and sign in — that connects your account to your player.'
-  },
-  { icon: Swords, text: 'Tap Compare on any player card to see a head-to-head tale of the tape.' },
-  { icon: ArrowDown, text: 'Pull down on any page to refresh the latest scores.' },
-  { icon: Smartphone, text: 'Add PickleRank to your home screen — it installs like an app.' }
+  'Got an invite link from your organizer? Open it and sign in. That links your account to your player.',
+  'Add PickleRank to your home screen to open it like an app.'
 ]
 </script>
 
 <template>
-  <Sheet v-model="open" title="How PickleRank works" size="lg">
-    <div class="flex flex-col gap-5 pb-2">
-      <SegmentedControl v-model="audience" :options="audienceOptions" />
+  <UiSheet :open="open" title="How PickleRank works" @close="emit('close')">
+    <div class="help">
+      <div class="seg" role="group" aria-label="Show help for">
+        <button type="button" class="seg__btn" :aria-pressed="audience === 'organizers'" @click="audience = 'organizers'">Organizers</button>
+        <button type="button" class="seg__btn" :aria-pressed="audience === 'players'" @click="audience = 'players'">Players</button>
+      </div>
 
-      <!-- Organizers -->
       <template v-if="audience === 'organizers'">
-        <ol class="flex flex-col gap-3">
-          <li
-            v-for="(step, i) in organizerSteps"
-            :key="step.title"
-            class="flex items-start gap-3 rounded-[14px] border border-line bg-surface-2 p-3.5"
-          >
-            <span
-              class="numeral flex size-8 shrink-0 -skew-x-6 items-center justify-center rounded-[8px] bg-accent-fill text-base text-accent-contrast"
-            >
-              <span class="skew-x-6">{{ i + 1 }}</span>
-            </span>
-            <span class="flex min-w-0 flex-col gap-0.5">
-              <span class="flex items-center gap-1.5 text-sm font-semibold text-ink">
-                <component :is="step.icon" class="size-4 shrink-0 text-accent-text" aria-hidden="true" />
-                {{ step.title }}
-              </span>
-              <span class="text-sm text-ink-muted">{{ step.text }}</span>
-            </span>
+        <ol class="steps" role="list">
+          <li v-for="(step, i) in organizerSteps" :key="step.title" class="step">
+            <span class="step__n num" aria-hidden="true">{{ i + 1 }}</span>
+            <div>
+              <h3>{{ step.title }}</h3>
+              <p class="muted">{{ step.text }}</p>
+            </div>
           </li>
         </ol>
-
-        <div class="flex flex-col gap-2">
-          <h3 class="eyebrow text-ink-faint">Good to know</h3>
-          <ul class="flex flex-col gap-2">
-            <li
-              v-for="extra in organizerExtras"
-              :key="extra.text"
-              class="flex items-start gap-2.5 text-sm text-ink-muted"
-            >
-              <component :is="extra.icon" class="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden="true" />
-              {{ extra.text }}
-            </li>
-          </ul>
-        </div>
+        <h3>Good to know</h3>
+        <ul class="tips">
+          <li v-for="tip in organizerTips" :key="tip">{{ tip }}</li>
+        </ul>
       </template>
 
-      <!-- Players -->
       <template v-else>
-        <div class="flex flex-col gap-2">
-          <h3 class="eyebrow text-ink-faint">Finding your way around</h3>
-          <ul class="flex flex-col gap-2">
-            <li
-              v-for="tab in playerTabs"
-              :key="tab.title"
-              class="flex items-start gap-3 rounded-[14px] border border-line bg-surface-2 p-3.5"
-            >
-              <span class="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-accent-soft text-accent-text">
-                <component :is="tab.icon" class="size-4" aria-hidden="true" />
-              </span>
-              <span class="flex min-w-0 flex-col gap-0.5">
-                <span class="text-sm font-semibold text-ink">{{ tab.title }}</span>
-                <span class="text-sm text-ink-muted">{{ tab.text }}</span>
-              </span>
-            </li>
-          </ul>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <h3 class="eyebrow text-ink-faint">Tips</h3>
-          <ul class="flex flex-col gap-2">
-            <li
-              v-for="tip in playerTips"
-              :key="tip.text"
-              class="flex items-start gap-2.5 text-sm text-ink-muted"
-            >
-              <component :is="tip.icon" class="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden="true" />
-              {{ tip.text }}
-            </li>
-          </ul>
-        </div>
+        <h3>Finding your way around</h3>
+        <dl class="tabs">
+          <div v-for="t in playerTabs" :key="t.title">
+            <dt>{{ t.title }}</dt>
+            <dd class="muted">{{ t.text }}</dd>
+          </div>
+        </dl>
+        <h3>Tips</h3>
+        <ul class="tips">
+          <li v-for="tip in playerTips" :key="tip">{{ tip }}</li>
+        </ul>
       </template>
     </div>
-  </Sheet>
+  </UiSheet>
 </template>
+
+<style scoped>
+.help { display: flex; flex-direction: column; gap: var(--s4); }
+h3 { font-size: var(--text-md); }
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-control);
+  background: var(--surface-sunk);
+}
+.seg__btn {
+  min-height: var(--tap);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-weight: 700;
+}
+.seg__btn[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+
+.steps { display: flex; flex-direction: column; gap: var(--s3); padding: 0; margin: 0; }
+.step { display: flex; gap: var(--s3); align-items: flex-start; }
+.step__n {
+  flex: none;
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: var(--r-control);
+  background: var(--court);
+  color: var(--on-court);
+  font-size: var(--text-lg);
+}
+.step p, .tabs dd { font-size: var(--text-sm); }
+
+.tips { display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s5); margin: 0; }
+.tips li { font-size: var(--text-sm); }
+
+.tabs { display: flex; flex-direction: column; gap: var(--s3); margin: 0; }
+.tabs dt { font-weight: 700; }
+.tabs dd { margin: 0; }
+</style>
