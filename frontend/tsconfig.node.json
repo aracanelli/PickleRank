@@ -5,14 +5,23 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    "emitDeclarationOnly": true,
+    "outDir": "node_modules/.tmp/tsconfig-node",
+    "types": [
+      "node"
+    ],
+    "target": "ES2022",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "playwright.real.config.ts"
+  ]
 }
-
-
-
-
-
-
-

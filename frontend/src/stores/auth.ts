@@ -226,6 +226,21 @@ export const useAuthStore = defineStore('auth', () => {
     return null
   }
 
+  // Sign-out or account switch: drop cached API responses and per-account session keys
+  // so one account's leagues and scores never show under another.
+  watch(userId, async (next, prev) => {
+    if (!prev || next === prev) return
+    const { api } = await import('@/app/core/http/api-client')
+    api.invalidateCache()
+    try {
+      for (const key of Object.keys(sessionStorage)) {
+        if (key === 'lastGroupId' || key.startsWith('myPlayerId_') || key.startsWith('picklerank:')) {
+          sessionStorage.removeItem(key)
+        }
+      }
+    } catch { /* storage unavailable */ }
+  })
+
   // Wait for auth to be ready
   function waitForAuth(): Promise<void> {
     return new Promise((resolve) => {

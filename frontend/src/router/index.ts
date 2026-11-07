@@ -1,109 +1,115 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getSafeRedirect } from '@/app/core/auth/redirectUtils'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean
+    /** 'league' shows the league tab bar; anything else is a focused screen without it */
+    chrome?: 'league'
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
   routes: [
     {
       path: '/',
       name: 'home',
-      component: () => import('@/app/features/home/views/HomePage.vue'),
-      meta: { nav: 'none' }
+      component: () => import('@/app/features/home/views/HomePage.vue')
     },
     {
       path: '/login',
       name: 'login',
-      component: () => import('@/app/features/auth/views/LoginPage.vue'),
-      meta: { nav: 'none' }
+      component: () => import('@/app/features/auth/views/LoginPage.vue')
     },
     {
       path: '/signup',
       name: 'signup',
-      component: () => import('@/app/features/auth/views/SignUpPage.vue'),
-      meta: { nav: 'none' }
+      component: () => import('@/app/features/auth/views/SignUpPage.vue')
     },
     {
       path: '/groups',
       name: 'groups',
       component: () => import('@/app/features/groups/views/GroupsPage.vue'),
-      meta: { requiresAuth: true, nav: 'global' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/groups/:groupId',
       name: 'group-detail',
       component: () => import('@/app/features/groups/views/GroupDetailPage.vue'),
-      meta: { requiresAuth: true, nav: 'group' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/groups/:groupId/settings',
       name: 'group-settings',
       component: () => import('@/app/features/groups/views/GroupSettingsPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Settings' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/groups/:groupId/players/manage',
       name: 'manage-players',
       component: () => import('@/app/features/groups/views/ManagePlayersPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Manage Players' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/groups/:groupId/players/:playerId',
       name: 'player-profile',
       component: () => import('@/app/features/players/views/PlayerProfilePage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Player' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/players',
       name: 'players',
       component: () => import('@/app/features/players/views/PlayersPage.vue'),
-      meta: { requiresAuth: true, nav: 'global' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/groups/:groupId/events/new',
       name: 'create-event',
       component: () => import('@/app/features/events/views/CreateEventPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'New Event' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/events/:eventId',
       name: 'event-detail',
       component: () => import('@/app/features/events/views/EventDetailPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Event' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/groups/:groupId/rankings',
       name: 'rankings',
       component: () => import('@/app/features/rankings/views/RankingsPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Rankings' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/groups/:groupId/history',
       name: 'history',
       component: () => import('@/app/features/rankings/views/HistoryPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'History' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/groups/:groupId/payments',
       name: 'payments',
       component: () => import('@/app/features/payments/views/PaymentsPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Payments' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/groups/:groupId/awards',
       name: 'awards',
       component: () => import('@/app/features/awards/views/AwardsPage.vue'),
-      meta: { requiresAuth: true, nav: 'group', title: 'Awards' }
+      meta: { requiresAuth: true, chrome: 'league' }
     },
     {
       path: '/link-player',
       name: 'link-player',
       component: () => import('@/app/features/players/views/LinkPlayerPage.vue'),
-      meta: { requiresAuth: true, nav: 'none' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
-      component: () => import('@/app/features/home/views/NotFoundPage.vue'),
-      meta: { nav: 'none' }
+      component: () => import('@/app/features/home/views/NotFoundPage.vue')
     }
   ]
 })
@@ -139,8 +145,7 @@ router.beforeEach(async (to, _from) => {
 
   // If user is authenticated and trying to go to login or signup, redirect to groups
   if ((to.name === 'login' || to.name === 'signup') && authStore.isAuthenticated) {
-    const redirect = to.query.redirect as string
-    return redirect || '/groups'
+    return getSafeRedirect(to.query.redirect)
   }
 
   // If user is authenticated and on home page, redirect to dashboard

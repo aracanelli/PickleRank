@@ -1,363 +1,171 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import {
-  ClipboardList,
-  Plus,
-  ChevronRight,
-  EllipsisVertical,
-  Pencil,
-  Copy,
-  RefreshCw,
-  Archive,
-  CircleHelp
-} from 'lucide-vue-next'
+/**
+ * Every league the user organizes or plays in. First stop after sign-in.
+ */
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, RouterLink } from 'vue-router'
+import { ChevronRight, Users } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
-import { api } from '@/app/core/http/api-client'
 import type { GroupListItemDto } from '@/app/core/models/dto'
-import { useGroupContextStore } from '@/stores/group-context'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { useConfirm } from '@/app/core/ui/composables/useConfirm'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import AppInput from '@/app/core/ui/components/AppInput.vue'
-import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import IconButton from '@/app/core/ui/components/IconButton.vue'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import Fab from '@/app/core/ui/components/Fab.vue'
-import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
-import Avatar from '@/app/core/ui/components/Avatar.vue'
-import ListItem from '@/app/core/ui/components/ListItem.vue'
-import CourtLines from '@/app/core/ui/components/CourtLines.vue'
-import HeaderActions from '@/app/core/layout/HeaderActions.vue'
-import HelpSheet from '@/app/core/layout/HelpSheet.vue'
-import CreateGroupSheet from '../components/CreateGroupSheet.vue'
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import AccountButton from '@/app/core/layout/AccountButton.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiField from '@/app/core/ui/UiField.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import ActionBar from '@/app/core/ui/ActionBar.vue'
+import { announce } from '@/app/core/ui/feedback'
 
 const router = useRouter()
-const toast = useToast()
-const { confirm } = useConfirm()
-const groupContext = useGroupContextStore()
 
-const groups = ref<GroupListItemDto[]>([])
-const memberGroups = ref<GroupListItemDto[]>([])
-const isLoading = ref(true)
-const error = ref('')
-const showCreateSheet = ref(false)
-const showHelpSheet = ref(false)
+const organized = ref<GroupListItemDto[]>([])
+const playing = ref<GroupListItemDto[]>([])
+const loading = ref(true)
+const loadError = ref('')
 
-// Per-group actions sheet
-const showActionsSheet = ref(false)
-const actionsGroup = ref<GroupListItemDto | null>(null)
-const renameMode = ref(false)
-const renameName = ref('')
-const isRenaming = ref(false)
-const isDuplicating = ref(false)
-const isRecalculating = ref(false)
-const isArchiving = ref(false)
+const createOpen = ref(false)
+const newName = ref('')
+const nameError = ref('')
+const creating = ref(false)
 
-onMounted(async () => {
-  // Leaving group scope: reset contextual header/tabs
-  groupContext.clear()
-  await loadGroups()
-})
+const empty = computed(() => !organized.value.length && !playing.value.length)
 
-async function loadGroups(silent = false) {
-  if (!silent) isLoading.value = true
-  error.value = ''
+async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
-    const [ownedResponse, memberResponse] = await Promise.all([
-      groupsApi.list(),
-      groupsApi.listMemberGroups()
-    ])
-    groups.value = ownedResponse.groups
-    // Groups I organize are excluded from the "member of" section
-    const ownedIds = new Set(ownedResponse.groups.map((g) => g.id))
-    memberGroups.value = memberResponse.groups.filter((g) => !ownedIds.has(g.id))
+    const [owned, member] = await Promise.all([groupsApi.list(), groupsApi.listMemberGroups()])
+    organized.value = owned.groups
+    const ownedIds = new Set(owned.groups.map(g => g.id))
+    playing.value = member.groups.filter(g => !ownedIds.has(g.id))
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load groups')
+    loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
   } finally {
-    isLoading.value = false
+    loading.value = false
   }
 }
 
-async function refresh() {
-  api.invalidateCache('/api/groups')
-  await loadGroups(true)
+onMounted(load)
+
+function openCreate() {
+  newName.value = ''
+  nameError.value = ''
+  createOpen.value = true
 }
 
-function clubCaption(group: GroupListItemDto): string {
-  return `${group.playerCount} ${group.playerCount === 1 ? 'player' : 'players'} · Pickleball`
-}
-
-function openActions(group: GroupListItemDto) {
-  actionsGroup.value = group
-  renameMode.value = false
-  renameName.value = group.name
-  showActionsSheet.value = true
-}
-
-const actionBusy = () =>
-  isRenaming.value || isDuplicating.value || isRecalculating.value || isArchiving.value
-
-async function renameGroup() {
-  const group = actionsGroup.value
-  if (!group || !renameName.value.trim() || isRenaming.value) return
-  isRenaming.value = true
+async function create() {
+  const name = newName.value.trim()
+  if (!name) {
+    nameError.value = 'Enter a league name.'
+    return
+  }
+  creating.value = true
+  nameError.value = ''
   try {
-    const updated = await groupsApi.rename(group.id, renameName.value.trim())
-    group.name = updated.name
-    toast.success('Group renamed')
-    showActionsSheet.value = false
+    const group = await groupsApi.create({ name })
+    createOpen.value = false
+    await router.push(`/groups/${group.id}`)
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to rename group'))
+    nameError.value = (e as { message?: string }).message || 'League not created. Check your connection and try again.'
+    announce(nameError.value, true)
   } finally {
-    isRenaming.value = false
+    creating.value = false
   }
 }
 
-async function duplicateGroup() {
-  const group = actionsGroup.value
-  if (!group || actionBusy()) return
-  isDuplicating.value = true
-  try {
-    const newGroup = await groupsApi.duplicate(group.id)
-    toast.success(`Created "${newGroup.name}"`)
-    showActionsSheet.value = false
-    router.push(`/groups/${newGroup.id}`)
-  } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to duplicate group'))
-  } finally {
-    isDuplicating.value = false
-  }
-}
-
-async function recalculateRatings() {
-  const group = actionsGroup.value
-  if (!group || actionBusy()) return
-  const ok = await confirm({
-    title: 'Recalculate ratings?',
-    message:
-      'This resets all player ratings and replays every completed event from the beginning. Current ratings will be replaced.',
-    confirmLabel: 'Recalculate'
-  })
-  if (!ok) return
-  isRecalculating.value = true
-  try {
-    const result = await groupsApi.recalculateRatings(group.id)
-    toast.success(
-      `Recalculated: ${result.eventsRecalculated} events processed, ${result.playersUpdated} players updated`
-    )
-    showActionsSheet.value = false
-  } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to recalculate ratings'))
-  } finally {
-    isRecalculating.value = false
-  }
-}
-
-async function archiveGroup() {
-  const group = actionsGroup.value
-  if (!group || actionBusy()) return
-  const ok = await confirm({
-    title: 'Archive group?',
-    message: `"${group.name}" will be hidden from your dashboard.`,
-    confirmLabel: 'Archive',
-    danger: true
-  })
-  if (!ok) return
-  isArchiving.value = true
-  try {
-    await groupsApi.archive(group.id)
-    toast.success('Group archived')
-    showActionsSheet.value = false
-    await loadGroups(true)
-  } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to archive group'))
-  } finally {
-    isArchiving.value = false
-  }
-}
+const players = (n: number) => `${n} ${n === 1 ? 'player' : 'players'}`
 </script>
 
 <template>
-  <PullRefresh :on-refresh="refresh">
-    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
-      <HeaderActions>
-        <IconButton label="How PickleRank works" @click="showHelpSheet = true">
-          <CircleHelp class="size-5" />
-        </IconButton>
-      </HeaderActions>
+  <div class="page">
+    <PageHeader title="Your leagues">
+      <template #actions><AccountButton /></template>
+    </PageHeader>
 
-      <!-- Masthead -->
-      <header class="relative mb-5 overflow-hidden stadium-glow">
-        <CourtLines crop="corner" class="absolute -right-4 -top-2 h-24 w-auto" />
-        <p class="eyebrow relative text-ink-faint">Your leagues</p>
-        <h1 class="display-wide relative mt-1 text-3xl text-ink">My Clubs</h1>
-        <div class="kitchen-line relative mt-3" />
-      </header>
+    <UiState v-if="loading" kind="loading" title="Loading leagues" />
+    <UiState v-else-if="loadError" kind="error" title="Leagues didn't load" :body="loadError" @retry="load" />
 
-      <SkeletonList v-if="isLoading" :rows="4" />
+    <template v-else-if="empty">
+      <UiState kind="empty" title="No leagues yet">
+        <p><strong>Running a league?</strong> Create it here, then add your players.</p>
+        <p><strong>Joining one?</strong> Open the invite link your organizer sent you. The league shows up here once it's linked.</p>
+      </UiState>
+      <ActionBar>
+        <UiButton variant="primary" size="lg" @click="openCreate">Create a league</UiButton>
+      </ActionBar>
+    </template>
 
-      <ErrorState v-else-if="error" :message="error" @retry="loadGroups()" />
-
-      <AppEmptyState
-        v-else-if="groups.length === 0 && memberGroups.length === 0"
-        title="No clubs yet"
-        description="Create your first club to start organizing pickleball events and tracking rankings."
-        court
-      >
-        <template #icon><ClipboardList class="size-7" /></template>
-        <template #action>
-          <div class="flex flex-col items-center gap-2">
-            <AppButton @click="showCreateSheet = true">
-              <Plus class="size-4" />
-              Create your first club
-            </AppButton>
-            <AppButton variant="ghost" size="sm" @click="showHelpSheet = true">
-              <CircleHelp class="size-4" />
-              How PickleRank works
-            </AppButton>
-          </div>
-        </template>
-      </AppEmptyState>
-
-      <div v-else class="flex flex-col gap-6">
-        <section v-if="groups.length > 0" class="flex flex-col gap-3">
-          <h2 class="eyebrow text-ink-faint">Organizing</h2>
-          <div class="grid gap-3 md:grid-cols-2">
-            <div
-              v-for="group in groups"
-              :key="group.id"
-              class="flex min-w-0 items-center rounded-[20px] ticket-clip border border-line bg-surface-1 transition-colors hover:bg-surface-2"
-            >
-              <button
-                type="button"
-                class="flex min-h-18 min-w-0 flex-1 items-center gap-3 px-4 py-3.5 text-left"
-                @click="router.push(`/groups/${group.id}`)"
-              >
-                <Avatar :name="group.name" :seed="group.id" size="md" />
-                <span class="flex min-w-0 flex-1 flex-col gap-1">
-                  <span class="display-wide truncate text-base leading-tight text-ink">
-                    {{ group.name }}
-                  </span>
-                  <span class="eyebrow truncate text-ink-faint">{{ clubCaption(group) }}</span>
-                </span>
-                <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
-              </button>
-              <div class="pr-2">
-                <IconButton label="Group actions" @click="openActions(group)">
-                  <EllipsisVertical class="size-5" />
-                </IconButton>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="memberGroups.length > 0" class="flex flex-col gap-3">
-          <h2 class="eyebrow text-ink-faint">Member of</h2>
-          <div class="grid gap-3 md:grid-cols-2">
-            <button
-              v-for="group in memberGroups"
-              :key="group.id"
-              type="button"
-              class="flex min-h-18 min-w-0 items-center gap-3 rounded-[20px] ticket-clip border border-line bg-surface-1 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
-              @click="router.push(`/groups/${group.id}`)"
-            >
-              <Avatar :name="group.name" :seed="group.id" size="md" />
-              <span class="flex min-w-0 flex-1 flex-col gap-1">
-                <span class="display-wide truncate text-base leading-tight text-ink">
-                  {{ group.name }}
-                </span>
-                <span class="eyebrow truncate text-ink-faint">{{ clubCaption(group) }}</span>
+    <template v-else>
+      <section v-if="organized.length" class="section" aria-labelledby="org-h">
+        <h2 id="org-h">Leagues you organize</h2>
+        <ul role="list" class="list">
+          <li v-for="g in organized" :key="g.id">
+            <RouterLink :to="`/groups/${g.id}`" class="row-link">
+              <span class="row-link__text">
+                <span class="row-link__title">{{ g.name }}</span>
+                <span class="muted row-link__sub">{{ players(g.playerCount) }}</span>
               </span>
-              <ChevronRight class="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
-            </button>
-          </div>
-        </section>
+              <ChevronRight :size="20" aria-hidden="true" />
+            </RouterLink>
+          </li>
+        </ul>
+      </section>
 
-        <!-- Help entry -->
-        <section class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
-          <ListItem
-            title="New here?"
-            subtitle="See how PickleRank works for organizers and players"
-            chevron
-            @click="showHelpSheet = true"
-          >
-            <template #leading>
-              <span class="flex size-9 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-                <CircleHelp class="size-4" />
+      <section v-if="playing.length" class="section" aria-labelledby="play-h">
+        <h2 id="play-h">Leagues you play in</h2>
+        <ul role="list" class="list">
+          <li v-for="g in playing" :key="g.id">
+            <RouterLink :to="`/groups/${g.id}`" class="row-link">
+              <Users :size="20" aria-hidden="true" class="row-link__icon" />
+              <span class="row-link__text">
+                <span class="row-link__title">{{ g.name }}</span>
+                <span class="muted row-link__sub">{{ players(g.playerCount) }}</span>
               </span>
-            </template>
-          </ListItem>
-        </section>
-      </div>
-    </div>
-  </PullRefresh>
+              <ChevronRight :size="20" aria-hidden="true" />
+            </RouterLink>
+          </li>
+        </ul>
+      </section>
 
-  <Fab label="New club" @click="showCreateSheet = true">
-    <Plus class="size-5" />
-  </Fab>
+      <ActionBar>
+        <UiButton variant="primary" size="lg" @click="openCreate">Create a league</UiButton>
+      </ActionBar>
+    </template>
 
-  <CreateGroupSheet v-model="showCreateSheet" />
-  <HelpSheet v-model="showHelpSheet" />
-
-  <!-- Per-group actions -->
-  <Sheet
-    v-model="showActionsSheet"
-    :title="actionsGroup?.name"
-    :persistent="actionBusy()"
-    @closed="renameMode = false"
-  >
-    <form v-if="renameMode" class="flex flex-col gap-3" @submit.prevent="renameGroup">
-      <AppInput v-model="renameName" label="Group name" placeholder="Group name" required />
-      <div class="flex gap-2">
-        <AppButton variant="secondary" block :disabled="isRenaming" @click="renameMode = false">
-          Cancel
-        </AppButton>
-        <AppButton block type="submit" :loading="isRenaming" :disabled="!renameName.trim()">
-          Save
-        </AppButton>
-      </div>
-    </form>
-
-    <div v-else class="flex flex-col">
-      <button
-        type="button"
-        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-        @click="renameMode = true"
-      >
-        <Pencil class="size-5 text-ink-muted" />
-        Rename
-      </button>
-      <button
-        type="button"
-        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
-        :disabled="isDuplicating"
-        @click="duplicateGroup"
-      >
-        <Copy class="size-5 text-ink-muted" />
-        {{ isDuplicating ? 'Duplicating…' : 'Duplicate' }}
-      </button>
-      <button
-        type="button"
-        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
-        :disabled="isRecalculating"
-        @click="recalculateRatings"
-      >
-        <RefreshCw class="size-5 text-ink-muted" :class="isRecalculating ? 'animate-spin' : ''" />
-        {{ isRecalculating ? 'Recalculating…' : 'Recalculate ratings' }}
-      </button>
-      <button
-        type="button"
-        class="flex min-h-12 items-center gap-3 rounded-[10px] px-3 text-left text-sm font-medium text-loss transition-colors hover:bg-loss/10 disabled:opacity-50"
-        :disabled="isArchiving"
-        @click="archiveGroup"
-      >
-        <Archive class="size-5" />
-        {{ isArchiving ? 'Archiving…' : 'Archive' }}
-      </button>
-    </div>
-  </Sheet>
+    <UiSheet :open="createOpen" title="Create a league" @close="createOpen = false">
+      <form id="create-league" novalidate @submit.prevent="create">
+        <UiField
+          v-model="newName"
+          label="League name"
+          placeholder="Tuesday night ladder"
+          autocomplete="off"
+          :maxlength="100"
+          :error="nameError"
+          hint="You can rename it later in settings."
+        />
+      </form>
+      <template #actions>
+        <UiButton variant="quiet" @click="createOpen = false">Cancel</UiButton>
+        <UiButton type="submit" form="create-league" variant="primary" :loading="creating">Create league</UiButton>
+      </template>
+    </UiSheet>
+  </div>
 </template>
+
+<style scoped>
+.list { display: flex; flex-direction: column; }
+.row-link {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 60px;
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+.row-link__icon { flex: none; color: var(--ink-2); }
+.row-link__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row-link__title { font-weight: 700; overflow-wrap: anywhere; }
+.row-link__sub { font-size: var(--text-sm); }
+</style>

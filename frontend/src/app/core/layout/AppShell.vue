@@ -1,44 +1,98 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import AppHeader from './AppHeader.vue'
-import BottomTabBar from './BottomTabBar.vue'
-import AccountSheet from './AccountSheet.vue'
-import ToastHost from '@/app/core/ui/components/ToastHost.vue'
-import ConfirmSheet from '@/app/core/ui/components/ConfirmSheet.vue'
+import { CheckCircle2, AlertTriangle } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import { useLeagueStore } from '@/stores/league'
+import TabBar from './TabBar.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import { liveRegion, confirmState, settleConfirm, toastState } from '@/app/core/ui/feedback'
 
 const route = useRoute()
-const authStore = useAuthStore()
+const auth = useAuthStore()
+const league = useLeagueStore()
 
-const accountSheetOpen = ref(false)
+// Any route with a groupId becomes the remembered league.
+watch(() => route.params.groupId, id => {
+  if (typeof id === 'string' && id) void league.load(id)
+}, { immediate: true })
 
-// Route meta drives the chrome: 'global' | 'group' | 'none'
-const nav = computed(() => (route.meta.nav as 'global' | 'group' | 'none' | undefined) ?? 'none')
-
-// Immersive takeover (live scoreboard): same route, chrome fully hidden
-const immersive = computed(() => route.name === 'event-detail' && route.query.mode === 'live')
-
-const showChrome = computed(() => nav.value !== 'none' && authStore.isAuthenticated && !immersive.value)
+const showTabs = computed(() =>
+  auth.isAuthenticated && route.meta.chrome === 'league' && !!league.groupId
+)
 </script>
 
 <template>
-  <div class="flex min-h-dvh flex-col" :class="immersive ? 'bg-surface-court' : 'bg-surface-page'">
-    <AppHeader v-if="showChrome" :context="nav === 'group' ? 'group' : 'global'" @account="accountSheetOpen = true" />
+  <a class="skip" href="#main">Skip to content</a>
+  <TabBar v-if="showTabs" />
+  <main id="main" tabindex="-1" :class="{ 'has-tabs': showTabs }">
+    <slot />
+  </main>
 
-    <!-- pb reserves space for the mobile bottom tab bar -->
-    <main class="flex-1" :class="showChrome ? 'pb-24 md:pb-10' : ''">
-      <slot />
-    </main>
+  <div class="visually-hidden" aria-live="polite" aria-atomic="true">{{ liveRegion.polite }}</div>
+  <div class="visually-hidden" aria-live="assertive" aria-atomic="true">{{ liveRegion.assertive }}</div>
 
-    <BottomTabBar
-      v-if="showChrome"
-      :context="nav === 'group' ? 'group' : 'global'"
-      @account="accountSheetOpen = true"
-    />
-
-    <AccountSheet v-model="accountSheetOpen" />
-    <ToastHost />
-    <ConfirmSheet />
+  <div v-if="toastState.message" :key="toastState.id" class="toast" :class="`toast--${toastState.kind}`" aria-hidden="true">
+    <CheckCircle2 v-if="toastState.kind === 'ok'" :size="20" />
+    <AlertTriangle v-else :size="20" />
+    <span>{{ toastState.message }}</span>
   </div>
+
+  <UiSheet
+    :open="confirmState.open"
+    size="alert"
+    :title="confirmState.options?.title || ''"
+    :description="confirmState.options?.body"
+    close-label="Cancel"
+    @close="settleConfirm(false)"
+  >
+    <template #actions>
+      <UiButton :variant="confirmState.options?.danger ? 'danger' : 'primary'" size="lg" block data-autofocus @click="settleConfirm(true)">
+        {{ confirmState.options?.confirmLabel }}
+      </UiButton>
+      <UiButton variant="quiet" size="lg" block @click="settleConfirm(false)">
+        {{ confirmState.options?.cancelLabel || 'Cancel' }}
+      </UiButton>
+    </template>
+  </UiSheet>
 </template>
+
+<style scoped>
+.skip {
+  position: absolute;
+  left: 8px; top: -100px;
+  z-index: 100;
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  color: var(--court);
+  font-weight: 700;
+  border-radius: var(--r-control);
+}
+.skip:focus { top: calc(8px + var(--safe-top)); }
+main { display: block; min-height: 100dvh; }
+main:focus { outline: none; }
+main.has-tabs { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom)); }
+@media (min-width: 720px) { main.has-tabs { padding-bottom: 0; } }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--s4) + var(--kb-inset, 0px));
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  max-width: calc(100vw - 32px);
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-tile);
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+  animation: toast-in 180ms var(--ease);
+}
+.toast--bad { background: var(--bad); color: var(--surface); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+</style>

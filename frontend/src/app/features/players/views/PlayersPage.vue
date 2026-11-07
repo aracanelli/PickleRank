@@ -1,206 +1,207 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Plus, Users, Search, ListPlus } from 'lucide-vue-next'
+/**
+ * Every player you have created, across leagues. Create players here, then add them to leagues
+ * from a league's Players tab. Invite links tie a player to someone's account.
+ */
+import { ref, computed, onMounted } from 'vue'
+import { Search } from 'lucide-vue-next'
 import { playersApi } from '../services/players.api'
-import { api } from '@/app/core/http/api-client'
 import type { PlayerDto } from '@/app/core/models/dto'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import HeaderActions from '@/app/core/layout/HeaderActions.vue'
-import IconButton from '@/app/core/ui/components/IconButton.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import AppInput from '@/app/core/ui/components/AppInput.vue'
-import AppTextarea from '@/app/core/ui/components/AppTextarea.vue'
-import AppBadge from '@/app/core/ui/components/AppBadge.vue'
-import Avatar from '@/app/core/ui/components/Avatar.vue'
-import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import Fab from '@/app/core/ui/components/Fab.vue'
-import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
-import PlayerSheet from '../components/PlayerSheet.vue'
-import BulkCreateSheet from '../components/BulkCreateSheet.vue'
-
-const toast = useToast()
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import AccountButton from '@/app/core/layout/AccountButton.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiField from '@/app/core/ui/UiField.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import ActionBar from '@/app/core/ui/ActionBar.vue'
+import { confirm, toast } from '@/app/core/ui/feedback'
+import BulkPlayerCreateModal from '../components/BulkPlayerCreateModal.vue'
+import InviteSheet from '../components/InviteSheet.vue'
+import { findByName, inviteUrl, count } from '../roster'
 
 const players = ref<PlayerDto[]>([])
-const isLoading = ref(true)
+const loading = ref(true)
 const error = ref('')
-const searchQuery = ref('')
+const query = ref('')
+const visible = computed(() => findByName(players.value, query.value))
 
-const showPlayerSheet = ref(false)
-const selectedPlayerId = ref<string | null>(null)
-const showBulkSheet = ref(false)
-
-// Create sheet
-const showCreateSheet = ref(false)
-const newPlayerName = ref('')
-const newPlayerNotes = ref('')
-const isCreating = ref(false)
-
-onMounted(() => loadPlayers())
-
-async function loadPlayers(silent = false) {
-  if (!silent) isLoading.value = true
+async function load() {
+  loading.value = true
   error.value = ''
   try {
-    const response = await playersApi.list(searchQuery.value.trim() || undefined)
-    players.value = response.players
+    players.value = (await playersApi.list()).players
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load players')
+    error.value = (e as { message?: string }).message || 'Your player list did not load.'
   } finally {
-    isLoading.value = false
+    loading.value = false
   }
 }
+onMounted(load)
 
-// Debounced server-side search (ported: 300ms)
-let searchTimeout: ReturnType<typeof setTimeout>
-watch(searchQuery, () => {
-  clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => loadPlayers(true), 300)
-})
-onUnmounted(() => clearTimeout(searchTimeout))
+// ---- create one ----
+const createOpen = ref(false)
+const name = ref('')
+const notes = ref('')
+const nameError = ref('')
+const creating = ref(false)
 
-const selectedPlayer = computed(
-  () => players.value.find((p) => p.id === selectedPlayerId.value) ?? null
-)
-
-function openPlayer(player: PlayerDto) {
-  selectedPlayerId.value = player.id
-  showPlayerSheet.value = true
+function openCreate() {
+  name.value = ''
+  notes.value = ''
+  nameError.value = ''
+  createOpen.value = true
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
-}
-
-async function createPlayer() {
-  if (!newPlayerName.value.trim()) return
-  isCreating.value = true
+async function create() {
+  const displayName = name.value.trim()
+  if (!displayName) {
+    nameError.value = 'Enter a name.'
+    return
+  }
+  creating.value = true
+  nameError.value = ''
   try {
-    await playersApi.create({
-      displayName: newPlayerName.value.trim(),
-      notes: newPlayerNotes.value.trim() || undefined
-    })
-    toast.success('Player created')
-    showCreateSheet.value = false
-    newPlayerName.value = ''
-    newPlayerNotes.value = ''
-    await loadPlayers(true)
+    await playersApi.create({ displayName, notes: notes.value.trim() || undefined })
+    createOpen.value = false
+    toast(`${displayName} created`)
+    await load()
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to create player'))
+    nameError.value = (e as { message?: string }).message || 'Player not created. Try again.'
   } finally {
-    isCreating.value = false
+    creating.value = false
   }
 }
 
-async function refresh() {
-  api.invalidateCache('/api/players')
-  await loadPlayers(true)
+const bulkOpen = ref(false)
+
+// ---- account links ----
+const busyId = ref<string | null>(null)
+const invite = ref<{ name: string; link: string } | null>(null)
+
+async function makeInvite(p: PlayerDto) {
+  busyId.value = p.id
+  try {
+    const token = await playersApi.generateInvite(p.id)
+    invite.value = { name: p.displayName, link: inviteUrl(window.location.origin, token) }
+  } catch (e) {
+    toast((e as { message?: string }).message || 'Invite link not created. Try again.', 'bad')
+  } finally {
+    busyId.value = null
+  }
+}
+
+async function unlink(p: PlayerDto) {
+  const ok = await confirm({
+    title: `Unlink ${p.displayName}'s account?`,
+    body: 'Their stats stay. They lose access until they open a new invite link.',
+    confirmLabel: 'Unlink account',
+    danger: true
+  })
+  if (!ok) return
+  busyId.value = p.id
+  try {
+    await playersApi.unlinkPlayer(p.id)
+    toast('Account unlinked')
+    await load()
+  } catch (e) {
+    toast((e as { message?: string }).message || 'Account not unlinked. Try again.', 'bad')
+  } finally {
+    busyId.value = null
+  }
 }
 </script>
 
 <template>
-  <HeaderActions>
-    <IconButton label="Bulk add players" @click="showBulkSheet = true">
-      <ListPlus class="size-5" />
-    </IconButton>
-  </HeaderActions>
+  <div class="page">
+    <PageHeader title="Your players" back-to="/groups" back-label="All leagues" subtitle="Everyone you've created. Add them to a league from its Players tab.">
+      <template #actions><AccountButton /></template>
+    </PageHeader>
 
-  <PullRefresh :on-refresh="refresh">
-    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
-      <div class="flex flex-col gap-4">
-        <AppInput v-model="searchQuery" type="search" inputmode="search" placeholder="Search players...">
-          <template #leading><Search class="size-4" /></template>
-        </AppInput>
+    <UiState v-if="loading && !players.length" kind="loading" title="Loading players" />
+    <UiState v-else-if="error" kind="error" title="Players didn't load" :body="error" @retry="load" />
+    <UiState
+      v-else-if="!players.length"
+      kind="empty"
+      title="No players yet"
+      body="Create the people you play with. You can add them to any of your leagues."
+      action-label="Create a player"
+      @action="openCreate"
+    />
 
-        <SkeletonList v-if="isLoading" :rows="6" avatar />
-
-        <ErrorState v-else-if="error" :message="error" @retry="loadPlayers()" />
-
-        <AppEmptyState
-          v-else-if="players.length === 0 && !searchQuery"
-          title="No players yet"
-          description="Create players here and add them to your groups."
-        >
-          <template #icon><Users class="size-7" /></template>
-          <template #action>
-            <div class="flex flex-wrap justify-center gap-2">
-              <AppButton variant="secondary" @click="showBulkSheet = true">Bulk add players</AppButton>
-              <AppButton @click="showCreateSheet = true">Create your first player</AppButton>
-            </div>
-          </template>
-        </AppEmptyState>
-
-        <AppEmptyState
-          v-else-if="players.length === 0"
-          title="No players found"
-          description="Try a different search term."
-        >
-          <template #icon><Search class="size-7" /></template>
-        </AppEmptyState>
-
-        <section v-else class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
-          <div class="divide-y divide-line">
-            <button
-              v-for="player in players"
-              :key="player.id"
-              type="button"
-              class="flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2 active:bg-surface-2"
-              @click="openPlayer(player)"
-            >
-              <Avatar :name="player.displayName" :seed="player.id" size="md" />
-              <span class="flex min-w-0 flex-1 flex-col">
-                <span class="truncate text-sm font-medium text-ink">{{ player.displayName }}</span>
-                <span class="truncate text-sm text-ink-faint">
-                  {{ player.notes || `Added ${formatDate(player.createdAt)}` }}
-                </span>
-              </span>
-              <AppBadge v-if="player.userId" variant="success">Linked</AppBadge>
-            </button>
-          </div>
-        </section>
+    <template v-else>
+      <div class="search">
+        <Search :size="18" aria-hidden="true" class="search__icon" />
+        <label for="players-search" class="visually-hidden">Find a player</label>
+        <input id="players-search" v-model="query" type="search" placeholder="Find a player" autocomplete="off" enterkeyhint="search">
       </div>
-    </div>
-  </PullRefresh>
+      <p v-if="!visible.length" class="muted" role="status">No one named "{{ query }}".</p>
 
-  <Fab label="New player" @click="showCreateSheet = true">
-    <Plus class="size-5" />
-  </Fab>
-
-  <PlayerSheet v-model="showPlayerSheet" :player="selectedPlayer" @updated="loadPlayers(true)" />
-
-  <BulkCreateSheet v-model="showBulkSheet" @created="loadPlayers(true)" />
-
-  <Sheet v-model="showCreateSheet" title="New player" :persistent="isCreating">
-    <div class="flex flex-col gap-4">
-      <AppInput
-        v-model="newPlayerName"
-        label="Name"
-        placeholder="e.g., John Smith"
-        @keyup.enter="createPlayer"
-      />
-      <AppTextarea
-        v-model="newPlayerNotes"
-        label="Notes (optional)"
-        :rows="2"
-        placeholder="e.g., Left-handed, prefers kitchen play"
-      />
-    </div>
-    <template #footer>
-      <div class="flex gap-2">
-        <AppButton variant="secondary" block :disabled="isCreating" @click="showCreateSheet = false">
-          Cancel
-        </AppButton>
-        <AppButton block :loading="isCreating" :disabled="!newPlayerName.trim()" @click="createPlayer">
-          Create player
-        </AppButton>
-      </div>
+      <ul role="list" class="list" aria-label="Players">
+        <li v-for="p in visible" :key="p.id" class="prow">
+          <span class="prow__text">
+            <span class="prow__name truncate">{{ p.displayName }}</span>
+            <span v-if="p.userId || p.notes" class="prow__meta truncate muted">{{ [p.userId ? 'Account linked' : '', p.notes || ''].filter(Boolean).join(', ') }}</span>
+          </span>
+          <UiButton
+            v-if="p.userId"
+            variant="quiet"
+            :disabled="busyId === p.id"
+            :aria-label="`Unlink ${p.displayName}'s account`"
+            @click="unlink(p)"
+          >Unlink</UiButton>
+          <UiButton
+            v-else
+            variant="quiet"
+            :loading="busyId === p.id"
+            :aria-label="`Create invite link for ${p.displayName}`"
+            @click="makeInvite(p)"
+          >Invite</UiButton>
+        </li>
+      </ul>
     </template>
-  </Sheet>
+
+    <ActionBar v-if="!error">
+      <template v-if="players.length" #meta>{{ count(players.length) }}</template>
+      <UiButton variant="primary" @click="openCreate">New player</UiButton>
+      <UiButton @click="bulkOpen = true">Add several</UiButton>
+    </ActionBar>
+
+    <UiSheet :open="createOpen" title="New player" @close="createOpen = false">
+      <form id="create-player" class="form" novalidate @submit.prevent="create">
+        <UiField v-model="name" label="Name" autocomplete="off" :maxlength="80" :error="nameError || undefined" required />
+        <UiField v-model="notes" label="Notes" hint="Optional. Only you see these." multiline />
+      </form>
+      <template #actions>
+        <UiButton type="submit" form="create-player" variant="primary" size="lg" block :loading="creating">Create player</UiButton>
+      </template>
+    </UiSheet>
+
+    <BulkPlayerCreateModal v-model:open="bulkOpen" @success="load" />
+    <InviteSheet :link="invite?.link ?? null" :name="invite?.name ?? ''" @close="invite = null" />
+  </div>
 </template>
+
+<style scoped>
+.search { position: relative; }
+.search__icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-2); }
+.search input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 var(--s3) 0 40px;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+}
+.list { display: flex; flex-direction: column; min-width: 0; }
+.prow {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 56px;
+  border-bottom: 1px solid var(--line);
+}
+.prow__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.prow__name { font-weight: 700; }
+.prow__meta { font-size: var(--text-sm); }
+.form { display: flex; flex-direction: column; gap: var(--s4); }
+</style>

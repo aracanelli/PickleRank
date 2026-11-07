@@ -1,383 +1,333 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { History, Swords, Flame, Users } from 'lucide-vue-next'
+/**
+ * One player in one league: rating, record, rating over time, partners and opponents.
+ * Visible to every member; organizers also get a shortcut to edit the player.
+ */
+import { ref, computed, watch } from 'vue'
+import { useRoute, RouterLink } from 'vue-router'
+import { ChevronRight } from 'lucide-vue-next'
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js'
+import { Line } from 'vue-chartjs'
+import { useLeagueStore } from '@/stores/league'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
-import type { PlayerStats, MatchHistoryEntryDto, TeammateStat } from '@/app/core/models/dto'
-import { useAuthStore } from '@/stores/auth'
-import { useGroupContextStore } from '@/stores/group-context'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { computeFormGuide } from '../utils/form-guide'
-import { sortNewestFirst } from '@/app/features/rankings/utils/match-derivations'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import StatTile from '@/app/core/ui/components/StatTile.vue'
-import ListItem from '@/app/core/ui/components/ListItem.vue'
-import Avatar from '@/app/core/ui/components/Avatar.vue'
-import TapeChip from '@/app/core/ui/components/TapeChip.vue'
-import Sparkline from '@/app/core/ui/components/Sparkline.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import PlayerHeroCard from '../components/PlayerHeroCard.vue'
-import RatingHistoryChart from '../components/RatingHistoryChart.vue'
-import MatchCard from '@/app/features/rankings/components/MatchCard.vue'
+import type { PlayerStats, TeammateStat, RankingEntryDto } from '@/app/core/models/dto'
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import AccountButton from '@/app/core/layout/AccountButton.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import { toast } from '@/app/core/ui/feedback'
+import { ratingSeries, signed, type SeriesPoint } from '../ratingSeries'
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
 
 const route = useRoute()
-const router = useRouter()
-const authStore = useAuthStore()
-const groupContext = useGroupContextStore()
-
+const league = useLeagueStore()
 const groupId = computed(() => route.params.groupId as string)
-// Route param is the GROUP-PLAYER id; the GLOBAL id lives on stats.player.playerId
 const playerId = computed(() => route.params.playerId as string)
 
 const stats = ref<PlayerStats | null>(null)
-const isLoading = ref(true)
-const error = ref('')
-
-// One history fetch (filtered by GLOBAL player id) feeds BOTH the hero form
-// guide and the recent-matches list below.
-const historyMatches = ref<MatchHistoryEntryDto[]>([])
-
-onMounted(loadStats)
-
-// Insights link to other player profiles on the same route — reload on change
-watch(playerId, () => {
-  if (playerId.value) loadStats()
-})
+// rank is optional: a failed rankings call only hides it
+const ranked = ref<RankingEntryDto[]>([])
+const loading = ref(true)
+const error = ref<{ status?: number; message: string } | null>(null)
+// round-by-round view of one event, opened from the chart
+const drill = ref<{ name: string; points: SeriesPoint[] } | null>(null)
 
 async function loadStats() {
-  isLoading.value = true
-  error.value = ''
-  historyMatches.value = []
+  loading.value = true
+  error.value = null
+  drill.value = null
+  rankingsApi.getRankings(groupId.value).then(r => { ranked.value = r.rankings }).catch(() => { ranked.value = [] })
   try {
-    stats.value = await groupsApi.getPlayerStats(groupId.value, playerId.value)
-    syncGroupContext()
-    // Non-blocking: the hero renders immediately, form dots + matches pop in
-    void loadMatchHistory()
+    const [s] = await Promise.all([groupsApi.getPlayerStats(groupId.value, playerId.value), league.load(groupId.value)])
+    stats.value = s
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load player stats')
+    const err = e as { status?: number; message?: string }
+    error.value = { status: err.status, message: err.message || 'Stats did not load.' }
+    stats.value = null
   } finally {
-    isLoading.value = false
+    loading.value = false
   }
 }
+watch([groupId, playerId], () => { void loadStats() }, { immediate: true })
 
-async function loadMatchHistory() {
-  const globalPlayerId = stats.value?.player.playerId
-  if (!globalPlayerId) return
+const p = computed(() => stats.value?.player ?? null)
+const rank = computed(() => ranked.value.find(r => r.playerId === p.value?.playerId)?.rank)
+const isMe = computed(() => !!p.value && league.me?.id === p.value.id)
+const summary = computed(() => {
+  const x = p.value
+  if (!x) return ''
+  const parts = [x.membershipType === 'SUB' ? `Sub, ${(x.skillLevel ?? 'INTERMEDIATE').toLowerCase()}` : 'Regular']
+  if (x.role === 'ORGANIZER') parts.push('organizer')
+  return parts.join(', ')
+})
+const profileId = (globalId: string) => league.players.find(gp => gp.playerId === globalId)?.id
+
+// ---- chart ----
+const series = computed(() => ratingSeries(stats.value?.history ?? []))
+const drilling = ref(false)
+const shown = computed(() => drill.value?.points ?? series.value)
+const chartSummary = computed(() => {
+  const s = shown.value
+  if (s.length < 2) return ''
+  const first = s[0].rating, last = s[s.length - 1].rating
+  const span = drill.value ? `the ${s.length - 1} rounds of ${drill.value.name}` : `${s.length - 1} ${s.length === 2 ? 'event' : 'events'}`
+  return `Rating went from ${Math.round(first)} to ${Math.round(last)} over ${span}.`
+})
+
+function cssVar(name: string, fallback: string) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+const chartData = computed(() => {
+  const court = cssVar('--court', '#1e5aa8')
+  return {
+    labels: shown.value.map(h => h.label),
+    datasets: [{
+      label: 'Rating',
+      data: shown.value.map(h => h.rating),
+      borderColor: court,
+      backgroundColor: cssVar('--court-tint', '#e6eef8'),
+      pointBackgroundColor: court,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+      pointHitRadius: 16,
+      fill: true,
+      tension: 0.25
+    }]
+  }
+})
+
+const chartOptions = computed(() => {
+  const ink2 = cssVar('--ink-2', '#44546a')
+  const line = cssVar('--line', '#c9d2dd')
+  const font = { family: cssVar('--font-ui', 'system-ui, sans-serif'), size: 14 }
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false as const,
+    onClick: (_e: unknown, els: { index: number }[]) => { if (els.length) void openEvent(shown.value[els[0].index]) },
+    interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        titleFont: { ...font, weight: 'bold' as const },
+        bodyFont: font,
+        callbacks: {
+          title: (items: { dataIndex: number }[]) => shown.value[items[0].dataIndex]?.title ?? '',
+          label: (item: { parsed: { y: number } }) => `Rating ${item.parsed.y.toFixed(1)}`,
+          afterLabel: (item: { dataIndex: number }) => {
+            const h = shown.value[item.dataIndex]
+            return h.start ? 'Starting rating' : `Change ${signed(h.delta)}`
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { display: false }, border: { color: line }, ticks: { color: ink2, font, maxRotation: 0, autoSkip: true, maxTicksLimit: 4 } },
+      y: { grid: { color: line }, border: { color: line }, ticks: { color: ink2, font, maxTicksLimit: 5 } }
+    }
+  }
+})
+
+async function openEvent(h: SeriesPoint | undefined) {
+  if (!h?.eventId || drill.value || drilling.value || !p.value) return
+  drilling.value = true
   try {
-    const response = await rankingsApi.getHistory(groupId.value, { playerId: globalPlayerId })
-    historyMatches.value = response.matches
+    const map = await groupsApi.getEventRatingHistory(h.eventId)
+    // keyed by group player id; fall back to the global id in case the backend keys that way
+    const rows = map[p.value.id] ?? map[p.value.playerId]
+    if (!Array.isArray(rows) || !rows.length) {
+      toast(`No round-by-round ratings for ${h.title}`, 'bad')
+      return
+    }
+    drill.value = {
+      name: h.title,
+      points: rows.map(r => ({ label: r.label, title: r.label, rating: r.rating, delta: r.delta ?? 0 }))
+    }
   } catch (e) {
-    // Non-fatal: form guide + recent matches simply stay hidden
-    console.error('Failed to load match history:', e)
+    toast((e as { message?: string }).message || 'Round-by-round ratings did not load.', 'bad')
+  } finally {
+    drilling.value = false
   }
 }
 
-function syncGroupContext() {
-  if (!stats.value) return
-  const player = stats.value.player
-  // If this profile IS the signed-in user's linked player, record it in context
-  const isMe = !!player.userId && player.userId === authStore.userId
-  groupContext.setGroup({
-    groupId: groupId.value,
-    ...(isMe ? { myPlayerId: player.id } : {})
-  })
-}
-
-const isMyProfile = computed(
-  () => !!stats.value?.player.userId && stats.value.player.userId === authStore.userId
-)
-
-// History team ids are GROUP-PLAYER ids — use stats.player.id here
-const formGuide = computed(() =>
-  stats.value ? computeFormGuide(historyMatches.value, stats.value.player.id) : []
-)
-
-const recentMatches = computed(() => sortNewestFirst(historyMatches.value).slice(0, 5))
-
-// --- Stat grid ---------------------------------------------------------------
-
-const record = computed(() => {
-  const p = stats.value?.player
-  if (!p) return ''
-  return `${p.wins}-${p.losses}-${p.ties}`
-})
-
-const winPct = computed(() => {
-  const p = stats.value?.player
-  if (!p) return ''
-  return `${(p.winRate * 100).toFixed(0)}%`
-})
-
+// ---- advanced ----
+const adv = computed(() => stats.value?.advanced ?? null)
 const currentStreak = computed(() => {
-  const adv = stats.value?.advanced
-  if (!adv) return null
-  if (adv.currentWinStreak > 0) return { value: `W${adv.currentWinStreak}`, tone: 'win' as const }
-  if (adv.currentLossStreak > 0) return { value: `L${adv.currentLossStreak}`, tone: 'loss' as const }
-  return { value: '—', tone: 'default' as const }
+  const a = adv.value
+  if (!a) return ''
+  if (a.currentWinStreak > 0) return `${a.currentWinStreak} ${a.currentWinStreak === 1 ? 'win' : 'wins'}`
+  if (a.currentLossStreak > 0) return `${a.currentLossStreak} ${a.currentLossStreak === 1 ? 'loss' : 'losses'}`
+  return 'None'
 })
-
-// --- Rating sparkline ----------------------------------------------------------
-
-const sparkPoints = computed(() => stats.value?.history.map((h) => h.rating) ?? [])
-const sparkMin = computed(() =>
-  sparkPoints.value.length > 0 ? Math.min(...sparkPoints.value) : null
-)
-const sparkMax = computed(() =>
-  sparkPoints.value.length > 0 ? Math.max(...sparkPoints.value) : null
-)
-
-// --- Rivalries -----------------------------------------------------------------
-
-// TeammateStat.playerId values ARE group-player ids — valid profile routes
-function openPlayer(stat: TeammateStat) {
-  router.push(`/groups/${groupId.value}/players/${stat.playerId}`)
-}
-
-function rivalRecord(stat: TeammateStat): string {
-  return `${stat.wins}W–${stat.losses}L · ${stat.gamesPlayed} GP`
-}
-
-function teammateDetail(stat: TeammateStat): string {
-  return `${(stat.winRate * 100).toFixed(0)}% win rate · ${stat.wins}W ${stat.losses}L · ${stat.gamesPlayed} GP`
-}
-
-// --- Navigation ------------------------------------------------------------------
-
-function goCompare() {
-  if (!stats.value) return
-  // ?h2h expects the GLOBAL player id — pre-selects P1 in the H2H flow
-  router.push(`/groups/${groupId.value}/history?h2h=${stats.value.player.playerId}`)
-}
-
-function goMatchHistory() {
-  if (!stats.value) return
-  // History filters use the GLOBAL player id, not the route's group-player id
-  router.push(`/groups/${groupId.value}/history?playerId=${stats.value.player.playerId}`)
-}
+const pct = (r: number) => `${Math.round(r * 100)}%`
+const partnerLists = computed(() => adv.value
+  ? [
+      { key: 'best', title: 'Best partners', list: adv.value.bestTeammates },
+      { key: 'worst', title: 'Toughest partnerships', list: adv.value.worstTeammates }
+    ]
+  : [])
+const opponents = computed(() => {
+  const a = adv.value
+  const out: { key: string; label: string; t: TeammateStat }[] = []
+  if (a?.nemesis) out.push({ key: 'nem', label: 'Loses most to', t: a.nemesis })
+  if (a?.pigeon) out.push({ key: 'pig', label: 'Beats most often', t: a.pigeon })
+  return out
+})
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
-    <SkeletonList v-if="isLoading" :rows="4" avatar />
+  <div class="page">
+    <UiState v-if="loading && !stats" kind="loading" title="Loading player" />
+    <UiState
+      v-else-if="error?.status === 403 || error?.status === 404"
+      heading="h1"
+      kind="denied"
+      title="This player isn't available"
+      body="They may have left the league, or you're not on this league's roster."
+      action-label="Back to league"
+      :action-to="`/groups/${groupId}`"
+    />
+    <UiState v-else-if="error" heading="h1" kind="error" title="Player stats didn't load" :body="error.message" @retry="loadStats" />
 
-    <ErrorState v-else-if="error" :message="error" @retry="loadStats" />
+    <template v-else-if="p">
+      <PageHeader :title="p.displayName" :back-to="`/groups/${groupId}`" :back-label="league.group?.name || 'League'" :subtitle="isMe ? `${summary}. This is you.` : summary">
+        <template #actions><AccountButton /></template>
+      </PageHeader>
 
-    <div v-else-if="stats" class="flex flex-col gap-5">
-      <!-- Trading-card hero -->
-      <PlayerHeroCard :player="stats.player" :form="formGuide" :is-me="isMyProfile" />
+      <div class="standing">
+        <span v-if="rank" class="standing__rank num">#{{ rank }}</span>
+        <span class="standing__detail">
+          <span><span class="num standing__rating">{{ Math.round(p.rating) }}</span> rating</span>
+          <span class="muted">{{ p.wins }} {{ p.wins === 1 ? 'win' : 'wins' }}, {{ p.losses }} {{ p.losses === 1 ? 'loss' : 'losses' }}<template v-if="p.ties">, {{ p.ties }} {{ p.ties === 1 ? 'tie' : 'ties' }}</template></span>
+        </span>
+      </div>
 
-      <!-- Stat grid -->
-      <section class="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <StatTile label="Games" :value="stats.player.gamesPlayed" />
-        <StatTile label="Record" :value="record" detail="W-L-T" />
-        <StatTile label="Win %" :value="winPct" tone="brand" />
-        <template v-if="stats.advanced">
-          <StatTile
-            v-if="currentStreak"
-            label="Current streak"
-            :value="currentStreak.value"
-            :tone="currentStreak.tone"
-          />
-          <StatTile label="Longest W streak" :value="`W${stats.advanced.longestWinStreak}`" />
-          <StatTile label="Peak rating" :value="stats.advanced.highestRating.toFixed(1)" tone="brand" />
+      <div class="links">
+        <UiButton :to="{ path: `/groups/${groupId}/history`, query: { playerId: p.playerId } }">
+          {{ isMe ? 'Your games' : 'All games' }}
+        </UiButton>
+        <UiButton v-if="league.isOrganizer" :to="{ path: `/groups/${groupId}/players/manage`, query: { edit: p.id } }">Edit player</UiButton>
+      </div>
+
+      <section class="section" aria-labelledby="chart-h">
+        <div class="section-head">
+          <h2 id="chart-h" class="truncate">{{ drill ? `Rounds in ${drill.name}` : 'Rating over time' }}</h2>
+          <UiButton v-if="drill" variant="quiet" @click="drill = null">All events</UiButton>
+        </div>
+        <p v-if="series.length < 2" class="muted">The chart appears after this player's first completed event.</p>
+        <template v-else>
+          <div class="chart" role="img" :aria-label="chartSummary" :aria-busy="drilling || undefined">
+            <Line :data="chartData" :options="chartOptions as any" aria-label="Rating over time. The same data is listed under Rating by event." />
+          </div>
+          <p class="muted small">{{ chartSummary }}<template v-if="!drill"> Tap an event to see its rounds.</template></p>
+          <details v-if="!drill" class="events">
+            <summary>Rating by event</summary>
+            <ul role="list">
+              <li v-for="(h, i) in series" :key="i" class="ev">
+                <span class="ev__name truncate">{{ h.title }}</span>
+                <span class="num">{{ Math.round(h.rating) }}</span>
+                <span class="num ev__delta">{{ h.start ? 'start' : signed(h.delta) }}</span>
+                <UiButton v-if="h.eventId" variant="quiet" :aria-label="`Rounds in ${h.title}`" @click="openEvent(h)">Rounds</UiButton>
+              </li>
+            </ul>
+          </details>
         </template>
       </section>
 
-      <!-- Rating sparkline -->
-      <section
-        v-if="sparkPoints.length > 1"
-        class="rounded-[14px] border border-line bg-surface-1 p-4"
-      >
-        <div class="flex items-baseline justify-between gap-3">
-          <h2 class="eyebrow text-ink-faint">Rating</h2>
-          <span class="text-xs text-ink-faint">{{ sparkPoints.length }} events</span>
-        </div>
-        <Sparkline class="mt-2" :points="sparkPoints" :height="88" />
-        <div class="mt-1 flex items-baseline justify-between">
-          <span class="text-xs text-ink-faint">
-            Low <span class="numeral text-sm text-ink">{{ sparkMin?.toFixed(1) }}</span>
-          </span>
-          <span class="text-xs text-ink-faint">
-            High <span class="numeral text-sm text-ink">{{ sparkMax?.toFixed(1) }}</span>
-          </span>
-        </div>
-      </section>
+      <section v-if="adv" class="section" aria-labelledby="ins-h">
+        <h2 id="ins-h">Streaks and matchups</h2>
+        <dl class="facts">
+          <div class="fact"><dt>Highest rating</dt><dd class="num">{{ Math.round(adv.highestRating) }}</dd></div>
+          <div class="fact"><dt>Lowest rating</dt><dd class="num">{{ Math.round(adv.lowestRating) }}</dd></div>
+          <div class="fact"><dt>Longest win streak</dt><dd class="num">{{ adv.longestWinStreak }}</dd></div>
+          <div class="fact"><dt>Current streak</dt><dd>{{ currentStreak }}</dd></div>
+          <div v-for="o in opponents" :key="o.key" class="fact">
+            <dt>{{ o.label }}</dt>
+            <dd class="fact__who">
+              <RouterLink v-if="profileId(o.t.playerId)" :to="`/groups/${groupId}/players/${profileId(o.t.playerId)}`" class="truncate">{{ o.t.displayName }}</RouterLink>
+              <span v-else class="truncate">{{ o.t.displayName }}</span>
+              <span class="muted small nowrap">{{ o.t.wins }} won, {{ o.t.losses }} lost</span>
+            </dd>
+          </div>
+        </dl>
 
-      <!-- Per-event drill-down chart (kept: already works and is themed) -->
-      <section v-if="stats.history.length > 0" class="flex flex-col gap-2">
-        <h2 class="eyebrow text-ink-faint">Event breakdown</h2>
-        <RatingHistoryChart :history="stats.history" :player-id="playerId" />
-      </section>
-
-      <!-- Rivalries -->
-      <section v-if="stats.advanced" class="flex flex-col gap-3">
-        <h2 class="eyebrow text-ink-faint">Rivalries</h2>
-
-        <div
-          v-if="stats.advanced.nemesis || stats.advanced.pigeon"
-          class="grid gap-3 md:grid-cols-2"
-        >
-          <!-- Nemesis -->
-          <div
-            v-if="stats.advanced.nemesis"
-            class="rounded-[14px] border border-line bg-surface-1 p-4"
-          >
-            <TapeChip variant="loss">Nemesis</TapeChip>
-            <button
-              type="button"
-              class="mt-3 flex w-full min-h-11 items-center gap-3 rounded-[10px] text-left transition-colors hover:bg-surface-2"
-              @click="openPlayer(stats.advanced.nemesis)"
-            >
-              <Avatar
-                :name="stats.advanced.nemesis.displayName"
-                size="md"
-                :seed="stats.advanced.nemesis.playerId"
-              />
-              <span class="flex min-w-0 flex-1 flex-col">
-                <span class="truncate text-sm font-semibold text-ink">
-                  {{ stats.advanced.nemesis.displayName }}
-                </span>
-                <span class="truncate text-xs text-ink-faint">
-                  {{ rivalRecord(stats.advanced.nemesis) }}
-                </span>
+        <div v-for="l in partnerLists" :key="l.key" class="stack-sm">
+          <h3>{{ l.title }}</h3>
+          <p v-if="!l.list.length" class="muted small">Not enough games together yet.</p>
+          <ul v-else role="list" class="partners">
+            <li v-for="t in l.list" :key="t.playerId">
+              <RouterLink v-if="profileId(t.playerId)" :to="`/groups/${groupId}/players/${profileId(t.playerId)}`" class="partner">
+                <span class="truncate partner__name">{{ t.displayName }}</span>
+                <span class="num">{{ pct(t.winRate) }}</span>
+                <span class="muted small nowrap">{{ t.gamesPlayed }} games</span>
+                <ChevronRight :size="16" aria-hidden="true" />
+              </RouterLink>
+              <span v-else class="partner">
+                <span class="truncate partner__name">{{ t.displayName }}</span>
+                <span class="num">{{ pct(t.winRate) }}</span>
+                <span class="muted small nowrap">{{ t.gamesPlayed }} games</span>
               </span>
-            </button>
-            <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
-              <div
-                class="h-full rounded-full bg-loss"
-                :style="{ width: `${Math.round(stats.advanced.nemesis.winRate * 100)}%` }"
-              />
-            </div>
-            <p class="mt-1.5 text-xs text-ink-faint">
-              You win {{ (stats.advanced.nemesis.winRate * 100).toFixed(0) }}% against them
-            </p>
-          </div>
-
-          <!-- Pigeon -->
-          <div
-            v-if="stats.advanced.pigeon"
-            class="rounded-[14px] border border-line bg-surface-1 p-4"
-          >
-            <TapeChip variant="win">Pigeon</TapeChip>
-            <button
-              type="button"
-              class="mt-3 flex w-full min-h-11 items-center gap-3 rounded-[10px] text-left transition-colors hover:bg-surface-2"
-              @click="openPlayer(stats.advanced.pigeon)"
-            >
-              <Avatar
-                :name="stats.advanced.pigeon.displayName"
-                size="md"
-                :seed="stats.advanced.pigeon.playerId"
-              />
-              <span class="flex min-w-0 flex-1 flex-col">
-                <span class="truncate text-sm font-semibold text-ink">
-                  {{ stats.advanced.pigeon.displayName }}
-                </span>
-                <span class="truncate text-xs text-ink-faint">
-                  {{ rivalRecord(stats.advanced.pigeon) }}
-                </span>
-              </span>
-            </button>
-            <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
-              <div
-                class="h-full rounded-full bg-win"
-                :style="{ width: `${Math.round(stats.advanced.pigeon.winRate * 100)}%` }"
-              />
-            </div>
-            <p class="mt-1.5 text-xs text-ink-faint">
-              You win {{ (stats.advanced.pigeon.winRate * 100).toFixed(0) }}% against them
-            </p>
-          </div>
-        </div>
-
-        <!-- Teammates -->
-        <div class="grid gap-3 md:grid-cols-2">
-          <div class="flex flex-col gap-2">
-            <h3 class="flex items-center gap-1.5 eyebrow text-ink-faint">
-              <Flame class="size-3.5" /> Best teammates
-            </h3>
-            <div class="divide-y divide-line overflow-hidden rounded-[14px] border border-line bg-surface-1">
-              <ListItem
-                v-for="tm in stats.advanced.bestTeammates"
-                :key="tm.playerId"
-                :title="tm.displayName"
-                :subtitle="teammateDetail(tm)"
-                chevron
-                @click="openPlayer(tm)"
-              >
-                <template #leading><Avatar :name="tm.displayName" size="sm" :seed="tm.playerId" /></template>
-                <template #trailing>
-                  <span class="numeral text-sm text-win">{{ (tm.winRate * 100).toFixed(0) }}%</span>
-                </template>
-              </ListItem>
-              <p
-                v-if="stats.advanced.bestTeammates.length === 0"
-                class="px-4 py-4 text-center text-sm text-ink-faint"
-              >
-                No data
-              </p>
-            </div>
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <h3 class="flex items-center gap-1.5 eyebrow text-ink-faint">
-              <Users class="size-3.5" /> Worst teammates
-            </h3>
-            <div class="divide-y divide-line overflow-hidden rounded-[14px] border border-line bg-surface-1">
-              <ListItem
-                v-for="tm in stats.advanced.worstTeammates"
-                :key="tm.playerId"
-                :title="tm.displayName"
-                :subtitle="teammateDetail(tm)"
-                chevron
-                @click="openPlayer(tm)"
-              >
-                <template #leading><Avatar :name="tm.displayName" size="sm" :seed="tm.playerId" /></template>
-                <template #trailing>
-                  <span class="numeral text-sm text-loss">{{ (tm.winRate * 100).toFixed(0) }}%</span>
-                </template>
-              </ListItem>
-              <p
-                v-if="stats.advanced.worstTeammates.length === 0"
-                class="px-4 py-4 text-center text-sm text-ink-faint"
-              >
-                No data
-              </p>
-            </div>
-          </div>
+            </li>
+          </ul>
         </div>
       </section>
-
-      <!-- Compare head-to-head -->
-      <AppButton variant="secondary" block @click="goCompare">
-        <Swords class="size-4" />
-        Compare head-to-head
-      </AppButton>
-
-      <!-- Recent matches -->
-      <section v-if="recentMatches.length > 0" class="flex flex-col gap-2">
-        <h2 class="eyebrow text-ink-faint">Recent matches</h2>
-        <MatchCard
-          v-for="match in recentMatches"
-          :key="match.gameId"
-          :match="match"
-          show-caption
-        />
-      </section>
-
-      <!-- Match history link -->
-      <section class="overflow-hidden rounded-[14px] border border-line bg-surface-1">
-        <ListItem
-          title="Match history"
-          :subtitle="`All games played by ${stats.player.displayName}`"
-          chevron
-          @click="goMatchHistory"
-        >
-          <template #leading><History class="size-5" /></template>
-        </ListItem>
-      </section>
-    </div>
+    </template>
   </div>
 </template>
+
+<style scoped>
+.standing {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4);
+  border-radius: var(--r-tile);
+  background: var(--court-tint);
+  color: var(--ink);
+}
+.standing__rank { font-size: var(--text-xl); min-width: 3ch; }
+.standing__detail { flex: 1; display: flex; flex-direction: column; }
+.standing__rating { font-size: var(--text-lg); }
+
+.links { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.links > * { flex: 1 1 140px; }
+
+.chart { position: relative; height: 220px; width: 100%; }
+.small { font-size: var(--text-sm); }
+.nowrap { white-space: nowrap; }
+
+.events summary { min-height: var(--tap); display: flex; align-items: center; font-weight: 700; cursor: pointer; color: var(--court); }
+.ev {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 4.5ch auto;
+  align-items: center;
+  gap: var(--s2);
+  min-height: var(--tap);
+  border-bottom: 1px solid var(--line);
+}
+.ev__delta { text-align: right; color: var(--ink-2); }
+
+.facts { display: flex; flex-direction: column; margin: 0; }
+.fact {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  min-height: var(--tap);
+  border-bottom: 1px solid var(--line);
+}
+.fact dt { flex: none; }
+.fact dd { margin: 0; font-weight: 700; min-width: 0; }
+.fact__who { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.fact__who a, .fact__who > .truncate { max-width: 100%; }
+
+.partners { display: flex; flex-direction: column; }
+.partner {
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--tap);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+.partner__name { flex: 1; font-weight: 700; }
+</style>

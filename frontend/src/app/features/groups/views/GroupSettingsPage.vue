@@ -1,230 +1,349 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
-import { Info } from 'lucide-vue-next'
-import { groupsApi } from '../services/groups.api'
-import { api } from '@/app/core/http/api-client'
-import type { GroupDto } from '@/app/core/models/dto'
+/**
+ * League settings (organizers only): name, rating system, pairing rules, payments,
+ * history import, and league tools (recalculate, duplicate, archive).
+ */
+import { ref, computed, watch, useId } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { AlertTriangle, RefreshCw, Copy, Archive } from 'lucide-vue-next'
+import { useLeagueStore } from '@/stores/league'
 import { useAuthStore } from '@/stores/auth'
-import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
-import type { SettingsForm } from '../components/settings/settings-form'
-import GeneralSection from '../components/settings/GeneralSection.vue'
-import RatingSystemSection from '../components/settings/RatingSystemSection.vue'
-import MatchmakingSection from '../components/settings/MatchmakingSection.vue'
-import PaymentsSection from '../components/settings/PaymentsSection.vue'
-import DangerSection from '../components/settings/DangerSection.vue'
+import { groupsApi } from '../services/groups.api'
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import UiField from '@/app/core/ui/UiField.vue'
+import UiStepper from '@/app/core/ui/UiStepper.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import ActionBar from '@/app/core/ui/ActionBar.vue'
+import SaveStatus from '@/app/core/ui/SaveStatus.vue'
+import { confirm, toast, announce } from '@/app/core/ui/feedback'
+import HistoryImport from '../components/HistoryImport.vue'
+import { RATING_SYSTEMS } from '../ratingSystems'
+import {
+  toForm, validate, toRequest, diff, systemDefaults,
+  CURRENCIES, ROUNDS_MIN, ROUNDS_MAX, type SettingsForm, type RatingSystem
+} from '../components/settingsForm'
 
 const route = useRoute()
-const authStore = useAuthStore()
-const groupContext = useGroupContextStore()
-const toast = useToast()
-
+const router = useRouter()
+const league = useLeagueStore()
+const auth = useAuthStore()
 const groupId = computed(() => route.params.groupId as string)
+const currencyId = useId()
 
-const group = ref<GroupDto | null>(null)
-const isLoading = ref(true)
-const isSaving = ref(false)
-const error = ref('')
+const form = ref<SettingsForm | null>(null)
+const saved = ref<SettingsForm | null>(null)
+const saveState = ref<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+const saveError = ref('')
+const formEl = ref<HTMLFormElement | null>(null)
 
-const form = reactive<SettingsForm>({
-  ratingSystem: 'SERIOUS_ELO',
-  initialRating: 1000,
-  kFactor: 32,
-  eloConst: undefined,
-  eloDiff: 0.05,
-  noRepeatTeammateInEvent: true,
-  noRepeatTeammateFromPreviousEvent: true,
-  noRepeatOpponentInEvent: true,
-  autoRelaxEloDiff: true,
-  autoRelaxStep: 0.01,
-  autoRelaxMaxEloDiff: 0.25,
-  defaultRounds: 1,
-  trackPayments: false,
-  subFeePerAttendance: 5.0,
-  paymentCurrency: 'USD'
+const isOwner = computed(() => !!league.group && league.group.ownerUserId === auth.userId)
+const errors = computed(() => (form.value ? validate(form.value) : {}))
+const errorCount = computed(() => Object.keys(errors.value).length)
+const changes = computed(() => (form.value && saved.value ? diff(saved.value, form.value) : { rename: false, settings: false }))
+const dirty = computed(() => changes.value.rename || changes.value.settings)
+
+watch(groupId, id => {
+  form.value = null
+  saved.value = null
+  void league.load(id)
+}, { immediate: true })
+
+// Fill the form once per league; later store refreshes must not wipe edits in progress.
+watch(() => league.group, g => {
+  if (!g || g.id !== groupId.value || form.value) return
+  form.value = toForm(g)
+  saved.value = toForm(g)
+}, { immediate: true })
+
+watch(dirty, d => { if (d && saveState.value === 'saved') saveState.value = 'idle' })
+
+onBeforeRouteLeave(async () => {
+  if (!dirty.value || saveState.value === 'saving') return true
+  return confirm({
+    title: 'Leave without saving?',
+    body: 'Your changes to these settings are not saved yet.',
+    confirmLabel: 'Discard changes',
+    cancelLabel: 'Keep editing',
+    danger: true
+  })
 })
 
-const snapshot = ref('')
-const isInitialLoad = ref(true)
+function pickSystem(system: RatingSystem) {
+  if (!form.value || form.value.ratingSystem === system) return
+  const d = systemDefaults(system)
+  form.value.ratingSystem = system
+  form.value.kFactor = String(d.kFactor)
+  form.value.eloConst = String(d.eloConst)
+  announce(`K-factor set to ${d.kFactor} and rating constant set to ${d.eloConst} for this system.`)
+}
 
-const dirty = computed(() => snapshot.value !== '' && JSON.stringify(form) !== snapshot.value)
-const canManage = computed(() => groupContext.canManage)
-
-onMounted(() => loadGroup())
-
-async function loadGroup(silent = false) {
-  if (!silent) isLoading.value = true
-  error.value = ''
-  isInitialLoad.value = true
-  try {
-    const [groupRes, playersRes] = await Promise.all([
-      groupsApi.get(groupId.value),
-      groupsApi.getPlayers(groupId.value)
-    ])
-    group.value = groupRes
-    populateForm(groupRes)
-
-    // Group context + role derivation (only managers may save)
-    const userId = authStore.userId
-    const myPlayer = playersRes.players.find((p) => p.userId && p.userId === userId) || null
-    let role: GroupRole = null
-    if (userId && groupRes.ownerUserId === userId) role = 'OWNER'
-    else if (myPlayer) role = myPlayer.role
-    groupContext.setGroup({
-      groupId: groupId.value,
-      groupName: groupRes.name,
-      myPlayerId: myPlayer?.id ?? null,
-      role
-    })
-  } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load group')
-  } finally {
-    isLoading.value = false
-    // Allow the rating-system watcher to run only after the initial load
-    // settles (the populate itself must not trigger the defaults watcher).
-    void nextTick(() => {
-      isInitialLoad.value = false
-    })
+async function save() {
+  const f = form.value
+  if (!f || !dirty.value || saveState.value === 'saving') return
+  if (errorCount.value) {
+    announce(`Fix ${errorCount.value} ${errorCount.value === 1 ? 'field' : 'fields'} before saving.`, true)
+    formEl.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+    return
   }
-}
-
-function populateForm(g: GroupDto) {
-  const s = g.settings
-  form.ratingSystem = s.ratingSystem
-  form.initialRating = s.initialRating
-  form.kFactor = s.kFactor
-  // Use saved eloConst, or default based on rating system (ported behavior)
-  form.eloConst = s.eloConst != null ? s.eloConst : s.ratingSystem === 'RACS_ELO' ? 0.3 : 400
-  form.eloDiff = s.eloDiff
-  form.noRepeatTeammateInEvent = s.noRepeatTeammateInEvent
-  form.noRepeatTeammateFromPreviousEvent = s.noRepeatTeammateFromPreviousEvent
-  form.noRepeatOpponentInEvent = s.noRepeatOpponentInEvent
-  form.autoRelaxEloDiff = s.autoRelaxEloDiff
-  form.autoRelaxStep = s.autoRelaxStep
-  form.autoRelaxMaxEloDiff = s.autoRelaxMaxEloDiff
-  form.defaultRounds = s.defaultRounds || 1
-  form.trackPayments = s.paymentSettings?.trackPayments || false
-  form.subFeePerAttendance = s.paymentSettings?.subFeePerAttendance || 5.0
-  form.paymentCurrency = s.paymentSettings?.currency || 'USD'
-  snapshot.value = JSON.stringify(form)
-}
-
-// Auto-populate defaults when the rating system changes (ported behavior)
-watch(
-  () => form.ratingSystem,
-  (newValue) => {
-    if (isInitialLoad.value) return
-    if (newValue === 'RACS_ELO') {
-      form.kFactor = 100
-      form.eloConst = 0.3
-    } else {
-      form.kFactor = 32
-      form.eloConst = 400
+  const { rename, settings } = changes.value
+  const snapshot: SettingsForm = { ...f }
+  saveState.value = 'saving'
+  saveError.value = ''
+  try {
+    if (rename) {
+      await groupsApi.rename(groupId.value, snapshot.name.trim())
+      saved.value = { ...saved.value!, name: snapshot.name }
     }
-  }
-)
-
-async function saveSettings() {
-  isSaving.value = true
-  try {
-    await groupsApi.updateSettings(groupId.value, {
-      ratingSystem: form.ratingSystem,
-      initialRating: form.initialRating,
-      kFactor: form.kFactor,
-      eloConst: form.eloConst,
-      eloDiff: form.eloDiff,
-      noRepeatTeammateInEvent: form.noRepeatTeammateInEvent,
-      noRepeatTeammateFromPreviousEvent: form.noRepeatTeammateFromPreviousEvent,
-      noRepeatOpponentInEvent: form.noRepeatOpponentInEvent,
-      autoRelaxEloDiff: form.autoRelaxEloDiff,
-      autoRelaxStep: form.autoRelaxStep,
-      autoRelaxMaxEloDiff: form.autoRelaxMaxEloDiff,
-      defaultRounds: form.defaultRounds,
-      paymentSettings: {
-        trackPayments: form.trackPayments,
-        subFeePerAttendance: form.subFeePerAttendance,
-        currency: form.paymentCurrency
-      }
-    })
-    snapshot.value = JSON.stringify(form)
-    toast.success('Settings saved')
+    if (settings) await groupsApi.updateSettings(groupId.value, toRequest(snapshot))
+    saved.value = snapshot
+    saveState.value = 'saved'
+    toast('Settings saved')
+    await league.load(groupId.value, true)
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to save settings'))
-  } finally {
-    isSaving.value = false
+    // Keep the edits on screen so the organizer can retry.
+    saveError.value = (e as { message?: string }).message || 'Check your connection and try again.'
+    saveState.value = 'failed'
+    announce(`Settings not saved. ${saveError.value}`, true)
   }
 }
 
-function discardChanges() {
-  if (!snapshot.value) return
-  isInitialLoad.value = true
-  Object.assign(form, JSON.parse(snapshot.value) as SettingsForm)
-  // Re-arm the rating-system watcher after the restore settles
-  void nextTick(() => {
-    isInitialLoad.value = false
+const recalculating = ref(false)
+const recalcResult = ref('')
+async function recalculate() {
+  const ok = await confirm({
+    title: 'Recalculate all ratings?',
+    body: 'Every rating resets to the starting rating and is rebuilt from all completed events with the current settings. Standings may change.',
+    confirmLabel: 'Recalculate ratings'
   })
+  if (!ok) return
+  recalculating.value = true
+  recalcResult.value = ''
+  try {
+    const r = await groupsApi.recalculateRatings(groupId.value)
+    recalcResult.value = `Ratings recalculated from ${r.eventsRecalculated} events. ${r.playersUpdated} players updated.`
+    toast('Ratings recalculated')
+    await league.load(groupId.value, true)
+  } catch (e) {
+    toast((e as { message?: string }).message || 'Ratings not recalculated', 'bad')
+  } finally {
+    recalculating.value = false
+  }
 }
 
-function onRenamed(updated: GroupDto) {
-  group.value = updated
-  groupContext.setGroup({ groupId: groupId.value, groupName: updated.name })
+const duplicating = ref(false)
+async function duplicate() {
+  const ok = await confirm({
+    title: 'Duplicate this league?',
+    body: 'The copy gets the same players and settings. Ratings, events, and payments start fresh.',
+    confirmLabel: 'Duplicate league'
+  })
+  if (!ok) return
+  duplicating.value = true
+  try {
+    const copy = await groupsApi.duplicate(groupId.value)
+    toast(`Created ${copy.name}`)
+    await router.push(`/groups/${copy.id}`)
+  } catch (e) {
+    toast((e as { message?: string }).message || 'League not duplicated', 'bad')
+  } finally {
+    duplicating.value = false
+  }
 }
 
-async function refresh() {
-  api.invalidateCache(`/api/groups/${groupId.value}`)
-  api.invalidateCache(`/api/groups/${groupId.value}/players`)
-  await loadGroup(true)
+const archiving = ref(false)
+async function archive() {
+  const ok = await confirm({
+    title: `Archive ${league.group?.name ?? 'this league'}?`,
+    body: 'It disappears from everyone’s league list and can no longer be opened.',
+    confirmLabel: 'Archive league',
+    danger: true
+  })
+  if (!ok) return
+  archiving.value = true
+  try {
+    await groupsApi.archive(groupId.value)
+    toast('League archived')
+    league.reset()
+    await router.replace('/groups')
+  } catch (e) {
+    toast((e as { message?: string }).message || 'League not archived', 'bad')
+    archiving.value = false
+  }
 }
 </script>
 
 <template>
-  <PullRefresh :on-refresh="refresh">
-    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5" :class="dirty ? 'pb-28' : ''">
-      <SkeletonList v-if="isLoading" :rows="5" />
+  <div class="page">
+    <PageHeader title="League settings" :back-to="`/groups/${groupId}`" :back-label="league.group?.name || 'League'" />
 
-      <ErrorState v-else-if="error" :message="error" @retry="loadGroup()" />
+    <UiState v-if="league.loading && !league.group" kind="loading" title="Loading settings" />
+    <UiState
+      v-else-if="league.error?.status === 403 || league.error?.status === 404"
+      kind="denied"
+      title="This league isn't available to you"
+      body="It may have been archived, or your account isn't on its roster."
+      action-label="See your leagues"
+      action-to="/groups"
+    />
+    <UiState v-else-if="league.error" kind="error" title="Settings didn't load" :body="league.error.message" @retry="league.load(groupId, true)" />
+    <UiState
+      v-else-if="league.group && !league.isOrganizer"
+      kind="denied"
+      title="Only organizers change settings"
+      body="Ask a league organizer if something about ratings, pairings, or payments needs to change."
+      action-label="Back to league"
+      :action-to="`/groups/${groupId}`"
+    />
 
-      <div v-else-if="group" class="flex flex-col gap-4">
-        <div class="flex items-start gap-2 rounded-[14px] border border-info/30 bg-info/10 p-3 text-sm text-ink-muted">
-          <Info class="mt-0.5 size-4 shrink-0 text-info" />
-          Changes affect future events; history stays as recorded.
+    <template v-else-if="league.group && form">
+      <p class="warn"><AlertTriangle :size="20" aria-hidden="true" /> <span>Changes affect future events; historical events remain recorded.</span></p>
+
+      <form id="settings-form" ref="formEl" class="form" novalidate @submit.prevent="save">
+        <UiField v-model="form.name" label="League name" autocomplete="off" :maxlength="100" :error="errors.name" />
+
+        <fieldset class="group">
+          <legend>Rating system</legend>
+          <label v-for="s in RATING_SYSTEMS" :key="s.value" class="choice" :class="{ 'choice--on': form.ratingSystem === s.value }">
+            <input type="radio" name="system" :value="s.value" :checked="form.ratingSystem === s.value" @change="pickSystem(s.value)">
+            <span class="choice__text">
+              <span class="choice__title">{{ s.label }}</span>
+              <span class="muted choice__desc">{{ s.desc }}</span>
+            </span>
+          </label>
+          <UiField v-model="form.initialRating" label="Starting rating" inputmode="numeric" hint="New players start here. 0 to 3000." :error="errors.initialRating" />
+          <UiField v-model="form.kFactor" label="K-factor" inputmode="decimal" hint="How far one game moves a rating. 1 to 200." :error="errors.kFactor" />
+          <UiField
+            v-model="form.eloConst"
+            label="Rating constant"
+            inputmode="decimal"
+            :hint="form.ratingSystem === 'RACS_ELO' ? 'How strongly rating gaps predict results. 0.1 to 1.' : 'How strongly rating gaps predict results. 100 to 800.'"
+            :error="errors.eloConst"
+          />
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Events</legend>
+          <UiStepper v-model="form.defaultRounds" label="Default rounds" :min="ROUNDS_MIN" :max="ROUNDS_MAX" />
+          <p class="muted hint">Filled in when you start a new event. You can change it each time.</p>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Pairing rules</legend>
+          <label class="check"><input v-model="form.noRepeatTeammateInEvent" type="checkbox"> <span>No repeat partners within an event</span></label>
+          <label class="check"><input v-model="form.noRepeatTeammateFromPreviousEvent" type="checkbox"> <span>No partners from the previous event</span></label>
+          <label class="check"><input v-model="form.noRepeatOpponentInEvent" type="checkbox"> <span>No repeat opponents within an event</span></label>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Team balance</legend>
+          <UiField v-model="form.eloDiffPct" label="Largest rating gap between teams (%)" inputmode="decimal" hint="1 to 50. Smaller makes closer games but is harder to schedule." :error="errors.eloDiffPct" />
+          <label class="check"><input v-model="form.autoRelaxEloDiff" type="checkbox"> <span>Widen the gap if no schedule fits</span></label>
+          <template v-if="form.autoRelaxEloDiff">
+            <UiField v-model="form.autoRelaxStepPct" label="Widen by (%)" inputmode="decimal" hint="Each retry adds this much. 0.5 to 10." :error="errors.autoRelaxStepPct" />
+            <UiField v-model="form.autoRelaxMaxPct" label="Widest gap allowed (%)" inputmode="decimal" hint="10 to 50." :error="errors.autoRelaxMaxPct" />
+          </template>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Sub payments</legend>
+          <label class="check"><input v-model="form.trackPayments" type="checkbox"> <span>Track what subs owe</span></label>
+          <template v-if="form.trackPayments">
+            <UiField v-model="form.subFee" label="Fee per event attended" inputmode="decimal" hint="Charged to a sub each time they play. 0 to 1000." :error="errors.subFee" />
+            <div class="select">
+              <label :for="currencyId">Currency</label>
+              <select :id="currencyId" v-model="form.currency">
+                <option v-for="c in CURRENCIES" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+          </template>
+        </fieldset>
+
+      </form>
+
+      <HistoryImport :group-id="groupId" @imported="league.load(groupId, true)" />
+
+      <section class="section tools" aria-labelledby="tools-h">
+        <h2 id="tools-h">League tools</h2>
+        <div class="tool">
+          <p><strong>Recalculate ratings</strong><br><span class="muted">Rebuild every rating from completed events using the current settings.</span></p>
+          <UiButton :loading="recalculating" @click="recalculate"><RefreshCw :size="18" aria-hidden="true" /> Recalculate ratings</UiButton>
+          <p v-if="recalcResult" class="muted" role="status">{{ recalcResult }}</p>
         </div>
-
-        <GeneralSection :group-id="groupId" :current-name="group.name" @renamed="onRenamed" />
-        <RatingSystemSection v-model:form="form" />
-        <MatchmakingSection v-model:form="form" />
-        <PaymentsSection v-model:form="form" />
-        <DangerSection v-if="canManage" :group-id="groupId" />
-      </div>
-    </div>
-  </PullRefresh>
-
-  <!-- Sticky save bar: sits above the bottom tab bar when there are unsaved changes -->
-  <Transition
-    enter-active-class="transition-transform duration-200"
-    enter-from-class="translate-y-full"
-    leave-active-class="transition-transform duration-200"
-    leave-to-class="translate-y-full"
-  >
-    <div
-      v-if="dirty && canManage"
-      class="fixed inset-x-0 z-30 border-t border-line bg-surface-1/95 backdrop-blur bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0"
-    >
-      <div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3 md:px-6">
-        <span class="text-sm font-medium text-ink-muted">Unsaved changes</span>
-        <div class="flex gap-2">
-          <AppButton variant="secondary" size="sm" :disabled="isSaving" @click="discardChanges">
-            Discard
-          </AppButton>
-          <AppButton size="sm" :loading="isSaving" @click="saveSettings">Save</AppButton>
+        <div class="tool">
+          <p><strong>Duplicate league</strong><br><span class="muted">Start a new season with the same players and settings.</span></p>
+          <UiButton :loading="duplicating" @click="duplicate"><Copy :size="18" aria-hidden="true" /> Duplicate league</UiButton>
         </div>
-      </div>
-    </div>
-  </Transition>
+        <div v-if="isOwner" class="tool">
+          <p><strong>Archive league</strong><br><span class="muted">Hide it from everyone's league list. Only the league owner can do this.</span></p>
+          <UiButton variant="danger" :loading="archiving" @click="archive"><Archive :size="18" aria-hidden="true" /> Archive league</UiButton>
+        </div>
+      </section>
+
+      <ActionBar above-tabs>
+        <template #meta>
+          <SaveStatus v-if="saveState === 'saving' || saveState === 'failed'" :state="saveState" :failed-text="`Not saved. ${saveError}`" />
+          <SaveStatus v-else-if="saveState === 'saved' && !dirty" state="saved" />
+          <span v-else-if="dirty && errorCount">{{ errorCount }} {{ errorCount === 1 ? 'field needs' : 'fields need' }} fixing</span>
+          <span v-else-if="dirty">Unsaved changes</span>
+          <span v-else>No changes</span>
+        </template>
+        <UiButton type="submit" form="settings-form" variant="primary" size="lg" :disabled="!dirty" :loading="saveState === 'saving'">
+          {{ saveState === 'failed' ? 'Try saving again' : 'Save settings' }}
+        </UiButton>
+      </ActionBar>
+    </template>
+  </div>
 </template>
+
+<style scoped>
+.warn {
+  display: flex; gap: var(--s2); align-items: flex-start;
+  padding: var(--s3);
+  border-radius: var(--r-tile);
+  background: var(--wait-tint);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: var(--text-sm);
+}
+.warn svg { flex: none; }
+.form { display: flex; flex-direction: column; gap: var(--s6); }
+.group { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+legend { font-size: var(--text-md); font-weight: 700; padding: 0; margin-bottom: var(--s2); }
+.hint { font-size: var(--text-sm); }
+
+.choice, .check {
+  display: flex; align-items: flex-start; gap: var(--s3);
+  min-height: var(--tap);
+  padding: var(--s3);
+  border: 2px solid var(--line);
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+.check { border: 0; padding: var(--s2) 0; align-items: center; }
+.choice--on { border-color: var(--court); background: var(--court-tint); }
+.choice input, .check input { flex: none; width: 24px; height: 24px; margin: 0; accent-color: var(--court); }
+.choice input { margin-top: 2px; }
+.choice:has(input:focus-visible), .check:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.choice input:focus-visible, .check input:focus-visible { outline: none; }
+.choice__text { display: flex; flex-direction: column; min-width: 0; }
+.choice__title { font-weight: 700; }
+.choice__desc { font-size: var(--text-sm); }
+
+.select { display: flex; flex-direction: column; gap: var(--s1); }
+.select label { font-weight: 700; font-size: var(--text-sm); }
+.select select {
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-md);
+}
+.select select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+
+.tools { gap: var(--s5); }
+.tool { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
+</style>

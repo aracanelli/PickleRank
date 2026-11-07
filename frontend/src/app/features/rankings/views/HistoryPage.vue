@@ -1,728 +1,371 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
-import { ChartColumn, SlidersHorizontal, Settings2, X, AlertTriangle, Swords } from 'lucide-vue-next'
+/**
+ * Completed games, grouped by event. Filters live in the URL (?eventId, ?playerId,
+ * ?secondaryPlayerId, ?relationship) so links land pre-filtered. Organizers can correct a
+ * completed event; ?eventId opens that correction for them (the event page links here).
+ */
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { RefreshCw, SlidersHorizontal, Wrench } from 'lucide-vue-next'
+import { useLeagueStore } from '@/stores/league'
 import { rankingsApi } from '../services/rankings.api'
-import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { api } from '@/app/core/http/api-client'
-import type { MatchHistoryEntryDto, GroupDto, EventListItemDto } from '@/app/core/models/dto'
-import { useAuthStore } from '@/stores/auth'
-import { useGroupContextStore, type GroupRole } from '@/stores/group-context'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { usePlayerIndex } from '@/app/features/players/composables/usePlayerIndex'
-import { computeH2H } from '@/app/features/players/utils/head-to-head'
-import { groupByEvent, outcomeFor, type EventGroup } from '../utils/match-derivations'
-import PullRefresh from '@/app/core/ui/components/PullRefresh.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
-import AppEmptyState from '@/app/core/ui/components/AppEmptyState.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import SegmentedControl from '@/app/core/ui/components/SegmentedControl.vue'
-import MatchCard from '../components/MatchCard.vue'
-import VersusPicker from '../components/VersusPicker.vue'
-import H2HBar from '../components/H2HBar.vue'
-import FilterSheet, { emptyFilters, type HistoryFilters } from '../components/FilterSheet.vue'
-import EventEditSheet, { type EventEditData } from '../components/EventEditSheet.vue'
+import type { EventDto, EventListItemDto, MatchHistoryEntryDto } from '@/app/core/models/dto'
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import AccountButton from '@/app/core/layout/AccountButton.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import CourtTile from '@/app/core/ui/CourtTile.vue'
+import { toast } from '@/app/core/ui/feedback'
+import { eventTitle, formatDay } from '@/app/features/events/eventProgress'
+import EventEditModal from '../components/EventEditModal.vue'
+import {
+  filtersFromQuery, filtersToQuery, historyOptions, hasFilters, groupByEvent, outcomeFor, type HistoryFilters
+} from '../historyView'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
-const groupContext = useGroupContextStore()
-const toast = useToast()
-
+const league = useLeagueStore()
 const groupId = computed(() => route.params.groupId as string)
 
-const group = ref<GroupDto | null>(null)
-const playerIndex = usePlayerIndex(groupId)
-const players = playerIndex.players
-const events = ref<EventListItemDto[]>([])
 const matches = ref<MatchHistoryEntryDto[]>([])
-const isLoading = ref(true)
-const error = ref('')
+const events = ref<EventListItemDto[]>([])
+const loading = ref(true)
+const loadError = ref('')
+const refreshing = ref(false)
+const filtersOpen = ref(false)
+let token = 0
+let defaulted = false
 
-// Applied filters (edited via FilterSheet)
-const filters = ref<HistoryFilters>(emptyFilters())
-const showFilterSheet = ref(false)
-
-const canManage = computed(() => groupContext.canManage)
-
-// --- FEED | HEAD-TO-HEAD mode (driven by ?h2h presence) ----------------------
-// ?h2h=P1 or ?h2h=P1,P2 — GLOBAL player ids in the URL, shareable.
-
-type HistoryMode = 'feed' | 'h2h'
-
-const mode = ref<HistoryMode>(route.query.h2h !== undefined ? 'h2h' : 'feed')
-const h2hP1 = ref('')
-const h2hP2 = ref('')
-
-{
-  const param = route.query.h2h
-  if (typeof param === 'string' && param) {
-    const [p1, p2] = param.split(',')
-    h2hP1.value = p1 || ''
-    h2hP2.value = p2 || ''
-  }
+const filters = computed(() => filtersFromQuery(route.query))
+const groups = computed(() => groupByEvent(matches.value))
+const sortedPlayers = computed(() => [...league.players].sort((a, b) => a.displayName.localeCompare(b.displayName)))
+const nameOf = (playerId: string) => league.players.find(p => p.playerId === playerId)?.displayName ?? ''
+const eventName = (id: string) => {
+  const e = events.value.find(x => x.id === id) ?? groups.value.find(x => x.id === id)
+  return e ? eventTitle(e) : 'one event'
 }
 
-const modeOptions = [
-  { label: 'FEED', value: 'feed' },
-  { label: 'HEAD-TO-HEAD', value: 'h2h' }
-]
-
-// SegmentedControl models a plain string; bridge to the narrowed union type
-const modeModel = computed({
-  get: () => mode.value as string,
-  set: (value: string) => {
-    mode.value = value === 'h2h' ? 'h2h' : 'feed'
+const summary = computed(() => {
+  const f = filters.value
+  let s = f.playerId ? `${nameOf(f.playerId) || 'One player'}'s games` : 'All games'
+  if (f.playerId && f.secondaryPlayerId) {
+    s += f.relationship === 'teammate' ? ` with ${nameOf(f.secondaryPlayerId)} as teammate` : ` against ${nameOf(f.secondaryPlayerId)}`
   }
+  if (f.eventId) s += ` in ${eventName(f.eventId)}`
+  return s
 })
 
-// Keep the URL in sync so H2H links are shareable
-function syncModeQuery() {
-  const query: LocationQueryRaw = { ...route.query }
-  if (mode.value === 'h2h') {
-    query.h2h = [h2hP1.value, h2hP2.value].filter(Boolean).join(',')
-  } else {
-    delete query.h2h
-  }
-  const current = route.query.h2h
-  if (current !== query.h2h) router.replace({ query })
-}
-
-watch([mode, h2hP1, h2hP2], syncModeQuery)
-
-onMounted(async () => {
-  await Promise.all([loadGroup(), playerIndex.load(), loadEvents()])
-  syncGroupContext()
-
-  // Check for playerId query param first, else auto-filter by the signed-in
-  // user's linked player (ported legacy behavior)
-  const queryPlayerId = route.query.playerId as string | undefined
-  if (queryPlayerId) {
-    filters.value.playerId = queryPlayerId
-  } else if (authStore.userId) {
-    const myPlayer = players.value.find((p) => p.userId === authStore.userId)
-    if (myPlayer) filters.value.playerId = myPlayer.playerId
-  }
-
-  const jobs: Promise<void>[] = [loadHistory()]
-  if (bothPicked.value) jobs.push(loadH2H())
-  await Promise.all(jobs)
-})
-
-function syncGroupContext() {
-  if (!group.value) return
-  const userId = authStore.userId
-  const myPlayer = players.value.find((p) => p.userId && p.userId === userId) || null
-  let role: GroupRole = null
-  if (userId && group.value.ownerUserId === userId) role = 'OWNER'
-  else if (myPlayer) role = myPlayer.role
-  groupContext.setGroup({
-    groupId: groupId.value,
-    groupName: group.value.name,
-    myPlayerId: myPlayer?.id ?? null,
-    role
-  })
-}
-
-async function loadGroup() {
-  try {
-    group.value = await groupsApi.get(groupId.value)
-  } catch (e) {
-    error.value = getApiErrorMessage(e)
-  }
-}
-
-async function loadEvents() {
-  try {
-    events.value = (await eventsApi.list(groupId.value, 'COMPLETED')).events
-  } catch (e) {
-    console.error('Failed to load events:', e)
-  }
+function setFilters(patch: Partial<HistoryFilters>) {
+  const next = { ...filters.value, ...patch }
+  if (!next.playerId) next.secondaryPlayerId = ''
+  void router.replace({ query: filtersToQuery(next) })
 }
 
 async function loadHistory() {
-  isLoading.value = true
-  error.value = ''
+  const mine = ++token
+  loading.value = true
+  loadError.value = ''
   try {
-    const options: {
-      from?: string
-      to?: string
-      playerId?: string
-      eventId?: string
-      secondaryPlayerId?: string
-      relationship?: 'teammate' | 'opponent'
-    } = {}
-
-    if (filters.value.from) options.from = filters.value.from
-    if (filters.value.to) options.to = filters.value.to
-    if (filters.value.playerId) {
-      options.playerId = filters.value.playerId
-      // Secondary filter only applies if primary is selected
-      if (filters.value.secondaryPlayerId) {
-        options.secondaryPlayerId = filters.value.secondaryPlayerId
-        options.relationship = filters.value.relationship
+    const res = await rankingsApi.getHistory(groupId.value, historyOptions(filters.value))
+    if (mine !== token) return
+    matches.value = res.matches
+    if (!league.isOrganizer) {
+      const known = new Set(events.value.map(e => e.id))
+      for (const g of groupByEvent(res.matches)) {
+        if (!known.has(g.id)) events.value.push({ id: g.id, name: g.name, startsAt: g.date, status: 'COMPLETED', courts: 0, rounds: 0 })
       }
     }
-    if (filters.value.eventId) options.eventId = filters.value.eventId
-
-    const response = await rankingsApi.getHistory(groupId.value, options)
-    matches.value = response.matches
-    visibleEventCount.value = PAGE_SIZE
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to load history')
-  } finally {
-    isLoading.value = false
+    if (mine !== token) return
+    loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
   }
+  loading.value = false
+  maybeAutoOpen()
 }
 
-function applyFilters(next: HistoryFilters) {
-  filters.value = next
-  loadHistory()
+async function init() {
+  loading.value = true
+  await league.load(groupId.value)
+  if (league.error) { loading.value = false; return }
+  // listing events is organizer-only; players pick from the events their history has shown
+  if (league.isOrganizer) eventsApi.list(groupId.value, 'COMPLETED').then(r => { events.value = r.events }).catch(() => { events.value = [] })
+  // first visit with no filters shows the signed-in player's own games
+  if (!defaulted && !route.query.playerId && !route.query.eventId && league.me) {
+    defaulted = true
+    await router.replace({ query: { ...route.query, playerId: league.me.playerId } })
+    return // the query watcher loads
+  }
+  defaulted = true
+  await loadHistory()
 }
 
-// --- Filter chips -----------------------------------------------------------
-
-function playerName(playerId: string): string {
-  return playerIndex.byGlobalPlayerId.value.get(playerId)?.displayName || 'Player'
-}
-
-function eventLabel(eventId: string): string {
-  const event = events.value.find((e) => e.id === eventId)
-  if (!event) return 'Event'
-  return event.name || (event.startsAt ? new Date(event.startsAt).toLocaleDateString() : 'Event')
-}
-
-interface FilterChip {
-  key: string
-  label: string
-  remove: () => void
-}
-
-const filterChips = computed<FilterChip[]>(() => {
-  const chips: FilterChip[] = []
-  const f = filters.value
-  if (f.from) {
-    chips.push({ key: 'from', label: `From ${f.from}`, remove: () => { filters.value.from = ''; loadHistory() } })
-  }
-  if (f.to) {
-    chips.push({ key: 'to', label: `To ${f.to}`, remove: () => { filters.value.to = ''; loadHistory() } })
-  }
-  if (f.eventId) {
-    chips.push({ key: 'event', label: eventLabel(f.eventId), remove: () => { filters.value.eventId = ''; loadHistory() } })
-  }
-  if (f.playerId) {
-    chips.push({
-      key: 'player',
-      label: playerName(f.playerId),
-      remove: () => {
-        // Clearing the primary player also clears the secondary (legacy semantics)
-        filters.value.playerId = ''
-        filters.value.secondaryPlayerId = ''
-        filters.value.relationship = 'teammate'
-        loadHistory()
-      }
-    })
-    if (f.secondaryPlayerId) {
-      chips.push({
-        key: 'secondary',
-        label: `${f.relationship === 'teammate' ? 'With' : 'Vs'} ${playerName(f.secondaryPlayerId)}`,
-        remove: () => {
-          filters.value.secondaryPlayerId = ''
-          filters.value.relationship = 'teammate'
-          loadHistory()
-        }
-      })
-    }
-  }
-  return chips
+watch(groupId, () => { defaulted = false; events.value = []; void init() }, { immediate: true })
+watch(() => route.fullPath, (now, before) => {
+  if (route.params.groupId === groupId.value && before && now !== before && !league.error) void loadHistory()
 })
 
-const activeFilterCount = computed(() => filterChips.value.length)
-
-// --- Grouping by event (newest first) + client-side "Load more" -------------
-
-const PAGE_SIZE = 5
-const visibleEventCount = ref(PAGE_SIZE)
-
-const matchesByEvent = computed<EventGroup[]>(() => groupByEvent(matches.value))
-
-const visibleEvents = computed(() => matchesByEvent.value.slice(0, visibleEventCount.value))
-const hasMore = computed(() => matchesByEvent.value.length > visibleEventCount.value)
-
-function loadMore() {
-  visibleEventCount.value += PAGE_SIZE
+async function refresh() {
+  refreshing.value = true
+  api.invalidateCache(`/api/groups/${groupId.value}`)
+  await league.load(groupId.value, true)
+  await loadHistory()
+  refreshing.value = false
+  if (!loadError.value && !league.error) toast('History refreshed')
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
-}
+// corrections (organizers)
+const editing = ref<EventDto | null>(null)
+const editorOpen = ref(false)
+const focusGameId = ref<string | undefined>()
+const opening = ref('')
+let autoOpenedFor = ''
 
-// --- Head-to-head data --------------------------------------------------------
-
-const bothPicked = computed(() => !!h2hP1.value && !!h2hP2.value)
-
-const h2hOpponentMatches = ref<MatchHistoryEntryDto[]>([])
-const h2hTeammateMatches = ref<MatchHistoryEntryDto[]>([])
-const isH2hLoading = ref(false)
-const h2hError = ref('')
-
-async function loadH2H() {
-  if (!bothPicked.value) return
-  isH2hLoading.value = true
-  h2hError.value = ''
+async function openEditor(eventId: string, gameId?: string) {
+  if (!league.isOrganizer || opening.value) return
+  opening.value = eventId
   try {
-    const [opponents, teammates] = await Promise.all([
-      rankingsApi.getHistory(groupId.value, {
-        playerId: h2hP1.value,
-        secondaryPlayerId: h2hP2.value,
-        relationship: 'opponent'
-      }),
-      rankingsApi.getHistory(groupId.value, {
-        playerId: h2hP1.value,
-        secondaryPlayerId: h2hP2.value,
-        relationship: 'teammate'
-      })
-    ])
-    h2hOpponentMatches.value = opponents.matches
-    h2hTeammateMatches.value = teammates.matches
+    // the full event, not just the filtered games
+    editing.value = await eventsApi.get(eventId)
+    focusGameId.value = gameId
+    editorOpen.value = true
   } catch (e) {
-    h2hError.value = getApiErrorMessage(e, 'Failed to load head-to-head')
+    toast(`Event didn't open. ${(e as { message?: string }).message || 'Try again.'}`, 'bad')
   } finally {
-    isH2hLoading.value = false
+    opening.value = ''
   }
 }
 
-watch([h2hP1, h2hP2], () => {
-  if (bothPicked.value) loadH2H()
-})
+function maybeAutoOpen() {
+  const id = filters.value.eventId
+  if (!id || id === autoOpenedFor || !league.isOrganizer || !matches.value.length) return
+  autoOpenedFor = id
+  void openEditor(id)
+}
 
-// History team ids are GROUP-PLAYER ids — map the global P1 id via the index
-const p1GroupPlayerId = computed(() =>
-  h2hP1.value ? playerIndex.toGroupPlayerId(h2hP1.value) : undefined
-)
+async function onSaved() {
+  toast('Corrections saved. Ratings recalculated.')
+  await league.load(groupId.value, true)
+  await loadHistory()
+}
 
-const h2h = computed(() =>
-  p1GroupPlayerId.value ? computeH2H(h2hOpponentMatches.value, p1GroupPlayerId.value) : null
-)
+// Round headings carry the round, so a tile only says how the filtered player did.
+function caption(m: MatchHistoryEntryDto) {
+  const who = nameOf(filters.value.playerId)
+  const o = outcomeFor(m, who)
+  return o ? `${who} ${o}` : undefined
+}
 
-const teammateRecord = computed(() => {
-  const gpId = p1GroupPlayerId.value
-  if (!gpId) return null
-  let wins = 0
-  let losses = 0
-  let ties = 0
-  for (const match of h2hTeammateMatches.value) {
-    const outcome = outcomeFor(match, gpId)
-    if (outcome === 'W') wins++
-    else if (outcome === 'L') losses++
-    else if (outcome === 'T') ties++
+// matches arrive sorted by round, then court
+function byRound(list: MatchHistoryEntryDto[]) {
+  const rounds: { index: number; matches: MatchHistoryEntryDto[] }[] = []
+  for (const m of list) {
+    const last = rounds[rounds.length - 1]
+    if (last?.index === m.roundIndex) last.matches.push(m)
+    else rounds.push({ index: m.roundIndex, matches: [m] })
   }
-  return { wins, losses, ties, games: wins + losses + ties }
-})
-
-const p1Name = computed(() => playerName(h2hP1.value))
-const p2Name = computed(() => playerName(h2hP2.value))
-
-interface TapeRow {
-  label: string
-  left: string
-  right: string
-  leftPct: number
-  rightPct: number
-}
-
-const tapeRows = computed<TapeRow[]>(() => {
-  const rec = h2h.value
-  if (!rec || rec.games === 0) return []
-
-  const p2WinRate = (rec.losses + 0.5 * rec.ties) / rec.games
-  const rows: TapeRow[] = [
-    {
-      label: 'Record',
-      left: `${rec.wins}-${rec.losses}-${rec.ties}`,
-      right: `${rec.losses}-${rec.wins}-${rec.ties}`,
-      leftPct: (rec.wins / rec.games) * 100,
-      rightPct: (rec.losses / rec.games) * 100
-    },
-    {
-      label: 'Win %',
-      left: `${Math.round(rec.winRate * 100)}%`,
-      right: `${Math.round(p2WinRate * 100)}%`,
-      leftPct: rec.winRate * 100,
-      rightPct: p2WinRate * 100
-    },
-    {
-      label: 'Avg points',
-      left: rec.avgPointsFor.toFixed(1),
-      right: rec.avgPointsAgainst.toFixed(1),
-      leftPct:
-        rec.avgPointsFor + rec.avgPointsAgainst > 0
-          ? (rec.avgPointsFor / (rec.avgPointsFor + rec.avgPointsAgainst)) * 100
-          : 0,
-      rightPct:
-        rec.avgPointsFor + rec.avgPointsAgainst > 0
-          ? (rec.avgPointsAgainst / (rec.avgPointsFor + rec.avgPointsAgainst)) * 100
-          : 0
-    }
-  ]
-
-  // Current streak shows on the leader's side (P1's L streak = P2's W streak)
-  const streak = rec.streak
-  if (streak) {
-    if (streak.type === 'T') {
-      rows.push({ label: 'Current streak', left: `T${streak.length}`, right: `T${streak.length}`, leftPct: 50, rightPct: 50 })
-    } else if (streak.type === 'W') {
-      rows.push({ label: 'Current streak', left: `W${streak.length}`, right: '—', leftPct: 100, rightPct: 0 })
-    } else {
-      rows.push({ label: 'Current streak', left: '—', right: `W${streak.length}`, leftPct: 0, rightPct: 100 })
-    }
-  }
-
-  return rows
-})
-
-// --- Per-game quick score edit (ported legacy edit modal) --------------------
-
-const showEditSheet = ref(false)
-const editingMatch = ref<MatchHistoryEntryDto | null>(null)
-const editScore1 = ref<number | undefined>(undefined)
-const editScore2 = ref<number | undefined>(undefined)
-const isSavingEdit = ref(false)
-
-function openEditMatch(match: MatchHistoryEntryDto) {
-  editingMatch.value = match
-  editScore1.value = match.scoreTeam1
-  editScore2.value = match.scoreTeam2
-  showEditSheet.value = true
-}
-
-function parseScoreInput(value: string): number | undefined {
-  if (value === '') return undefined
-  const parsed = parseFloat(value)
-  return Number.isNaN(parsed) ? undefined : parsed
-}
-
-async function saveMatchEdit() {
-  if (!editingMatch.value) return
-  isSavingEdit.value = true
-  try {
-    await eventsApi.updateScore(editingMatch.value.gameId, {
-      scoreTeam1: editScore1.value,
-      scoreTeam2: editScore2.value
-    })
-    showEditSheet.value = false
-    toast.success('Score updated')
-    await loadHistory()
-  } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to update score'))
-  } finally {
-    isSavingEdit.value = false
-  }
-}
-
-// --- Event edit sheet (batch editing of a whole event) -----------------------
-
-const showEventEditSheet = ref(false)
-const editingEvent = ref<EventEditData | null>(null)
-
-async function openEventEdit(event: EventGroup) {
-  try {
-    // Fetch full event data to get ALL games, not just filtered ones
-    const fullEvent = await eventsApi.get(event.eventId)
-
-    const allMatches: MatchHistoryEntryDto[] = fullEvent.games.map((game) => ({
-      gameId: game.id,
-      eventId: fullEvent.id,
-      eventName: fullEvent.name,
-      date: fullEvent.startsAt || event.date,
-      roundIndex: game.roundIndex,
-      courtIndex: game.courtIndex,
-      team1: game.team1.map((p) => p.displayName),
-      team2: game.team2.map((p) => p.displayName),
-      team1Ids: game.team1.map((p) => p.id),
-      team2Ids: game.team2.map((p) => p.id),
-      scoreTeam1: game.scoreTeam1,
-      scoreTeam2: game.scoreTeam2,
-      result: game.result,
-      team1Elo: game.team1Elo,
-      team2Elo: game.team2Elo
-    }))
-
-    editingEvent.value = {
-      id: event.eventId,
-      name: event.eventName || 'Event',
-      date: event.date,
-      matches: allMatches
-    }
-    showEventEditSheet.value = true
-  } catch (e) {
-    console.error('Failed to load event for editing:', e)
-    toast.error(getApiErrorMessage(e, 'Failed to load event'))
-  }
-}
-
-function handleEventEditSaved() {
-  loadHistory()
-}
-
-// --- Pull-to-refresh ---------------------------------------------------------
-
-async function refreshData() {
-  api.invalidateCache(`/api/groups/${groupId.value}/history`)
-  const jobs: Promise<void>[] = [loadHistory()]
-  if (mode.value === 'h2h' && bothPicked.value) jobs.push(loadH2H())
-  await Promise.all(jobs)
+  return rounds
 }
 </script>
 
 <template>
-  <PullRefresh :on-refresh="refreshData">
-    <div class="mx-auto w-full max-w-5xl px-4 md:px-6 py-5">
-      <div class="flex flex-col gap-4">
-        <SegmentedControl v-model="modeModel" :options="modeOptions" />
+  <div class="page">
+    <UiState v-if="league.loading && !league.group" kind="loading" title="Loading history" />
 
-        <!-- ============================== FEED ============================== -->
-        <template v-if="mode === 'feed'">
-          <!-- Filter button + applied chips -->
-          <div class="flex flex-wrap items-center gap-2">
-            <AppButton variant="secondary" size="sm" @click="showFilterSheet = true">
-              <SlidersHorizontal class="size-4" />
-              Filters
-              <span
-                v-if="activeFilterCount > 0"
-                class="flex size-5 items-center justify-center rounded-full bg-accent-fill numeral text-xs text-accent-contrast"
-              >
-                {{ activeFilterCount }}
-              </span>
-            </AppButton>
+    <UiState
+      v-else-if="league.error?.status === 403 || league.error?.status === 404"
+      kind="denied"
+      heading="h1"
+      title="This league isn't available to you"
+      body="It may have been archived, or your account isn't on its roster. Ask the organizer to send you an invite link."
+      action-label="See your leagues"
+      action-to="/groups"
+    />
+    <UiState v-else-if="league.error" kind="error" heading="h1" title="League didn't load" :body="league.error.message" @retry="refresh" />
 
-            <button
-              v-for="chip in filterChips"
-              :key="chip.key"
-              type="button"
-              class="flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface-1 px-3 text-sm text-ink transition-colors hover:bg-surface-2"
-              :aria-label="`Remove filter: ${chip.label}`"
-              @click="chip.remove()"
-            >
-              {{ chip.label }}
-              <X class="size-3.5 text-ink-faint" />
-            </button>
+    <template v-else-if="league.group">
+      <PageHeader title="History" :back-to="`/groups/${groupId}`" :back-label="league.group.name">
+        <template #actions>
+          <button type="button" class="icon-btn" aria-label="Refresh history" :disabled="refreshing" @click="refresh">
+            <RefreshCw :size="20" :class="{ spin: refreshing }" aria-hidden="true" />
+          </button>
+          <AccountButton />
+        </template>
+      </PageHeader>
+
+      <div class="filterbar">
+        <p class="filterbar__text" aria-live="polite">{{ summary }}</p>
+        <div class="filterbar__btns">
+          <UiButton variant="secondary" @click="filtersOpen = true">
+            <SlidersHorizontal :size="18" aria-hidden="true" /> Filters
+          </UiButton>
+          <UiButton v-if="hasFilters(filters)" variant="quiet" @click="setFilters({ eventId: '', playerId: '' })">Show all games</UiButton>
+        </div>
+      </div>
+
+      <UiState v-if="loading && !matches.length" kind="loading" title="Loading games" />
+      <UiState v-else-if="loadError" kind="error" title="History didn't load" :body="loadError" @retry="loadHistory" />
+      <UiState
+        v-else-if="!matches.length && hasFilters(filters)"
+        kind="empty"
+        title="No games match these filters"
+        body="Only completed events show up here."
+        action-label="Show all games"
+        @action="setFilters({ eventId: '', playerId: '' })"
+      />
+      <UiState
+        v-else-if="!matches.length"
+        kind="empty"
+        title="No games yet"
+        :body="league.isOrganizer ? 'Games show up here after you complete an event.' : 'Games show up here after the organizer completes an event.'"
+      />
+
+      <template v-else>
+      <section v-for="ev in groups" :key="ev.id" class="section" :aria-labelledby="`ev-${ev.id}`">
+        <div class="evhead">
+          <div class="evhead__text">
+            <h2 :id="`ev-${ev.id}`" class="truncate">{{ eventTitle({ name: ev.name, startsAt: ev.date }) }}</h2>
+            <p class="muted evhead__date">{{ formatDay(ev.date) }}, {{ ev.matches.length }} {{ ev.matches.length === 1 ? 'game' : 'games' }}</p>
           </div>
+          <UiButton v-if="league.isOrganizer" variant="secondary" :loading="opening === ev.id" @click="openEditor(ev.id)">
+            <Wrench :size="18" aria-hidden="true" /> Correct scores
+          </UiButton>
+        </div>
+        <div v-for="r in byRound(ev.matches)" :key="r.index" class="round">
+        <h3 class="round__h">Round {{ r.index + 1 }}</h3>
+        <ol role="list" class="games">
+          <li v-for="m in r.matches" :key="m.gameId">
+            <CourtTile
+              :court="m.courtIndex + 1"
+              :team1="m.team1"
+              :team2="m.team2"
+              :score1="m.scoreTeam1"
+              :score2="m.scoreTeam2"
+              state="final"
+              :caption="caption(m)"
+              :interactive="league.isOrganizer"
+              @select="openEditor(ev.id, m.gameId)"
+            />
+          </li>
+        </ol>
+        </div>
+      </section>
+      </template>
 
-          <SkeletonList v-if="isLoading" :rows="4" />
-
-          <ErrorState v-else-if="error" :message="error" @retry="loadHistory" />
-
-          <AppEmptyState
-            v-else-if="matches.length === 0"
-            court
-            title="No match history yet"
-            :description="
-              activeFilterCount > 0
-                ? 'No matches found for the selected filters.'
-                : 'Complete some events to see match history here.'
-            "
-          >
-            <template #icon><ChartColumn class="size-7" /></template>
-          </AppEmptyState>
-
-          <template v-else>
-            <section v-for="event in visibleEvents" :key="event.eventId" class="flex flex-col gap-2">
-              <!-- Sticky date/event eyebrow header -->
-              <div
-                class="sticky top-14 z-10 -mx-4 flex items-center justify-between gap-3 border-b border-line bg-surface-page/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6"
-              >
-                <div class="min-w-0">
-                  <p class="eyebrow text-ink-faint">{{ formatDate(event.date) }}</p>
-                  <h2 class="display-wide truncate text-base text-ink">
-                    {{ event.eventName || 'Event' }}
-                  </h2>
-                </div>
-                <AppButton v-if="canManage" variant="ghost" size="sm" @click="openEventEdit(event)">
-                  <Settings2 class="size-4" />
-                  Edit event
-                </AppButton>
-              </div>
-
-              <div class="grid gap-2 md:grid-cols-2">
-                <MatchCard
-                  v-for="match in event.matches"
-                  :key="match.gameId"
-                  :match="match"
-                  :editable="canManage"
-                  @edit="openEditMatch"
-                />
-              </div>
-            </section>
-
-            <AppButton v-if="hasMore" variant="secondary" block @click="loadMore">Load more</AppButton>
-          </template>
+      <UiSheet :open="filtersOpen" title="Filter games" @close="filtersOpen = false">
+        <div class="stack-sm filters">
+          <div class="sel">
+            <label for="f-event">Event</label>
+            <select id="f-event" :value="filters.eventId" @change="setFilters({ eventId: ($event.target as HTMLSelectElement).value })">
+              <option value="">All events</option>
+              <option v-for="e in events" :key="e.id" :value="e.id">{{ eventTitle(e) }}</option>
+            </select>
+          </div>
+          <div class="sel">
+            <label for="f-player">Player</label>
+            <select id="f-player" :value="filters.playerId" @change="setFilters({ playerId: ($event.target as HTMLSelectElement).value })">
+              <option value="">All players</option>
+              <option v-for="p in sortedPlayers" :key="p.playerId" :value="p.playerId">{{ p.displayName }}</option>
+            </select>
+          </div>
+          <div v-if="filters.playerId" class="sel">
+            <label for="f-second">With or against</label>
+            <select id="f-second" :value="filters.secondaryPlayerId" @change="setFilters({ secondaryPlayerId: ($event.target as HTMLSelectElement).value })">
+              <option value="">Anyone</option>
+              <option v-for="p in sortedPlayers.filter(x => x.playerId !== filters.playerId)" :key="p.playerId" :value="p.playerId">{{ p.displayName }}</option>
+            </select>
+          </div>
+          <fieldset v-if="filters.playerId && filters.secondaryPlayerId" class="seg">
+            <legend>{{ nameOf(filters.secondaryPlayerId) }} played as</legend>
+            <div class="seg__opts">
+              <label class="seg__opt">
+                <input type="radio" name="rel" value="teammate" class="visually-hidden" :checked="filters.relationship === 'teammate'" @change="setFilters({ relationship: 'teammate' })">
+                <span>Teammate</span>
+              </label>
+              <label class="seg__opt">
+                <input type="radio" name="rel" value="opponent" class="visually-hidden" :checked="filters.relationship === 'opponent'" @change="setFilters({ relationship: 'opponent' })">
+                <span>Opponent</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+        <template #actions>
+          <UiButton variant="primary" size="lg" block @click="filtersOpen = false">
+            {{ loading ? 'Show games' : `Show ${matches.length} ${matches.length === 1 ? 'game' : 'games'}` }}
+          </UiButton>
         </template>
+      </UiSheet>
 
-        <!-- =========================== HEAD-TO-HEAD ========================== -->
-        <template v-else>
-          <VersusPicker
-            v-model:player-one="h2hP1"
-            v-model:player-two="h2hP2"
-            :players="players"
-          />
-
-          <AppEmptyState
-            v-if="!bothPicked"
-            court
-            title="Pick your matchup"
-            description="Choose two players to run the tale of the tape."
-          >
-            <template #icon><Swords class="size-7" /></template>
-          </AppEmptyState>
-
-          <template v-else>
-            <SkeletonList v-if="isH2hLoading || playerIndex.isLoading.value" :rows="3" />
-
-            <ErrorState v-else-if="h2hError" :message="h2hError" @retry="loadH2H" />
-
-            <template v-else-if="h2h">
-              <AppEmptyState
-                v-if="h2h.games === 0"
-                court
-                title="These two have never crossed the net"
-                description="No games with these players on opposite sides yet."
-              >
-                <template #icon><Swords class="size-7" /></template>
-              </AppEmptyState>
-
-              <!-- Tale of the tape -->
-              <section
-                v-else
-                class="ticket-clip stadium-glow rounded-[20px] border border-line bg-surface-1 p-4 md:p-5"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <span class="min-w-0 flex-1 truncate display-wide text-sm text-accent-text">
-                    {{ p1Name }}
-                  </span>
-                  <span class="shrink-0 eyebrow text-ink-faint">Tale of the tape</span>
-                  <span class="min-w-0 flex-1 truncate text-right display-wide text-sm text-info">
-                    {{ p2Name }}
-                  </span>
-                </div>
-                <div class="mt-4 flex flex-col gap-4">
-                  <H2HBar
-                    v-for="row in tapeRows"
-                    :key="row.label"
-                    :label="row.label"
-                    :left="row.left"
-                    :right="row.right"
-                    :left-pct="row.leftPct"
-                    :right-pct="row.rightPct"
-                  />
-                </div>
-              </section>
-
-              <!-- As teammates -->
-              <section
-                v-if="teammateRecord && teammateRecord.games > 0"
-                class="rounded-[14px] border border-line bg-surface-1 p-4"
-              >
-                <h2 class="eyebrow text-ink-faint">As teammates</h2>
-                <div class="mt-2 flex items-baseline gap-3">
-                  <span class="numeral text-3xl text-ink">
-                    {{ teammateRecord.wins }}-{{ teammateRecord.losses }}-{{ teammateRecord.ties }}
-                  </span>
-                  <span class="text-sm text-ink-muted">
-                    W-L-T across {{ teammateRecord.games }}
-                    {{ teammateRecord.games === 1 ? 'game' : 'games' }} together
-                  </span>
-                </div>
-              </section>
-
-              <!-- Last meetings -->
-              <section v-if="h2h.lastMeetings.length > 0" class="flex flex-col gap-2">
-                <h2 class="eyebrow text-ink-faint">Last meetings</h2>
-                <MatchCard
-                  v-for="match in h2h.lastMeetings"
-                  :key="match.gameId"
-                  :match="match"
-                  show-caption
-                />
-              </section>
-            </template>
-          </template>
-        </template>
-      </div>
-    </div>
-  </PullRefresh>
-
-  <!-- Filter sheet -->
-  <FilterSheet
-    v-model="showFilterSheet"
-    :filters="filters"
-    :players="players"
-    :events="events"
-    @apply="applyFilters"
-  />
-
-  <!-- Quick score edit sheet -->
-  <Sheet v-model="showEditSheet" title="Edit match score">
-    <div v-if="editingMatch" class="flex flex-col gap-4">
-      <div class="rounded-[14px] bg-surface-2 p-3.5">
-        <p class="eyebrow text-ink-faint">Team 1</p>
-        <p class="mt-1 text-sm font-medium text-ink">{{ editingMatch.team1.join(' & ') }}</p>
-        <input
-          type="number"
-          min="0"
-          placeholder="0"
-          inputmode="numeric"
-          aria-label="Team 1 score"
-          class="mt-2 w-full rounded-[10px] border border-line bg-surface-1 py-2.5 text-center numeral text-2xl text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
-          :value="editScore1"
-          @input="editScore1 = parseScoreInput(($event.target as HTMLInputElement).value)"
-        />
-      </div>
-      <p class="text-center eyebrow text-ink-faint">vs</p>
-      <div class="rounded-[14px] bg-surface-2 p-3.5">
-        <p class="eyebrow text-ink-faint">Team 2</p>
-        <p class="mt-1 text-sm font-medium text-ink">{{ editingMatch.team2.join(' & ') }}</p>
-        <input
-          type="number"
-          min="0"
-          placeholder="0"
-          inputmode="numeric"
-          aria-label="Team 2 score"
-          class="mt-2 w-full rounded-[10px] border border-line bg-surface-1 py-2.5 text-center numeral text-2xl text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
-          :value="editScore2"
-          @input="editScore2 = parseScoreInput(($event.target as HTMLInputElement).value)"
-        />
-      </div>
-      <div class="flex items-start gap-2 rounded-[14px] bg-warn/10 px-3.5 py-3 text-xs text-warn">
-        <AlertTriangle class="mt-0.5 size-4 shrink-0" />
-        <span>
-          Updating this score will recalculate ratings for the entire group from this event onwards.
-          This may take a moment.
-        </span>
-      </div>
-    </div>
-    <template #footer>
-      <div class="flex justify-end gap-3">
-        <AppButton variant="secondary" :disabled="isSavingEdit" @click="showEditSheet = false">Cancel</AppButton>
-        <AppButton :loading="isSavingEdit" @click="saveMatchEdit">Save &amp; recalculate</AppButton>
-      </div>
+      <EventEditModal
+        v-if="league.isOrganizer"
+        :open="editorOpen"
+        :event="editing"
+        :group-id="groupId"
+        :focus-game-id="focusGameId"
+        @close="editorOpen = false"
+        @saved="onSaved"
+      />
     </template>
-  </Sheet>
-
-  <!-- Event edit sheet -->
-  <EventEditSheet
-    v-model="showEventEditSheet"
-    :event="editingEvent"
-    :group-id="groupId"
-    @saved="handleEventEditSaved"
-  />
+  </div>
 </template>
+
+<style scoped>
+.icon-btn {
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+}
+.icon-btn:hover { background: var(--surface-sunk); }
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.filterbar { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s4); }
+.filterbar__text { font-weight: 700; }
+.filterbar__btns { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+.evhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-bottom: var(--s3); }
+.evhead__text { flex: 1 1 12rem; min-width: 0; }
+.evhead__date { font-size: var(--text-sm); }
+.round + .round { margin-top: var(--s4); }
+.round__h { font-size: var(--text-md); margin-bottom: var(--s2); }
+.games { display: flex; flex-direction: column; gap: var(--s3); list-style: none; margin: 0; padding: 0; }
+/* every game here is final; the section says so, so the tile's own "Final" is noise */
+.games :deep(.court__foot .status) { display: none; }
+.games :deep(.court__foot:not(:has(.court__tie, .court__caption))) { display: none; }
+
+.filters { padding-bottom: var(--s2); }
+.sel { display: flex; flex-direction: column; gap: var(--s1); }
+.sel label, .seg legend { font-weight: 700; font-size: var(--text-sm); }
+.sel select {
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--ink);
+}
+.sel select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+
+.seg { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.seg__opts {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-control);
+  background: var(--surface-sunk);
+}
+.seg__opt span {
+  display: grid; place-items: center;
+  min-height: var(--tap);
+  border-radius: 6px;
+  font-weight: 700;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.seg__opt input:checked + span { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 2px var(--line-strong); }
+.seg__opt input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 1px; }
+</style>

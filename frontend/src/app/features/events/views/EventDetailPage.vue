@@ -1,867 +1,726 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import html2canvas from 'html2canvas'
-import { MoreVertical, Pencil, RefreshCw, Download, Trash2, Sparkles, ArrowLeftRight, Users2, MonitorPlay } from 'lucide-vue-next'
+/**
+ * Live scoring: the round board.
+ * Every court in the round is a tile; tap the court you were told about, enter two numbers,
+ * "Save court N". Confirmed scores live in `event`; unsent or failed ones live in the saver,
+ * so completion is never offered while a score is still on its way.
+ */
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave, RouterLink } from 'vue-router'
+import { ChevronLeft, ChevronRight, MoreHorizontal, Shuffle, Share2, Pencil, Trash2, Check, Wrench } from 'lucide-vue-next'
 import { eventsApi } from '../services/events.api'
-import type { EventDto, EventStatus, GameDto, RatingUpdateDto, PlayerInfo } from '@/app/core/models/dto'
-import { useGroupContextStore } from '@/stores/group-context'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { useConfirm } from '@/app/core/ui/composables/useConfirm'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { useScoreAutosave } from '../composables/useScoreAutosave'
-import { useCelebration } from '../composables/useCelebration'
-import { bustGroupHistory } from '@/app/features/rankings/composables/useGroupHistory'
-import HeaderActions from '@/app/core/layout/HeaderActions.vue'
-import IconButton from '@/app/core/ui/components/IconButton.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import AppInput from '@/app/core/ui/components/AppInput.vue'
-import TapeChip from '@/app/core/ui/components/TapeChip.vue'
-import LiveDot from '@/app/core/ui/components/LiveDot.vue'
-import CourtLines from '@/app/core/ui/components/CourtLines.vue'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import SkeletonList from '@/app/core/ui/components/SkeletonList.vue'
-import ErrorState from '@/app/core/ui/components/ErrorState.vue'
+import type { EventDto, GameDto } from '@/app/core/models/dto'
+import { useLeagueStore } from '@/stores/league'
+import PageHeader from '@/app/core/layout/PageHeader.vue'
+import CourtTile from '@/app/core/ui/CourtTile.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import UiState from '@/app/core/ui/UiState.vue'
+import UiField from '@/app/core/ui/UiField.vue'
+import { useKeyboardInset } from '@/app/core/ui/useKeyboardInset'
+import { announce, confirm, toast } from '@/app/core/ui/feedback'
+import { shareElementAsImage, safeFileName } from '@/app/core/ui/shareImage'
+import type { CourtState } from '@/app/core/ui/SaveStatus.vue'
 import ShareableSchedule from '../components/ShareableSchedule.vue'
-import GenerationPreview from '../components/GenerationPreview.vue'
-import GenerationMetaChips from '../components/GenerationMetaChips.vue'
-import RoundPicker from '../components/RoundPicker.vue'
-import GameCard from '../components/GameCard.vue'
-import ScoreSheet from '../components/ScoreSheet.vue'
-import SwapPlayersSheet from '../components/SwapPlayersSheet.vue'
-import ReteamSheet from '../components/ReteamSheet.vue'
-import RatingRevealSheet from '../components/RatingRevealSheet.vue'
-import LiveScoreboard from '../components/live/LiveScoreboard.vue'
+import { useScoreSaver } from '../composables/useScoreSaver'
+import { gamesByRound, currentRoundIndex, progress, eventTitle, isScored } from '../eventProgress'
+import { validatePair, digitsOnly } from '../scoreInput'
 
-const router = useRouter()
 const route = useRoute()
-const groupContext = useGroupContextStore()
-const toast = useToast()
-const { confirm } = useConfirm()
+const router = useRouter()
+const league = useLeagueStore()
+useKeyboardInset()
 
 const eventId = computed(() => route.params.eventId as string)
-
 const event = ref<EventDto | null>(null)
-const isLoading = ref(true)
-const loadError = ref('')
-const isGenerating = ref(false)
-const isCompleting = ref(false)
-const isExporting = ref(false)
-const showPreview = ref(false)
+const loading = ref(true)
+const loadError = ref<{ status?: number; message: string } | null>(null)
+const round = ref(0)
+const busy = ref<'' | 'generate' | 'complete' | 'share' | 'rename' | 'delete'>('')
+const scheduleError = ref((route.query.scheduleError as string) || '')
+const flashId = ref<string | null>(null)
+let loadToken = 0
 
-const selectedRoundKey = ref('0')
-const ratingUpdates = ref<RatingUpdateDto[]>([])
-
-// Sheets
-const actionsOpen = ref(false)
-const scoreSheetOpen = ref(false)
-const scoreGameId = ref<string | null>(null)
-const gameMenuOpen = ref(false)
-const menuGameId = ref<string | null>(null)
-const swapSheetOpen = ref(false)
-const reteamSheetOpen = ref(false)
-const reteamGameId = ref<string | null>(null)
-const resultsSheetOpen = ref(false)
-
-// Name editing (optimistic save, ported from legacy)
-const isEditingName = ref(false)
-const tempEventName = ref('')
-
-// Export (off-screen ShareableSchedule render)
-const shareableRef = ref<HTMLElement | null>(null)
-
-const { savingGameIds, savedGameIds, debouncedSave, saveNow } = useScoreAutosave(event, {
-  onError: (message) => toast.error(message),
-  reload: () => loadEvent(true)
-})
-
-// Completion celebration (confetti + "EVENT COMPLETE" flash)
-const { flashVisible, celebrate, skip: skipFlash, prefersReducedMotion } = useCelebration()
-
-// ---------------------------------------------------------------------------
-// Live mode (immersive scoreboard) — fully query-driven so back/refresh work.
-// The app shell hides its chrome and swaps the page bg when ?mode=live.
-const isLive = computed(() => route.query.mode === 'live')
-
-function enterLive() {
-  router.replace({ query: { ...route.query, mode: 'live' } })
-}
-
-function exitLive() {
-  const query = { ...route.query }
-  delete query.mode
-  router.replace({ query })
-}
-
-// The live pager and the console RoundPicker share one selected round, owned
-// here, so exiting live mode lands on the same round.
-const liveRound = computed({
-  get: () => Number(selectedRoundKey.value) || 0,
-  set: (value: number) => {
-    selectedRoundKey.value = String(value)
+const saver = useScoreSaver({
+  updateScore: (id, body) => eventsApi.updateScore(id, body),
+  onSaved: (game: GameDto) => {
+    if (!event.value) return
+    const i = event.value.games.findIndex(g => g.id === game.id)
+    if (i !== -1) event.value.games[i] = game
+    if (event.value.status === 'GENERATED') event.value.status = 'IN_PROGRESS'
+    flashId.value = game.id
+    setTimeout(() => { if (flashId.value === game.id) flashId.value = null }, 1300)
+    announce(game.scoreTeam1 == null
+      ? `Court ${game.courtIndex + 1} score cleared.`
+      : `Court ${game.courtIndex + 1} saved, ${game.scoreTeam1} to ${game.scoreTeam2}.`)
+  },
+  onFailed: (gameId) => {
+    const g = event.value?.games.find(x => x.id === gameId)
+    if (g) announce(`Court ${g.courtIndex + 1} score not saved. Tap court ${g.courtIndex + 1} to retry.`, true)
   }
 })
 
-// Which game the live ScorePad is currently open for (merge guard)
-const liveScorePadGameId = ref<string | null>(null)
+const rounds = computed(() => (event.value ? gamesByRound(event.value) : []))
+const roundGames = computed(() => rounds.value[round.value] ?? [])
+const prog = computed(() => (event.value ? progress(event.value) : null))
+const completed = computed(() => event.value?.status === 'COMPLETED')
+const hasGames = computed(() => (event.value?.games.length ?? 0) > 0)
+const scoredCount = computed(() => event.value?.games.filter(isScored).length ?? 0)
+const roundDone = (i: number) => (rounds.value[i]?.length ?? 0) > 0 && rounds.value[i].every(isScored)
+const failedGames = computed(() =>
+  (event.value?.games ?? []).filter(g => saver.status(g.id).state === 'failed').sort((a, b) => a.roundIndex - b.roundIndex || a.courtIndex - b.courtIndex)
+)
+const retryLabel = computed(() => {
+  const f = failedGames.value
+  if (f.length === 1) return `Retry court ${f[0].courtIndex + 1}${f[0].roundIndex !== round.value ? `, round ${f[0].roundIndex + 1}` : ''}`
+  return `Retry ${f.length} courts`
+})
+function retryFailed() {
+  for (const g of failedGames.value) void saver.retry(g.id)
+  announce(failedGames.value.length === 1 ? 'Retrying 1 court.' : `Retrying ${failedGames.value.length} courts.`)
+}
+const canComplete = computed(() => !!prog.value?.allScored && !saver.hasUnsaved() && !completed.value)
 
-onMounted(() => loadEvent())
+function tileState(g: GameDto): CourtState {
+  if (completed.value) return 'final'
+  const s = saver.status(g.id).state
+  if (s === 'saving' || s === 'failed') return s
+  return isScored(g) ? 'saved' : 'needs'
+}
+function tileScores(g: GameDto) {
+  const st = saver.status(g.id)
+  if ((st.state === 'saving' || st.state === 'failed') && st.draft) return [st.draft.score1, st.draft.score2] as const
+  return [g.scoreTeam1, g.scoreTeam2] as const
+}
 
-async function loadEvent(silent = false) {
-  if (!silent) isLoading.value = true
-  loadError.value = ''
+async function load(opts: { keepRound?: boolean } = {}) {
+  const token = ++loadToken
+  loading.value = !event.value
+  loadError.value = null
   try {
-    event.value = await eventsApi.get(eventId.value)
-    // Group context: only the groupId is known here (name/role stay as-is)
-    groupContext.setGroup({ groupId: event.value.groupId })
-    // Show preview when games are generated but not yet accepted; silent
-    // reloads (autosave recovery, swaps) must not bounce back into preview,
-    // and neither should landing straight on the live scoreboard.
-    if (!silent && !isLive.value && event.value.status === 'GENERATED' && event.value.games.length > 0) {
-      showPreview.value = true
-    }
-    if (Number(selectedRoundKey.value) >= event.value.rounds) selectedRoundKey.value = '0'
-    // ?mode=live is meaningless without a schedule (e.g. hand-edited URL on a
-    // draft): drop it so the user isn't left on a chromeless console view.
-    if (isLive.value && event.value.games.length === 0) exitLive()
-  } catch (e) {
-    loadError.value = getApiErrorMessage(e, 'Failed to load event')
+    const e = await eventsApi.get(eventId.value)
+    if (token !== loadToken) return
+    event.value = e
+    void league.load(e.groupId)
+    saver.restoreDrafts(e.games)
+    if (!opts.keepRound) round.value = currentRoundIndex(e)
+  } catch (err) {
+    if (token !== loadToken) return
+    const x = err as { status?: number; message?: string }
+    loadError.value = { status: x.status, message: x.message || 'Event did not load' }
   } finally {
-    isLoading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 
-// ---------------------------------------------------------------------------
-// Permissions: default to showing controls when the role is unknown (direct
-// navigation) and let the API enforce; hide only for explicit PLAYER role.
-const canManage = computed(() => groupContext.role === null || groupContext.canManage)
+onMounted(load)
+watch(eventId, () => { saver.reset(); event.value = null; void load() })
 
-const isCompleted = computed(() => event.value?.status === 'COMPLETED')
+// ---- court sheet ----
+const sheetGame = ref<GameDto | null>(null)
+const in1 = ref('')
+const in2 = ref('')
+const err1 = ref('')
+const err2 = ref('')
+const field1 = ref<HTMLInputElement | null>(null)
+const field2 = ref<HTMLInputElement | null>(null)
 
-const gamesByRound = computed(() => {
-  if (!event.value) return []
-  const rounds: GameDto[][] = []
-  for (let i = 0; i < event.value.rounds; i++) {
-    rounds.push(event.value.games.filter((g) => g.roundIndex === i))
-  }
-  return rounds
+const sheetStatus = computed(() => (sheetGame.value ? saver.status(sheetGame.value.id) : null))
+const sheetWas = computed(() => {
+  const g = sheetGame.value
+  return g && isScored(g) ? `${g.scoreTeam1}–${g.scoreTeam2}` : ''
 })
 
-const hasEnteredScores = computed(
-  () => event.value?.games.some((g) => g.scoreTeam1 != null || g.scoreTeam2 != null) ?? false
-)
-const allScoresEntered = computed(
-  () => event.value?.games.every((g) => g.scoreTeam1 != null && g.scoreTeam2 != null) ?? false
-)
-const scoredCount = computed(
-  () => event.value?.games.filter((g) => g.scoreTeam1 != null && g.scoreTeam2 != null).length ?? 0
-)
+function openCourt(g: GameDto) {
+  if (completed.value) return
+  const st = saver.status(g.id)
+  const d = st.state === 'failed' || st.state === 'saving' ? st.draft : undefined
+  in1.value = d?.score1 != null ? String(d.score1) : g.scoreTeam1 != null ? String(g.scoreTeam1) : ''
+  in2.value = d?.score2 != null ? String(d.score2) : g.scoreTeam2 != null ? String(g.scoreTeam2) : ''
+  err1.value = ''
+  err2.value = ''
+  sheetGame.value = g
+  nextTick(() => field1.value?.select())
+}
+function closeSheet() { sheetGame.value = null }
+// Typing into a field replaces its score; it never appends to the old one (9 + 7 must not become 97).
+function selectAll(e: FocusEvent) {
+  const el = e.target as HTMLInputElement
+  requestAnimationFrame(() => el.select())
+}
 
-const selectedRound = computed(() => Number(selectedRoundKey.value))
-const selectedRoundGames = computed(() => gamesByRound.value[selectedRound.value] ?? [])
+function onInput(which: 1 | 2, e: Event) {
+  const el = e.target as HTMLInputElement
+  const v = digitsOnly(el.value)
+  if (v !== el.value) el.value = v
+  if (which === 1) { in1.value = v; err1.value = '' } else { in2.value = v; err2.value = '' }
+}
 
-const roundOptions = computed(() =>
-  gamesByRound.value.map((games, i) => ({
-    label: `R${i + 1}`,
-    value: String(i),
-    dot: games.length > 0 && games.every((g) => g.scoreTeam1 != null && g.scoreTeam2 != null)
-  }))
-)
-
-const allEventPlayers = computed<PlayerInfo[]>(() => {
-  const seen = new Map<string, PlayerInfo>()
-  for (const game of event.value?.games ?? []) {
-    for (const p of [...game.team1, ...game.team2]) {
-      if (!seen.has(p.id)) seen.set(p.id, p)
-    }
+function saveCourt() {
+  const g = sheetGame.value
+  if (!g) return
+  const v = validatePair(in1.value, in2.value)
+  err1.value = v.error1 || ''
+  err2.value = v.error2 || ''
+  if (!v.ok) {
+    nextTick(() => (v.error1 ? field1.value : field2.value)?.focus())
+    return
   }
-  return [...seen.values()]
-})
-
-const statusMeta = computed(() => {
-  switch (event.value?.status) {
-    case 'GENERATED': return { label: 'Generated', variant: 'info' as const }
-    case 'IN_PROGRESS': return { label: 'Live', variant: 'live' as const }
-    case 'COMPLETED': return { label: 'Final', variant: 'win' as const }
-    default: return { label: 'Draft', variant: 'muted' as const }
+  const court = g.courtIndex + 1
+  if (isScored(g) && g.scoreTeam1 === v.score1 && g.scoreTeam2 === v.score2 && saver.status(g.id).state !== 'failed') {
+    closeSheet()
+    return
   }
-})
-
-// Overflow menu availability
-const canRegenerate = computed(
-  () => canManage.value && !!event.value && !isCompleted.value && (!hasEnteredScores.value || showPreview.value)
-)
-const canExport = computed(() => (event.value?.games.length ?? 0) > 0)
-const canDelete = computed(() => canManage.value && !!event.value && !isCompleted.value)
-const hasHeaderActions = computed(() => canRegenerate.value || canExport.value || canDelete.value)
-
-const showCompleteBar = computed(
-  () =>
-    canManage.value &&
-    !!event.value &&
-    !showPreview.value &&
-    event.value.games.length > 0 &&
-    (event.value.status === 'GENERATED' || event.value.status === 'IN_PROGRESS')
-)
-
-// The signature CTA: shown whenever a schedule exists and scoring is possible
-const showEnterScoreboard = computed(
-  () =>
-    !!event.value &&
-    !showPreview.value &&
-    event.value.games.length > 0 &&
-    (event.value.status === 'GENERATED' || event.value.status === 'IN_PROGRESS')
-)
-
-const showLiveScoreboard = computed(() => isLive.value && !!event.value && event.value.games.length > 0)
-
-// ---------------------------------------------------------------------------
-// Score edits: every local edit is timestamped so the live poll never merges
-// a game the scorer just touched (the autosave composable is frozen and does
-// not expose its pending/queued maps).
-const lastLocalEditAt = new Map<string, number>()
-
-function onScoreChange(gameId: string, score1?: number, score2?: number) {
-  lastLocalEditAt.set(gameId, Date.now())
-  debouncedSave(gameId, score1, score2)
+  void saver.save(g.id, v.score1, v.score2)
+  announce(`Saving court ${court}.`)
+  closeSheet()
 }
 
-function onScoreCommit(gameId: string, score1?: number, score2?: number) {
-  lastLocalEditAt.set(gameId, Date.now())
-  void saveNow(gameId, score1, score2)
+async function clearCourt() {
+  const g = sheetGame.value
+  if (!g) return
+  const ok = await confirm({
+    title: `Clear court ${g.courtIndex + 1}'s score?`,
+    body: `${g.scoreTeam1}–${g.scoreTeam2} is removed and the court goes back to needing a score.`,
+    confirmLabel: 'Clear score',
+    danger: true
+  })
+  if (!ok) return
+  void saver.save(g.id, undefined, undefined)
+  closeSheet()
 }
 
-// ---------------------------------------------------------------------------
-// Live poll: every 15s while the scoreboard is visible, pull the event and
-// merge in other scorers' games — never clobbering local, in-flight edits.
-const POLL_INTERVAL_MS = 15_000
-const LOCAL_EDIT_GRACE_MS = 10_000
-let pollTimerId: number | undefined
-let pollInFlight = false
-
-function isGameDirty(gameId: string, now: number) {
-  // In-flight save
-  if (savingGameIds.value.has(gameId)) return true
-  // Debounced/queued save may still be pending — treat anything edited
-  // recently as dirty
-  const editedAt = lastLocalEditAt.get(gameId)
-  if (editedAt !== undefined && now - editedAt < LOCAL_EDIT_GRACE_MS) return true
-  // Never merge under an open score pad / score sheet for that game
-  if (liveScorePadGameId.value === gameId) return true
-  if (scoreSheetOpen.value && scoreGameId.value === gameId) return true
-  return false
+// ---- rounds ----
+function goRound(i: number) {
+  if (i < 0 || i >= rounds.value.length) return
+  round.value = i
+  announce(`Round ${i + 1} of ${rounds.value.length}. ${rounds.value[i].filter(g => !isScored(g)).length} courts need scores.`)
+  window.scrollTo({ top: 0 })
 }
 
-async function pollTick() {
-  if (pollInFlight) return
-  if (document.visibilityState !== 'visible') return
-  if (!event.value || event.value.status === 'COMPLETED') return
-  pollInFlight = true
-  try {
-    const fresh = await eventsApi.get(eventId.value)
-    if (!isLive.value || !event.value || fresh.id !== event.value.id) return
-    const now = Date.now()
-    const localById = new Map(event.value.games.map((g) => [g.id, g]))
-    const mergedGames = fresh.games.map((g) =>
-      isGameDirty(g.id, now) ? (localById.get(g.id) ?? g) : g
-    )
-    // Status only moves forward — a stale server read must not undo the
-    // optimistic GENERATED → IN_PROGRESS transition
-    const rank: Record<EventStatus, number> = { DRAFT: 0, GENERATED: 1, IN_PROGRESS: 2, COMPLETED: 3 }
-    const status = rank[fresh.status] > rank[event.value.status] ? fresh.status : event.value.status
-    event.value = { ...event.value, status, generationMeta: fresh.generationMeta, games: mergedGames }
-  } catch {
-    // Transient poll failure — next tick will retry
-  } finally {
-    pollInFlight = false
-  }
-}
-
-function startPolling() {
-  if (pollTimerId !== undefined) return
-  pollTimerId = window.setInterval(() => void pollTick(), POLL_INTERVAL_MS)
-}
-
-function stopPolling() {
-  if (pollTimerId !== undefined) {
-    clearInterval(pollTimerId)
-    pollTimerId = undefined
-  }
-}
-
-watch(isLive, (live) => (live ? startPolling() : stopPolling()), { immediate: true })
-onUnmounted(stopPolling)
-
-// ---------------------------------------------------------------------------
-// Generation
-async function generateSchedule(newSeed = false) {
+// ---- schedule ----
+async function generate(isRegenerate: boolean) {
   if (!event.value) return
-  if (event.value.games.length > 0) {
+  if (isRegenerate) {
+    const n = scoredCount.value
     const ok = await confirm({
-      title: 'Regenerate schedule?',
-      message: 'This will delete the current schedule and any entered scores.',
-      confirmLabel: 'Regenerate',
-      danger: true
+      title: 'Shuffle the schedule?',
+      body: n
+        ? `Every matchup changes and the ${n} ${n === 1 ? 'score' : 'scores'} already entered ${n === 1 ? 'is' : 'are'} deleted.`
+        : 'Every matchup changes. No scores have been entered yet.',
+      confirmLabel: n ? `Shuffle and delete ${n} ${n === 1 ? 'score' : 'scores'}` : 'Shuffle schedule',
+      danger: n > 0
     })
     if (!ok) return
   }
-  isGenerating.value = true
+  moreOpen.value = false
+  busy.value = 'generate'
+  scheduleError.value = ''
   try {
-    const result = await eventsApi.generate(eventId.value, newSeed)
-    event.value = { ...event.value, status: result.status, generationMeta: result.generationMeta, games: result.games }
-    showPreview.value = true
-    selectedRoundKey.value = '0'
+    saver.reset()
+    const res = await eventsApi.generate(event.value.id, isRegenerate)
+    event.value = { ...event.value, status: res.status, generationMeta: res.generationMeta, games: res.games }
+    round.value = 0
+    toast(isRegenerate ? 'New schedule made' : 'Schedule made')
+    if (route.query.scheduleError) void router.replace({ query: {} })
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to generate schedule'))
+    scheduleError.value = (e as { message?: string }).message || 'Schedule not made'
+    announce(scheduleError.value, true)
   } finally {
-    isGenerating.value = false
+    busy.value = ''
   }
 }
 
-function acceptPreview() {
-  showPreview.value = false
-}
-
-// ---------------------------------------------------------------------------
-// Name editing
-function startEditName() {
-  if (!event.value) return
-  tempEventName.value = event.value.name || ''
-  isEditingName.value = true
-  nextTick(() => {
-    document.querySelector<HTMLInputElement>('#event-name-edit input')?.focus()
-  })
-}
-
-function cancelEditName() {
-  isEditingName.value = false
-  tempEventName.value = ''
-}
-
-async function saveName() {
-  if (!event.value || !isEditingName.value) return
-  const newName = tempEventName.value.trim()
-  if (!newName || newName === event.value.name) {
-    cancelEditName()
-    return
-  }
-  // Optimistic update, revert on failure (ported)
-  const oldName = event.value.name
-  event.value.name = newName
-  isEditingName.value = false
-  try {
-    await eventsApi.update(event.value.id, { name: newName })
-  } catch (e) {
-    event.value.name = oldName
-    toast.error(getApiErrorMessage(e, 'Failed to update name'))
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Scoring (console quick-edit path)
-function openScoreSheet(game: GameDto) {
-  if (!canManage.value || isCompleted.value) return
-  scoreGameId.value = game.id
-  scoreSheetOpen.value = true
-}
-
-const scoreGame = computed(() => event.value?.games.find((g) => g.id === scoreGameId.value) ?? null)
-
-function goToNextGame() {
-  if (!event.value || !scoreGameId.value) return
-  const currentId = scoreGameId.value
-  const isUnscored = (g: GameDto) => g.scoreTeam1 == null || g.scoreTeam2 == null
-  const ordered = [...event.value.games].sort(
-    (a, b) => a.roundIndex - b.roundIndex || a.courtIndex - b.courtIndex
-  )
-  const idx = ordered.findIndex((g) => g.id === currentId)
-  for (let step = 1; step <= ordered.length; step++) {
-    const candidate = ordered[(idx + step) % ordered.length]
-    if (candidate.id !== currentId && isUnscored(candidate)) {
-      scoreGameId.value = candidate.id
-      selectedRoundKey.value = String(candidate.roundIndex)
-      return
-    }
-  }
-  scoreSheetOpen.value = false
-}
-
-// ---------------------------------------------------------------------------
-// Per-game menu / reteam / delete game (shared by console and live long-press)
-const menuGame = computed(() => event.value?.games.find((g) => g.id === menuGameId.value) ?? null)
-const reteamGame = computed(() => event.value?.games.find((g) => g.id === reteamGameId.value) ?? null)
-
-function openGameMenu(game: GameDto) {
-  menuGameId.value = game.id
-  gameMenuOpen.value = true
-}
-
-function openReteam() {
-  reteamGameId.value = menuGameId.value
-  gameMenuOpen.value = false
-  reteamSheetOpen.value = true
-}
-
-async function deleteGame() {
-  const game = menuGame.value
-  gameMenuOpen.value = false
-  if (!game) return
-  const ok = await confirm({
-    title: 'Delete game?',
-    message: `Delete the Court ${game.courtIndex + 1} game in Round ${game.roundIndex + 1}? This cannot be undone.`,
-    confirmLabel: 'Delete',
-    danger: true
-  })
-  if (!ok) return
-  try {
-    await eventsApi.deleteGame(game.id)
-    toast.success('Game deleted')
-    await loadEvent(true)
-  } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to delete game'))
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Complete / delete event
+// ---- complete ----
 async function completeEvent() {
-  if (!event.value) return
+  if (!event.value || !canComplete.value) return
   const ok = await confirm({
-    title: 'Complete event?',
-    message: 'Complete this event and update ratings?',
-    confirmLabel: 'Complete'
+    title: `Complete ${eventTitle(event.value)}?`,
+    body: `Ratings update for ${event.value.participantCount} players. You can still correct scores later from History.`,
+    confirmLabel: 'Complete event'
   })
   if (!ok) return
-  isCompleting.value = true
+  busy.value = 'complete'
   try {
-    const result = await eventsApi.complete(eventId.value, event.value.groupId)
-    event.value = { ...event.value, status: result.status }
-    ratingUpdates.value = result.ratingUpdates
-    bustGroupHistory(event.value.groupId)
-    // Celebration first (confetti + flash, tap to skip), then the reveal
-    await celebrate()
-    resultsSheetOpen.value = true
+    await eventsApi.complete(event.value.id, event.value.groupId)
+    saver.reset()
+    toast('Event completed. Rankings updated.')
+    await router.push(`/groups/${event.value.groupId}/rankings`)
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to complete event'))
+    const msg = (e as { message?: string }).message || 'Event not completed'
+    toast(`${msg}. Your scores are saved; try again.`, 'bad')
+    await load({ keepRound: true })
   } finally {
-    isCompleting.value = false
+    busy.value = ''
   }
 }
 
+// ---- more menu ----
+const moreOpen = ref(false)
+const renameOpen = ref(false)
+const newName = ref('')
+const shareEl = ref<HTMLElement | null>(null)
+
+function startRename() {
+  moreOpen.value = false
+  newName.value = event.value?.name || ''
+  renameOpen.value = true
+}
+async function saveName() {
+  if (!event.value) return
+  const name = newName.value.trim()
+  if (!name) return
+  busy.value = 'rename'
+  const old = event.value.name
+  try {
+    event.value.name = name
+    await eventsApi.update(event.value.id, { name })
+    renameOpen.value = false
+    toast('Event renamed')
+  } catch (e) {
+    event.value.name = old
+    toast((e as { message?: string }).message || 'Name not saved', 'bad')
+  } finally {
+    busy.value = ''
+  }
+}
+async function share() {
+  if (!event.value) return
+  moreOpen.value = false
+  busy.value = 'share'
+  try {
+    await nextTick()
+    const el = shareEl.value?.firstElementChild as HTMLElement | null
+    if (el) await shareElementAsImage(el, `${safeFileName(eventTitle(event.value))}-schedule.png`)
+  } catch {
+    toast('Image not created', 'bad')
+  } finally {
+    busy.value = ''
+  }
+}
 async function deleteEvent() {
   if (!event.value) return
-  actionsOpen.value = false
+  moreOpen.value = false
   const ok = await confirm({
-    title: 'Delete event?',
-    message: `Delete event "${event.value.name || 'Unnamed event'}"? This cannot be undone.`,
-    confirmLabel: 'Delete',
+    title: `Delete ${eventTitle(event.value)}?`,
+    body: scoredCount.value ? `The schedule and ${scoredCount.value} entered scores are removed.` : 'The schedule is removed.',
+    confirmLabel: 'Delete event',
     danger: true
   })
   if (!ok) return
-  const groupId = event.value.groupId
+  busy.value = 'delete'
   try {
-    await eventsApi.delete(eventId.value)
-    toast.success('Event deleted')
-    router.push(`/groups/${groupId}`)
+    await eventsApi.delete(event.value.id)
+    saver.reset()
+    toast('Event deleted')
+    await router.replace(`/groups/${event.value.groupId}`)
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to delete event'))
-  }
-}
-
-function regenerateFromMenu() {
-  actionsOpen.value = false
-  generateSchedule(true)
-}
-
-function exportFromMenu() {
-  actionsOpen.value = false
-  exportAsImage()
-}
-
-// ---------------------------------------------------------------------------
-// Export as image (ported verbatim: html2canvas + Web Share API + iOS fallback)
-async function exportAsImage() {
-  if (!shareableRef.value) return
-
-  isExporting.value = true
-  try {
-    const wrapper = shareableRef.value
-    const scheduleEl = wrapper.firstElementChild as HTMLElement
-
-    const canvas = await html2canvas(scheduleEl || wrapper, {
-      backgroundColor: null,
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      width: (scheduleEl || wrapper).scrollWidth,
-      height: (scheduleEl || wrapper).scrollHeight
-    })
-
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, 'image/png')
-    })
-
-    if (!blob) return
-
-    const fileName = `${event.value?.name || 'schedule'}-games.png`
-
-    // Check if Web Share API is available (best for mobile)
-    if (navigator.share && navigator.canShare) {
-      const file = new File([blob], fileName, { type: 'image/png' })
-      const shareData = { files: [file] }
-
-      if (navigator.canShare(shareData)) {
-        try {
-          await navigator.share(shareData)
-          return
-        } catch (shareError) {
-          // User cancelled or share failed, fall through to other methods
-          if ((shareError as Error).name !== 'AbortError') {
-            console.log('Share failed, trying fallback...')
-          }
-        }
-      }
-    }
-
-    // Check if iOS (for long-press save fallback)
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-    const url = URL.createObjectURL(blob)
-
-    if (isIOS) {
-      // Open image in new window - user can long-press to save
-      window.open(url, '_blank')
-      // Revoke after a delay to allow the new window to load
-      setTimeout(() => URL.revokeObjectURL(url), 60000)
-    } else {
-      // Standard download for desktop
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    }
-  } catch (e) {
-    console.error('Failed to export image:', e)
-    toast.error('Failed to export image')
+    toast((e as { message?: string }).message || 'Event not deleted', 'bad')
   } finally {
-    isExporting.value = false
+    busy.value = ''
   }
 }
 
-// Keep the route-driven page usable when the id changes in place
-watch(eventId, () => loadEvent())
+// ---- leaving with unsaved scores ----
+function beforeUnload(e: BeforeUnloadEvent) {
+  if (saver.hasUnsaved()) { e.preventDefault(); e.returnValue = '' }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onUnmounted(() => { window.removeEventListener('beforeunload', beforeUnload); saver.dispose() })
+onBeforeRouteLeave(async () => {
+  if (!saver.hasUnsaved()) return true
+  return confirm({
+    title: 'Some scores are not saved',
+    body: 'They stay on this phone and come back when you reopen this event, but nobody else will see them until they save.',
+    confirmLabel: 'Leave anyway',
+    cancelLabel: 'Stay and retry'
+  })
+})
+
+const backTo = computed(() => (event.value ? `/groups/${event.value.groupId}` : '/groups'))
+const nextRoundLabel = computed(() => `Go to round ${round.value + 2}`)
+const dockAction = computed<'' | 'retry' | 'complete' | 'next'>(() => {
+  if (completed.value) return ''
+  if (failedGames.value.length) return 'retry'
+  if (prog.value?.allScored) return 'complete'
+  if (roundDone(round.value) && round.value < rounds.value.length - 1) return 'next'
+  return ''
+})
+const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).length)
 </script>
 
 <template>
-  <!-- Header is hidden while immersive; don't teleport into it -->
-  <HeaderActions v-if="!isLive">
-    <IconButton v-if="event && hasHeaderActions" label="Event actions" @click="actionsOpen = true">
-      <MoreVertical class="size-5" />
-    </IconButton>
-  </HeaderActions>
+  <div class="page scoring">
+    <UiState v-if="loading" kind="loading" title="Loading event" />
+    <UiState
+      v-else-if="loadError?.status === 403"
+      kind="denied" heading="h1"
+      title="Only organizers can open live events"
+      body="Results show up in History as soon as the organizer completes the event."
+      action-label="Back to league"
+      :action-to="league.groupId ? `/groups/${league.groupId}` : '/groups'"
+    />
+    <UiState
+      v-else-if="loadError?.status === 404"
+      kind="denied" heading="h1"
+      title="This event no longer exists"
+      body="It may have been deleted by another organizer."
+      action-label="Back to league"
+      :action-to="league.groupId ? `/groups/${league.groupId}` : '/groups'"
+    />
+    <UiState v-else-if="loadError" kind="error" heading="h1" title="Event didn't load" :body="loadError.message" @retry="load()" />
 
-  <!-- ======================== LIVE SCOREBOARD ======================== -->
-  <LiveScoreboard
-    v-if="showLiveScoreboard && event"
-    v-model:round="liveRound"
-    v-model:score-pad-game-id="liveScorePadGameId"
-    :event="event"
-    :games-by-round="gamesByRound"
-    :saving-game-ids="savingGameIds"
-    :saved-game-ids="savedGameIds"
-    :can-manage="canManage"
-    :completing="isCompleting"
-    @change="onScoreChange"
-    @commit="onScoreCommit"
-    @menu="openGameMenu"
-    @swap="swapSheetOpen = true"
-    @complete="completeEvent"
-    @exit="exitLive"
-  />
+    <template v-else-if="event">
+      <PageHeader :title="eventTitle(event)" :back-to="backTo" :back-label="league.group?.name || 'League'">
+        <template #actions>
+          <button type="button" class="icon-btn" aria-label="Event options" @click="moreOpen = true">
+            <MoreHorizontal :size="22" aria-hidden="true" />
+          </button>
+        </template>
+        <p class="sub muted">
+          <template v-if="completed">Completed. {{ event.courts }} courts, {{ event.rounds }} rounds.</template>
+          <template v-else-if="hasGames">{{ scoredCount }} of {{ event.games.length }} games scored</template>
+          <template v-else>{{ event.participantCount }} players, {{ event.courts }} courts, {{ event.rounds }} rounds</template>
+        </p>
+      </PageHeader>
 
-  <!-- ======================== CONSOLE VIEW ======================== -->
-  <div v-else class="mx-auto w-full max-w-5xl px-4 py-5 md:px-6" :class="showCompleteBar ? 'pb-28' : ''">
-    <SkeletonList v-if="isLoading" :rows="5" />
-
-    <ErrorState v-else-if="loadError" :message="loadError" @retry="loadEvent()" />
-
-    <div v-else-if="event" class="flex flex-col gap-4">
-      <!-- Masthead -->
-      <div class="flex flex-col gap-2">
-        <AppInput
-          v-if="isEditingName"
-          id="event-name-edit"
-          v-model="tempEventName"
-          placeholder="Event name"
-          @keyup.enter="saveName"
-          @keyup.esc="cancelEditName"
-          @focusout="saveName"
-        />
-        <div v-else class="flex items-center gap-1.5">
-          <h1 class="display-wide min-w-0 truncate text-2xl text-ink md:text-4xl">
-            {{ event.name || 'Event' }}
-          </h1>
-          <IconButton v-if="canManage" label="Edit name" @click="startEditName">
-            <Pencil class="size-4" />
-          </IconButton>
+      <!-- No schedule yet -->
+      <section v-if="!hasGames" class="section">
+        <div v-if="scheduleError" class="notice notice--bad" role="alert">
+          <strong>Schedule not made.</strong> {{ scheduleError }}
+          <span class="muted">Try again, or loosen the pairing rules in league settings.</span>
         </div>
-        <div class="flex flex-wrap items-center gap-2.5">
-          <TapeChip :variant="statusMeta.variant">
-            <LiveDot v-if="event.status === 'IN_PROGRESS'" />
-            {{ statusMeta.label }}
-          </TapeChip>
-          <span class="font-mono text-xs tabular-nums text-ink-muted">
-            {{ event.courts }} {{ event.courts === 1 ? 'court' : 'courts' }} · {{ event.rounds }} rounds
-          </span>
-        </div>
-        <div class="kitchen-line" aria-hidden="true" />
-      </div>
+        <p v-else>Make the schedule to see who plays on which court each round.</p>
+        <UiButton variant="primary" size="lg" :loading="busy === 'generate'" @click="generate(false)">Make schedule</UiButton>
+        <RouterLink v-if="scheduleError" :to="`/groups/${event.groupId}/settings`" class="link">Open league settings</RouterLink>
+      </section>
 
-      <!-- DRAFT: generate hero -->
-      <div
-        v-if="event.status === 'DRAFT'"
-        class="relative flex flex-col items-center gap-3 overflow-hidden rounded-[20px] border border-line-strong bg-surface-court px-6 py-12 text-center ticket-clip stadium-glow"
-      >
-        <div class="absolute inset-0" aria-hidden="true">
-          <CourtLines crop="full" class="h-full w-full" />
-        </div>
-        <div class="relative flex flex-col items-center gap-3">
-          <p class="eyebrow text-ink-faint">Matchday setup</p>
-          <h2 class="display-wide text-xl text-ink">Ready to generate games?</h2>
-          <p class="max-w-sm text-sm text-ink-muted">
-            Build the match schedule for {{ event.participantCount }} players across
-            {{ event.courts }} {{ event.courts === 1 ? 'court' : 'courts' }}.
-          </p>
-          <AppButton v-if="canManage" variant="broadcast" :loading="isGenerating" class="mt-1" @click="generateSchedule(false)">
-            <Sparkles class="size-4" aria-hidden="true" />
-            Generate schedule
-          </AppButton>
-          <p v-else class="text-sm text-ink-faint">An organizer can generate the schedule.</p>
-        </div>
-      </div>
-
-      <!-- Preview mode -->
-      <GenerationPreview
-        v-else-if="showPreview && event.games.length > 0"
-        :event="event"
-        :games-by-round="gamesByRound"
-        :generating="isGenerating"
-        @regenerate="generateSchedule(true)"
-        @accept="acceptPreview"
-      />
-
-      <!-- Scoring console / completed -->
       <template v-else>
-        <!-- Enter Scoreboard hero — the signature experience -->
-        <div
-          v-if="showEnterScoreboard"
-          class="relative flex flex-col gap-3 overflow-hidden rounded-[20px] border border-line-strong bg-surface-court px-5 py-6 ticket-clip stadium-glow sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div class="pointer-events-none absolute inset-y-0 right-0 w-48" aria-hidden="true">
-            <CourtLines crop="half" class="h-full w-full" />
-          </div>
-          <div class="relative min-w-0">
-            <p class="eyebrow flex items-center gap-1.5 text-ink-faint">
-              <LiveDot v-if="event.status === 'IN_PROGRESS'" />
-              Live scoreboard
-            </p>
-            <p class="mt-1 text-sm text-ink-muted">
-              Full-screen courtside scoring, one round per swipe.
-            </p>
-          </div>
-          <AppButton variant="broadcast" class="relative shrink-0" @click="enterLive">
-            <MonitorPlay class="size-4" aria-hidden="true" />
-            Enter scoreboard
-          </AppButton>
-        </div>
-
-        <GenerationMetaChips v-if="event.generationMeta" :meta="event.generationMeta" />
-
-        <RoundPicker v-model="selectedRoundKey" :options="roundOptions">
-          <AppButton
-            v-if="canManage && !isCompleted"
-            variant="secondary"
-            size="sm"
-            @click="swapSheetOpen = true"
+        <nav class="rounds" aria-label="Rounds">
+          <button
+            v-for="(_, i) in rounds"
+            :key="i"
+            type="button"
+            class="rchip num"
+            :class="{ 'rchip--done': roundDone(i) }"
+            :aria-current="i === round ? 'step' : undefined"
+            :aria-label="`Round ${i + 1}${roundDone(i) ? ', all courts scored' : ''}`"
+            @click="goRound(i)"
           >
-            <ArrowLeftRight class="size-4" aria-hidden="true" />
-            <span class="hidden sm:inline">Swap players</span>
-            <span class="sm:hidden">Swap</span>
-          </AppButton>
-        </RoundPicker>
+            <span>{{ i + 1 }}</span>
+            <Check v-if="roundDone(i)" :size="14" aria-hidden="true" class="rchip__check" />
+          </button>
+        </nav>
 
-        <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          <GameCard
-            v-for="game in selectedRoundGames"
-            :key="game.id"
-            :game="game"
-            :saving="savingGameIds.has(game.id)"
-            :saved="savedGameIds.has(game.id)"
-            :interactive="canManage && !isCompleted"
-            :show-menu="canManage && !isCompleted"
-            @open="openScoreSheet(game)"
-            @menu="openGameMenu(game)"
-          />
+        <div v-if="event.status === 'GENERATED' && scoredCount === 0" class="notice">
+          <strong>Schedule ready.</strong> Tap a court to enter its score.
+          <UiButton variant="quiet" :loading="busy === 'generate'" @click="generate(true)"><Shuffle :size="18" aria-hidden="true" /> Shuffle again</UiButton>
         </div>
+
+        <section class="section" :aria-labelledby="`round-h`">
+          <h2 id="round-h" class="round-h">
+            <span class="num">Round {{ round + 1 }}</span>
+            <span class="muted round-h__of"> of {{ rounds.length }}</span>
+          </h2>
+          <ol role="list" class="board">
+            <li v-for="g in roundGames" :key="g.id">
+              <CourtTile
+                :court="g.courtIndex + 1"
+                :team1="g.team1.map(p => p.displayName)"
+                :team2="g.team2.map(p => p.displayName)"
+                :score1="tileScores(g)[0]"
+                :score2="tileScores(g)[1]"
+                :state="tileState(g)"
+                :interactive="!completed"
+                :flash="flashId === g.id"
+                @select="openCourt(g)"
+              />
+            </li>
+          </ol>
+        </section>
+
+        <section v-if="completed" class="section">
+          <UiButton :to="{ path: `/groups/${event.groupId}/history`, query: { eventId: event.id } }">
+            <Wrench :size="18" aria-hidden="true" /> Correct scores
+          </UiButton>
+        </section>
       </template>
-    </div>
-  </div>
 
-  <!-- Sticky completion bar (console; above the bottom tab bar) -->
-  <div
-    v-if="!isLive && showCompleteBar && event"
-    class="fixed inset-x-0 bottom-16 z-30 border-t border-line bg-surface-page/95 pb-safe backdrop-blur md:bottom-0"
-  >
-    <div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3 md:px-6">
-      <span class="eyebrow text-ink-faint">
-        <span class="text-ink">{{ scoredCount }} / {{ event.games.length }}</span> scored
-      </span>
-      <AppButton
-        :loading="isCompleting"
-        :disabled="!allScoresEntered"
-        :title="!allScoresEntered ? 'Enter all scores to complete' : undefined"
-        @click="completeEvent"
+      <!-- thumb-zone controls -->
+      <div v-if="hasGames" class="dock">
+        <p v-if="!completed" class="dock__meta" aria-live="polite">
+          <template v-if="failedGames.length === 1">Court {{ failedGames[0].courtIndex + 1 }}{{ failedGames[0].roundIndex !== round ? `, round ${failedGames[0].roundIndex + 1},` : '' }} is not saved. Your score is kept on this phone.</template>
+          <template v-else-if="failedGames.length">{{ failedGames.length }} courts are not saved. Your scores are kept on this phone.</template>
+          <template v-else-if="saver.hasUnsaved()">Saving scores…</template>
+          <template v-else-if="prog?.allScored">All {{ prog.total }} games scored.</template>
+          <template v-else-if="roundNeeds">{{ roundNeeds }} {{ roundNeeds === 1 ? 'court needs a score' : 'courts need scores' }} this round.</template>
+          <template v-else>Round {{ round + 1 }} is fully scored.</template>
+        </p>
+        <div class="dock__row" :class="{ 'dock__row--nav': !dockAction }">
+          <button
+            type="button" class="dock__nav" :disabled="round === 0"
+            :aria-label="dockAction ? (round > 0 ? `Round ${round}` : 'No earlier round') : undefined"
+            @click="goRound(round - 1)"
+          >
+            <ChevronLeft :size="22" aria-hidden="true" />
+            <span v-if="!dockAction && round > 0">Round {{ round }}</span>
+          </button>
+          <div v-if="dockAction" class="dock__main">
+            <UiButton v-if="dockAction === 'retry'" variant="danger" size="lg" block @click="retryFailed">{{ retryLabel }}</UiButton>
+            <UiButton
+              v-else-if="dockAction === 'complete'"
+              variant="optic" size="lg" block
+              :disabled="!canComplete"
+              :loading="busy === 'complete'"
+              @click="completeEvent"
+            >Complete event</UiButton>
+            <UiButton v-else variant="primary" size="lg" block @click="goRound(round + 1)">{{ nextRoundLabel }}</UiButton>
+          </div>
+          <button
+            type="button" class="dock__nav" :disabled="round >= rounds.length - 1"
+            :aria-label="dockAction ? (round < rounds.length - 1 ? `Round ${round + 2}` : 'No later round') : undefined"
+            @click="goRound(round + 1)"
+          >
+            <span v-if="!dockAction && round < rounds.length - 1">Round {{ round + 2 }}</span>
+            <ChevronRight :size="22" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      <!-- court sheet -->
+      <UiSheet
+        :open="!!sheetGame"
+        :title="sheetGame ? `Court ${sheetGame.courtIndex + 1}, round ${sheetGame.roundIndex + 1}` : ''"
+        close-label="Close without saving"
+        @close="closeSheet"
       >
-        Complete event
-      </AppButton>
-    </div>
-  </div>
+        <template #title="{ titleId }">
+          <h2 :id="titleId" class="sheet-title">
+            <span class="sheet-title__court num">Court {{ sheetGame ? sheetGame.courtIndex + 1 : '' }}</span>
+            <span class="muted">Round {{ sheetGame ? sheetGame.roundIndex + 1 : '' }}</span>
+          </h2>
+        </template>
+        <form v-if="sheetGame" class="scoreform" novalidate @submit.prevent="saveCourt">
+          <div v-if="sheetStatus?.state === 'failed'" class="notice notice--bad" role="alert">
+            <strong>Not saved.</strong> {{ sheetStatus.error }}. Your numbers are kept below.
+          </div>
+          <div class="team-in">
+            <label :for="`s1-${sheetGame.id}`" class="team-in__names">
+              <span v-for="p in sheetGame.team1" :key="p.id" class="truncate">{{ p.displayName }}</span>
+            </label>
+            <input
+              :id="`s1-${sheetGame.id}`"
+              ref="field1"
+              class="score-in num"
+              :value="in1"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="off"
+              enterkeyhint="next"
+              maxlength="2"
+              data-autofocus
+              :aria-invalid="!!err1 || undefined"
+              :aria-describedby="err1 ? `e1-${sheetGame.id}` : undefined"
+              @input="onInput(1, $event)"
+              @focus="selectAll"
+              @keydown.enter.prevent="field2?.focus()"
+            >
+          </div>
+          <p v-if="err1" :id="`e1-${sheetGame.id}`" class="field-err">{{ err1 }}</p>
+          <div class="sheet-net" aria-hidden="true" />
+          <div class="team-in">
+            <label :for="`s2-${sheetGame.id}`" class="team-in__names">
+              <span v-for="p in sheetGame.team2" :key="p.id" class="truncate">{{ p.displayName }}</span>
+            </label>
+            <input
+              :id="`s2-${sheetGame.id}`"
+              ref="field2"
+              class="score-in num"
+              :value="in2"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="off"
+              enterkeyhint="done"
+              maxlength="2"
+              :aria-invalid="!!err2 || undefined"
+              :aria-describedby="err2 ? `e2-${sheetGame.id}` : undefined"
+              @input="onInput(2, $event)"
+              @focus="selectAll"
+            >
+          </div>
+          <p v-if="err2" :id="`e2-${sheetGame.id}`" class="field-err">{{ err2 }}</p>
+          <p v-if="sheetWas" class="muted was">Saved score was {{ sheetWas }}.</p>
+          <button type="submit" hidden tabindex="-1" aria-hidden="true" />
+        </form>
+        <template #actions>
+          <UiButton variant="primary" size="lg" block @click="saveCourt">
+            {{ sheetStatus?.state === 'failed' ? 'Retry' : sheetWas ? 'Replace score on' : 'Save' }} court {{ sheetGame ? sheetGame.courtIndex + 1 : '' }}
+          </UiButton>
+          <UiButton v-if="sheetWas" variant="quiet" block @click="clearCourt">Clear score</UiButton>
+        </template>
+      </UiSheet>
 
-  <!-- Header overflow actions -->
-  <Sheet v-model="actionsOpen" title="Event actions">
-    <div class="-mx-4 flex flex-col divide-y divide-line">
-      <button
-        v-if="canRegenerate"
-        type="button"
-        class="flex min-h-14 items-center gap-3 px-4 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-        @click="regenerateFromMenu"
-      >
-        <RefreshCw class="size-5 text-ink-muted" aria-hidden="true" />
-        Regenerate schedule
-        <span class="ml-auto text-xs text-ink-faint">New seed</span>
-      </button>
-      <button
-        v-if="canExport"
-        type="button"
-        class="flex min-h-14 items-center gap-3 px-4 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-        :disabled="isExporting"
-        @click="exportFromMenu"
-      >
-        <Download class="size-5 text-ink-muted" aria-hidden="true" />
-        {{ isExporting ? 'Exporting…' : 'Export schedule image' }}
-      </button>
-      <button
-        v-if="canDelete"
-        type="button"
-        class="flex min-h-14 items-center gap-3 px-4 text-left text-sm font-medium text-loss transition-colors hover:bg-loss/10"
-        @click="deleteEvent"
-      >
-        <Trash2 class="size-5" aria-hidden="true" />
-        Delete event
-      </button>
-    </div>
-  </Sheet>
+      <!-- event options -->
+      <UiSheet :open="moreOpen" title="Event options" @close="moreOpen = false">
+        <div class="menu">
+          <button type="button" class="menu__item" @click="startRename"><Pencil :size="20" aria-hidden="true" /> Rename event</button>
+          <button v-if="hasGames" type="button" class="menu__item" :disabled="busy === 'share'" @click="share"><Share2 :size="20" aria-hidden="true" /> Share schedule as image</button>
+          <button v-if="hasGames && !completed" type="button" class="menu__item" @click="generate(true)"><Shuffle :size="20" aria-hidden="true" /> Shuffle schedule</button>
+          <button v-if="!completed" type="button" class="menu__item menu__item--bad" @click="deleteEvent"><Trash2 :size="20" aria-hidden="true" /> Delete event</button>
+        </div>
+      </UiSheet>
 
-  <!-- Per-game menu (console overflow + live long-press) -->
-  <Sheet v-model="gameMenuOpen" :title="menuGame ? `Court ${menuGame.courtIndex + 1} · Round ${menuGame.roundIndex + 1}` : ''">
-    <div class="-mx-4 flex flex-col divide-y divide-line">
-      <button
-        type="button"
-        class="flex min-h-14 items-center gap-3 px-4 text-left text-sm font-medium text-ink transition-colors hover:bg-surface-2"
-        @click="openReteam"
-      >
-        <Users2 class="size-5 text-ink-muted" aria-hidden="true" />
-        Edit teams
-      </button>
-      <button
-        type="button"
-        class="flex min-h-14 items-center gap-3 px-4 text-left text-sm font-medium text-loss transition-colors hover:bg-loss/10"
-        @click="deleteGame"
-      >
-        <Trash2 class="size-5" aria-hidden="true" />
-        Delete game
-      </button>
-    </div>
-  </Sheet>
+      <UiSheet :open="renameOpen" title="Rename event" @close="renameOpen = false">
+        <form class="stack-sm" @submit.prevent="saveName">
+          <UiField v-model="newName" label="Event name" :maxlength="80" autocomplete="off" />
+        </form>
+        <template #actions>
+          <UiButton variant="primary" size="lg" block :disabled="!newName.trim()" :loading="busy === 'rename'" @click="saveName">Save name</UiButton>
+        </template>
+      </UiSheet>
 
-  <ScoreSheet
-    v-model="scoreSheetOpen"
-    :game="scoreGame"
-    :saving="!!scoreGame && savingGameIds.has(scoreGame.id)"
-    :saved="!!scoreGame && savedGameIds.has(scoreGame.id)"
-    @change="onScoreChange"
-    @commit="onScoreCommit"
-    @next="goToNextGame"
-  />
-
-  <SwapPlayersSheet
-    v-if="event"
-    v-model="swapSheetOpen"
-    :event-id="event.id"
-    :round-index="selectedRound"
-    :round-games="selectedRoundGames"
-    @swapped="loadEvent(true)"
-  />
-
-  <ReteamSheet
-    v-if="event"
-    v-model="reteamSheetOpen"
-    :game="reteamGame"
-    :all-players="allEventPlayers"
-    :group-id="event.groupId"
-    @updated="loadEvent(true)"
-  />
-
-  <RatingRevealSheet
-    v-if="event"
-    v-model="resultsSheetOpen"
-    :updates="ratingUpdates"
-    :group-id="event.groupId"
-  />
-
-  <!-- "EVENT COMPLETE" celebration flash (tap to skip) -->
-  <Teleport to="body">
-    <div
-      v-if="flashVisible"
-      class="fixed inset-0 z-[70] flex cursor-pointer items-center justify-center bg-surface-court/95 backdrop-blur-sm"
-      role="status"
-      aria-label="Event complete"
-      @click="skipFlash"
-    >
-      <p
-        class="display-wide px-6 text-center text-4xl text-accent-text md:text-6xl"
-        :class="prefersReducedMotion ? '' : 'celebrate-flash'"
-      >
-        Event complete
-      </p>
-    </div>
-  </Teleport>
-
-  <!-- Hidden container for image export (off-screen but renderable) -->
-  <div class="pointer-events-none fixed left-[-9999px] top-0" aria-hidden="true">
-    <div ref="shareableRef">
-      <ShareableSchedule v-if="event" :event="event" :games-by-round="gamesByRound" />
-    </div>
+      <div ref="shareEl" class="offscreen" aria-hidden="true">
+        <ShareableSchedule v-if="busy === 'share'" :event="event" :rounds="rounds" />
+      </div>
+    </template>
   </div>
 </template>
 
-<!-- Tiny keyframe Tailwind can't express: the completion flash pop. -->
 <style scoped>
-@media (prefers-reduced-motion: no-preference) {
-  .celebrate-flash {
-    animation: celebrate-flash-in 0.5s var(--ease-spring) both;
-  }
+.scoring { padding-bottom: 0; }
+.sub { font-size: var(--text-sm); }
+.icon-btn {
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: transparent; color: var(--ink);
 }
-@keyframes celebrate-flash-in {
-  from {
-    opacity: 0;
-    transform: scale(0.85);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+.icon-btn:hover { background: var(--surface-sunk); }
+
+.rounds {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 calc(var(--gutter) * -1);
+  padding: var(--s2) var(--gutter);
+  padding-top: calc(var(--s2) + var(--safe-top));
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
 }
+.rchip {
+  flex: none;
+  min-width: var(--tap);
+  height: var(--tap);
+  display: grid; place-items: center;
+  border-radius: var(--r-control);
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-lg);
+}
+.rchip { grid-auto-flow: column; gap: 2px; padding: 0 8px; }
+.rchip--done { border-color: var(--ok); color: var(--ok); }
+.rchip__check { margin-top: 2px; }
+.rchip[aria-current='step'] { background: var(--optic); color: var(--on-optic); border-color: var(--on-optic); }
+
+.round-h { display: flex; align-items: baseline; gap: 4px; }
+.round-h .num { font-size: var(--text-xl); }
+.round-h__of { font-size: var(--text-md); font-weight: 400; }
+
+.board { display: flex; flex-direction: column; gap: var(--s3); list-style: none; padding: 0; margin: 0; }
+
+.notice {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1);
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.notice--bad { background: var(--bad-tint); border-color: var(--bad); color: var(--ink); }
+.notice--bad strong { color: var(--bad); }
+.link { font-weight: 700; min-height: var(--tap); display: inline-flex; align-items: center; }
+
+.dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 12;
+  margin: auto calc(var(--gutter) * -1) 0;
+  padding: var(--s2) var(--gutter) calc(var(--s3) + var(--safe-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.dock__meta { font-size: var(--text-sm); font-weight: 700; color: var(--ink-2); }
+.dock__row { display: flex; align-items: center; gap: var(--s2); }
+.dock__main { flex: 1; min-width: 0; display: flex; justify-content: center; }
+.dock__nav {
+  width: var(--tap-lg); height: var(--tap-lg); flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--r-control);
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.dock__row--nav { justify-content: space-between; }
+.dock__row--nav .dock__nav { display: inline-flex; align-items: center; width: auto; flex: 0 1 auto; min-width: var(--tap-lg); max-width: 48%; padding: 0 var(--s3); gap: var(--s1); font-weight: 700; font-size: var(--text-md); white-space: nowrap; overflow: hidden; }
+.dock__row--nav .dock__nav span { overflow: hidden; text-overflow: ellipsis; }
+.dock__row--nav .dock__nav svg { flex: none; }
+.dock__row--nav .dock__nav:disabled { visibility: hidden; }
+.dock__nav:disabled { border-color: var(--line); color: var(--ink-2); background: var(--surface-sunk); }
+
+/* sheet */
+.sheet-title { display: flex; align-items: baseline; gap: var(--s3); }
+.sheet-title__court { font-size: var(--num-lg); line-height: 1; }
+.scoreform { display: flex; flex-direction: column; gap: var(--s2); }
+.team-in { display: flex; align-items: center; gap: var(--s3); }
+.team-in__names {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.score-in {
+  width: 88px;
+  height: 72px;
+  flex: none;
+  text-align: center;
+  font-size: var(--num-lg);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  color: var(--ink);
+  scroll-margin-bottom: 160px;
+}
+.score-in:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.score-in[aria-invalid='true'] { border-color: var(--bad); }
+.field-err { color: var(--bad); font-weight: 700; font-size: var(--text-sm); text-align: right; }
+.sheet-net {
+  height: 2px; margin: var(--s2) 0;
+  background: repeating-linear-gradient(90deg, var(--net) 0 6px, transparent 6px 10px);
+}
+.was { font-size: var(--text-sm); }
+
+.menu { display: flex; flex-direction: column; gap: var(--s1); }
+.menu__item {
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--tap-lg);
+  padding: 0 var(--s3);
+  border: 0; border-radius: var(--r-control);
+  background: var(--surface-sunk);
+  color: var(--ink);
+  font-weight: 700;
+  text-align: left;
+}
+.menu__item--bad { color: var(--bad); }
+
+.offscreen { position: fixed; left: -10000px; top: 0; }
 </style>

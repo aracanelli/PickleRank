@@ -53,7 +53,10 @@ export const playersApi = {
 
   async unlinkPlayer(playerId: string, regenerateToken: boolean = true): Promise<PlayerDto> {
     const params = new URLSearchParams({ regenerate_token: String(regenerateToken) })
-    return api.post(`/api/players/${playerId}/unlink?${params}`, {})
+    const result = await api.post<PlayerDto>(`/api/players/${playerId}/unlink?${params}`, {})
+    // linked accounts show on every league roster the player is on
+    api.invalidateCache('/players')
+    return result
   }
 }
 

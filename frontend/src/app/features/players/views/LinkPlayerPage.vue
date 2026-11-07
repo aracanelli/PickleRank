@@ -1,62 +1,101 @@
 <script setup lang="ts">
+/**
+ * Invite deep link: /link-player?token=...
+ * Ties the signed-in account to the invited player, then opens that player's league.
+ */
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Activity, AlertCircle, Loader2 } from 'lucide-vue-next'
 import { playersApi } from '../services/players.api'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
+import { groupsApi } from '@/app/features/groups/services/groups.api'
+import { api } from '@/app/core/http/api-client'
+import UiState from '@/app/core/ui/UiState.vue'
+import { toast } from '@/app/core/ui/feedback'
 
 const route = useRoute()
 const router = useRouter()
-const toast = useToast()
+const state = ref<'loading' | 'missing' | 'invalid' | 'failed' | 'linked'>('loading')
+const message = ref('')
+const linkedName = ref('')
 
-const isLoading = ref(true)
-const error = ref('')
+/** The league whose roster holds this player; null if none or several. */
+async function leagueFor(playerId: string): Promise<string | null> {
+  api.invalidateCache('/api/groups')
+  const [own, member] = await Promise.all([groupsApi.list(), groupsApi.listMemberGroups()])
+  const groups = [...member.groups, ...own.groups]
+  const hits = await Promise.all(groups.map(g =>
+    groupsApi.getPlayers(g.id).then(r => (r.players.some(p => p.playerId === playerId) ? g.id : null)).catch(() => null)
+  ))
+  const ids = [...new Set(hits.filter((x): x is string => !!x))]
+  return ids.length === 1 ? ids[0] : null
+}
 
-onMounted(async () => {
-  const token = route.query.token as string
+async function link() {
+  const token = typeof route.query.token === 'string' ? route.query.token.trim() : ''
   if (!token) {
-    error.value = 'Invalid invite link'
-    isLoading.value = false
+    state.value = 'missing'
     return
   }
-
+  state.value = 'loading'
+  let player
   try {
-    const player = await playersApi.linkPlayer(token)
-    toast.success(`Linked to player ${player.displayName}`)
-    router.replace('/groups')
+    player = await playersApi.linkPlayer(token)
   } catch (e) {
-    error.value = getApiErrorMessage(e, 'Failed to link player')
-    isLoading.value = false
+    const err = e as { status?: number; message?: string }
+    // 4xx: the token itself is bad or used; anything else is worth retrying
+    state.value = err.status && err.status >= 400 && err.status < 500 ? 'invalid' : 'failed'
+    message.value = (err.message || '').replace(/\.$/, '')
+    return
   }
-})
+  linkedName.value = player.displayName
+  const groupId = await leagueFor(player.id).catch(() => null)
+  if (groupId) {
+    toast(`You're linked as ${player.displayName}`)
+    await router.replace(`/groups/${groupId}`)
+  } else {
+    state.value = 'linked'
+  }
+}
+
+onMounted(link)
 </script>
 
 <template>
-  <div class="flex min-h-dvh flex-col items-center justify-center bg-surface-page px-4 py-10 pt-safe pb-safe">
-    <RouterLink to="/" class="display-wide mb-6 flex items-center gap-2 text-2xl text-ink">
-      <Activity class="size-7 text-accent-text" aria-hidden="true" />
-      PickleRank
-    </RouterLink>
-
-    <div class="w-full max-w-md">
-      <div class="kitchen-line mb-4" />
-      <div class="rounded-[20px] border border-line bg-surface-1 p-6">
-        <div v-if="isLoading" class="flex flex-col items-center gap-3 py-8 text-center">
-          <Loader2 class="size-8 animate-spin text-accent-text" aria-hidden="true" />
-          <p class="text-sm text-ink-muted">Linking your account...</p>
-        </div>
-
-        <div v-else class="flex flex-col items-center gap-4 py-4 text-center">
-          <div class="flex size-12 items-center justify-center rounded-[14px] bg-loss/10 text-loss">
-            <AlertCircle class="size-6" />
-          </div>
-          <h1 class="text-lg font-semibold text-ink">Linking failed</h1>
-          <p class="text-sm text-ink-muted">{{ error }}</p>
-          <AppButton variant="secondary" @click="router.push('/groups')">Go to dashboard</AppButton>
-        </div>
-      </div>
-    </div>
+  <div class="page">
+    <UiState v-if="state === 'loading'" kind="loading" title="Linking your account" />
+    <UiState
+      v-else-if="state === 'missing'"
+      heading="h1"
+      kind="denied"
+      title="This invite link is incomplete"
+      body="Part of the link is missing. Open the full link from the message, or ask your organizer to send it again."
+      action-label="See your leagues"
+      action-to="/groups"
+    />
+    <UiState
+      v-else-if="state === 'invalid'"
+      heading="h1"
+      kind="denied"
+      title="This invite link doesn't work"
+      :body="`${message ? message + '. ' : ''}Links work once. Ask your organizer for a new one.`"
+      action-label="See your leagues"
+      action-to="/groups"
+    />
+    <UiState
+      v-else-if="state === 'failed'"
+      heading="h1"
+      kind="error"
+      title="Account not linked yet"
+      :body="message || 'Check your connection and try again.'"
+      @retry="link"
+    />
+    <UiState
+      v-else
+      heading="h1"
+      kind="empty"
+      :title="`You're linked as ${linkedName}`"
+      body="Your stats now show in your leagues."
+      action-label="See your leagues"
+      action-to="/groups"
+    />
   </div>
 </template>

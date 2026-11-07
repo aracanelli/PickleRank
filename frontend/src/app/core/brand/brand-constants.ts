@@ -1,66 +1,61 @@
 /**
- * COURTSIDE brand — single TypeScript source of plain-hex brand values.
+ * Court Card brand values as plain hex, for consumers that cannot read CSS custom properties:
+ * theme store (<meta theme-color>), chart fallbacks, confetti, and html2canvas share images.
  *
- * Consumers that cannot read CSS custom properties import from here:
- * theme store (<meta theme-color>), Clerk appearance, chart-theme fallbacks,
- * and the html2canvas shareable frames (which must stay hex-only).
- *
- * HAND-SYNC CHECKLIST — these cannot import TS and must be updated manually
- * whenever values here change:
- *   1. index.html — inline theme script + <meta name="theme-color">
- *   2. vite.config.ts — PWA manifest theme_color / background_color
- *   3. src/styles/tailwind.css — the CSS token layer itself (source of truth
- *      for everything rendered via Tailwind)
+ * Source of truth is src/styles/tokens.css (contrast-tested by tokens.spec.ts).
+ * HAND-SYNC when values change: index.html inline theme script, vite.config.ts PWA colors.
  */
 export const BRAND = {
   dark: {
-    surfacePage: '#0a0c10',
-    surface1: '#12151c',
-    surface2: '#1a1f29',
-    surface3: '#242b38',
-    surfaceCourt: '#0e1613',
-    ink: '#f2f5f9',
-    inkMuted: '#98a2b3',
-    inkFaint: '#5b6472',
-    line: '#20242e',
-    lineStrong: '#333a48',
-    accentFill: '#d4ff3d',
-    accentText: '#d4ff3d',
-    accentContrast: '#0a0c10',
-    win: '#34d399',
-    loss: '#ff5d5d',
-    tie: '#ffc53d',
-    warn: '#ffb224',
-    info: '#4cc2ff',
-    chartGrid: '#20242e',
-    chartTick: '#98a2b3'
+    surfacePage: '#0f1b2d',
+    surface1: '#16263d',
+    surface2: '#0b1524',
+    surface3: '#1b3352',
+    surfaceCourt: '#1b3352',
+    ink: '#e8eef6',
+    inkMuted: '#b4c1d2',
+    inkFaint: '#b4c1d2',
+    line: '#2c3f5a',
+    lineStrong: '#8193ab',
+    accentFill: '#ddf04a',
+    accentText: '#ddf04a',
+    accentContrast: '#13233a',
+    court: '#7daef2',
+    win: '#5cc98a',
+    loss: '#ff8a80',
+    tie: '#f2c14e',
+    warn: '#f2c14e',
+    info: '#7daef2',
+    chartGrid: '#2c3f5a',
+    chartTick: '#b4c1d2'
   },
   light: {
-    surfacePage: '#f4f6f8',
+    surfacePage: '#f6f8fa',
     surface1: '#ffffff',
-    surface2: '#edf0f4',
-    surface3: '#e2e6ec',
-    surfaceCourt: '#e9efe7',
-    ink: '#101319',
-    inkMuted: '#4c5666',
-    inkFaint: '#8a93a3',
-    line: '#e2e6ec',
-    lineStrong: '#c9d0db',
-    accentFill: '#c9f53a',
-    accentText: '#4d7c0f',
-    accentContrast: '#0a0c10',
-    win: '#0e9f6e',
-    loss: '#dc2626',
-    tie: '#b45309',
-    warn: '#b45309',
-    info: '#0e7cc2',
-    chartGrid: '#e2e6ec',
-    chartTick: '#4c5666'
+    surface2: '#edf1f5',
+    surface3: '#e6eef8',
+    surfaceCourt: '#e6eef8',
+    ink: '#13233a',
+    inkMuted: '#44546a',
+    inkFaint: '#44546a',
+    line: '#c9d2dd',
+    lineStrong: '#6b7a8c',
+    accentFill: '#ddf04a',
+    accentText: '#1e5aa8',
+    accentContrast: '#13233a',
+    court: '#1e5aa8',
+    win: '#1b7a43',
+    loss: '#b3261e',
+    tie: '#8a5a00',
+    warn: '#8a5a00',
+    info: '#1e5aa8',
+    chartGrid: '#c9d2dd',
+    chartTick: '#44546a'
   }
 } as const
 
 export const FONTS = {
-  display: 'Archivo, "Arial Narrow", system-ui, sans-serif',
-  sans: 'Inter, system-ui, -apple-system, sans-serif',
-  mono: '"JetBrains Mono", monospace'
+  display: '"Barlow Condensed", "Atkinson Hyperlegible Next", system-ui, sans-serif',
+  sans: '"Atkinson Hyperlegible Next", system-ui, -apple-system, sans-serif',
+  mono: '"Barlow Condensed", system-ui, sans-serif'
 } as const

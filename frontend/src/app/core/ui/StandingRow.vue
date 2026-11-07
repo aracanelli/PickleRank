@@ -1,0 +1,59 @@
+<script setup lang="ts">
+import { RouterLink, type RouteLocationRaw } from 'vue-router'
+import { ChevronRight } from 'lucide-vue-next'
+
+defineProps<{
+  rank: number
+  name: string
+  rating: number
+  wins: number
+  losses: number
+  ties: number
+  to?: RouteLocationRaw
+  isMe?: boolean
+  sub?: boolean
+}>()
+</script>
+
+<template>
+  <component :is="to ? RouterLink : 'div'" :to="to" class="srow" :class="{ 'srow--me': isMe }">
+    <span class="srow__rank num" :class="{ 'srow__rank--top': rank <= 3 }">{{ rank }}</span>
+    <span class="srow__who">
+      <span class="srow__name truncate">{{ name }}<span v-if="isMe" class="srow__you"> (you)</span></span>
+      <span class="srow__rec muted">
+        <span class="visually-hidden">Record: </span>{{ wins }}–{{ losses }}<template v-if="ties">–{{ ties }}</template>
+        <span v-if="sub">, sub</span>
+      </span>
+    </span>
+    <span class="srow__rating num"><span class="visually-hidden">Rating </span>{{ Math.round(rating) }}</span>
+    <ChevronRight v-if="to" :size="18" class="srow__chev" aria-hidden="true" />
+  </component>
+</template>
+
+<style scoped>
+.srow {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 56px;
+  padding: var(--s2) var(--s2) var(--s2) 0;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+.srow--me { background: var(--court-tint); margin-inline: calc(var(--s2) * -1); padding-inline: var(--s2) var(--s4); border-radius: var(--r-control); }
+.srow__rank {
+  width: 2.25rem;
+  flex: none;
+  text-align: center;
+  font-size: var(--text-lg);
+  color: var(--ink-2);
+}
+.srow__rank--top { color: var(--ink); font-weight: 700; }
+.srow__who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.srow__name { font-weight: 700; }
+.srow__you { font-weight: 400; color: var(--ink-2); }
+.srow__rec { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.srow__rating { font-size: var(--text-lg); }
+.srow__chev { color: var(--ink-2); flex: none; }
+</style>
