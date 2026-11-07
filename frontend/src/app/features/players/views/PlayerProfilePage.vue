@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * One player in one league: rating, record, rating over time, partners and opponents.
+ * One player in one league: rating, record, recent form and games, rating over time,
+ * partners and opponents, and a way into head to head.
  * Visible to every member; organizers also get a shortcut to edit the player.
  */
 import { ref, computed, watch } from 'vue'
@@ -11,13 +12,17 @@ import { Line } from 'vue-chartjs'
 import { useLeagueStore } from '@/stores/league'
 import { groupsApi } from '@/app/features/groups/services/groups.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
-import type { PlayerStats, TeammateStat, RankingEntryDto } from '@/app/core/models/dto'
+import type { PlayerStats, TeammateStat, RankingEntryDto, MatchHistoryEntryDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
 import AccountButton from '@/app/core/layout/AccountButton.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
+import CourtTile from '@/app/core/ui/CourtTile.vue'
 import { toast } from '@/app/core/ui/feedback'
 import { ratingSeries, signed, type SeriesPoint } from '../ratingSeries'
+import { computeFormGuide } from '../utils/form-guide'
+import { sortNewestFirst } from '@/app/features/rankings/utils/match-derivations'
+import { formatDay } from '@/app/features/events/eventProgress'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
 
@@ -33,6 +38,8 @@ const loading = ref(true)
 const error = ref<{ status?: number; message: string } | null>(null)
 // round-by-round view of one event, opened from the chart
 const drill = ref<{ name: string; points: SeriesPoint[] } | null>(null)
+// form and recent games are optional: a failed history call only hides them
+const games = ref<MatchHistoryEntryDto[]>([])
 
 async function loadStats() {
   loading.value = true
@@ -42,6 +49,11 @@ async function loadStats() {
   try {
     const [s] = await Promise.all([groupsApi.getPlayerStats(groupId.value, playerId.value), league.load(groupId.value)])
     stats.value = s
+    games.value = []
+    // history filters take the global player id
+    rankingsApi.getHistory(groupId.value, { playerId: s.player.playerId })
+      .then(r => { if (stats.value?.player.id === s.player.id) games.value = r.matches })
+      .catch(() => { games.value = [] })
   } catch (e) {
     const err = e as { status?: number; message?: string }
     error.value = { status: err.status, message: err.message || 'Stats did not load.' }
@@ -62,7 +74,20 @@ const summary = computed(() => {
   if (x.role === 'ORGANIZER') parts.push('organizer')
   return parts.join(', ')
 })
-const profileId = (globalId: string) => league.players.find(gp => gp.playerId === globalId)?.id
+// teammate and opponent stats carry the group player id; accept a global id too
+const profileId = (id: string) => league.players.find(gp => gp.id === id || gp.playerId === id)?.id
+
+// ---- form and recent games (history team ids are group player ids) ----
+const form = computed(() => (p.value ? computeFormGuide(games.value, p.value.id) : []))
+const FORM_WORD = { W: 'won', L: 'lost', T: 'tied' } as const
+const formLabel = computed(() => `Last ${form.value.length} games, newest first: ${form.value.map(o => FORM_WORD[o]).join(', ')}`)
+const recentGames = computed(() => sortNewestFirst(games.value).slice(0, 3))
+// you against them when you're looking at someone else; otherwise pick an opponent there
+const h2hQuery = computed(() => {
+  const x = p.value
+  if (!x) return ''
+  return league.me && !isMe.value ? `${league.me.playerId},${x.playerId}` : x.playerId
+})
 
 // ---- chart ----
 const series = computed(() => ratingSeries(stats.value?.history ?? []))
@@ -203,11 +228,20 @@ const opponents = computed(() => {
           <span><span class="num standing__rating">{{ Math.round(p.rating) }}</span> rating</span>
           <span class="muted">{{ p.wins }} {{ p.wins === 1 ? 'win' : 'wins' }}, {{ p.losses }} {{ p.losses === 1 ? 'loss' : 'losses' }}<template v-if="p.ties">, {{ p.ties }} {{ p.ties === 1 ? 'tie' : 'ties' }}</template></span>
         </span>
+        <span v-if="form.length" class="form" role="img" :aria-label="formLabel">
+          <span class="form__label" aria-hidden="true">Form</span>
+          <span class="form__row" aria-hidden="true">
+            <span v-for="(o, i) in form" :key="i" class="form__o num" :class="`form__o--${o}`">{{ o }}</span>
+          </span>
+        </span>
       </div>
 
       <div class="links">
         <UiButton :to="{ path: `/groups/${groupId}/history`, query: { playerId: p.playerId } }">
           {{ isMe ? 'Your games' : 'All games' }}
+        </UiButton>
+        <UiButton :to="{ path: `/groups/${groupId}/history`, query: { h2h: h2hQuery } }">
+          Head to head
         </UiButton>
         <UiButton v-if="league.isOrganizer" :to="{ path: `/groups/${groupId}/players/manage`, query: { edit: p.id } }">Edit player</UiButton>
       </div>
@@ -235,6 +269,23 @@ const opponents = computed(() => {
             </ul>
           </details>
         </template>
+      </section>
+
+      <section v-if="recentGames.length" class="section" aria-labelledby="recent-h">
+        <h2 id="recent-h">Recent games</h2>
+        <ol role="list" class="games">
+          <li v-for="m in recentGames" :key="m.gameId">
+            <CourtTile
+              :court="m.courtIndex + 1"
+              :team1="m.team1"
+              :team2="m.team2"
+              :score1="m.scoreTeam1"
+              :score2="m.scoreTeam2"
+              state="final"
+              :caption="`${m.eventName || 'Event'}, ${formatDay(m.date)}`"
+            />
+          </li>
+        </ol>
       </section>
 
       <section v-if="adv" class="section" aria-labelledby="ins-h">
@@ -281,6 +332,7 @@ const opponents = computed(() => {
 <style scoped>
 .standing {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s4);
   padding: var(--s4);
@@ -293,7 +345,7 @@ const opponents = computed(() => {
 .standing__rating { font-size: var(--text-lg); }
 
 .links { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.links > * { flex: 1 1 140px; }
+.links > * { flex: 1 1 9.5rem; }
 
 .chart { position: relative; height: 220px; width: 100%; }
 .small { font-size: var(--text-sm); }
@@ -330,4 +382,20 @@ const opponents = computed(() => {
   text-decoration: none;
 }
 .partner__name { flex: 1; font-weight: 700; }
+
+.form { flex-basis: 100%; display: flex; align-items: center; gap: var(--s3); }
+.form__label { font-size: var(--text-sm); font-weight: 700; }
+.form__row { display: flex; gap: 4px; }
+.form__o {
+  display: grid; place-items: center;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: var(--text-md);
+  background: var(--surface);
+  color: var(--ink);
+}
+.form__o--W { background: var(--ok-tint); color: var(--ok); }
+.form__o--L { background: var(--bad-tint); color: var(--bad); }
+.games { display: flex; flex-direction: column; gap: var(--s3); list-style: none; margin: 0; padding: 0; }
 </style>

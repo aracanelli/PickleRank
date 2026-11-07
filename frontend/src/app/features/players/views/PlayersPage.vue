@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
  * Every player you have created, across leagues. Create players here, then add them to leagues
- * from a league's Players tab. Invite links tie a player to someone's account.
+ * from a league's Players tab. Tap a name to rename it or edit notes. Invite links tie a player
+ * to someone's account.
  */
 import { ref, computed, onMounted } from 'vue'
 import { Search } from 'lucide-vue-next'
 import { playersApi } from '../services/players.api'
+import { api } from '@/app/core/http/api-client'
 import type { PlayerDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
 import AccountButton from '@/app/core/layout/AccountButton.vue'
@@ -38,7 +40,8 @@ async function load() {
 }
 onMounted(load)
 
-// ---- create one ----
+// ---- create one, or edit one (editing set) ----
+const editing = ref<PlayerDto | null>(null)
 const createOpen = ref(false)
 const name = ref('')
 const notes = ref('')
@@ -46,8 +49,17 @@ const nameError = ref('')
 const creating = ref(false)
 
 function openCreate() {
+  editing.value = null
   name.value = ''
   notes.value = ''
+  nameError.value = ''
+  createOpen.value = true
+}
+
+function openEdit(p: PlayerDto) {
+  editing.value = p
+  name.value = p.displayName
+  notes.value = p.notes ?? ''
   nameError.value = ''
   createOpen.value = true
 }
@@ -61,12 +73,18 @@ async function create() {
   creating.value = true
   nameError.value = ''
   try {
-    await playersApi.create({ displayName, notes: notes.value.trim() || undefined })
+    if (editing.value) {
+      await playersApi.update(editing.value.id, { displayName, notes: notes.value.trim() })
+      // names show on every league roster the player is on
+      api.invalidateCache('/players')
+    } else {
+      await playersApi.create({ displayName, notes: notes.value.trim() || undefined })
+    }
     createOpen.value = false
-    toast(`${displayName} created`)
+    toast(editing.value ? 'Player saved' : `${displayName} created`)
     await load()
   } catch (e) {
-    nameError.value = (e as { message?: string }).message || 'Player not created. Try again.'
+    nameError.value = (e as { message?: string }).message || (editing.value ? 'Player not saved. Try again.' : 'Player not created. Try again.')
   } finally {
     creating.value = false
   }
@@ -138,10 +156,10 @@ async function unlink(p: PlayerDto) {
 
       <ul role="list" class="list" aria-label="Players">
         <li v-for="p in visible" :key="p.id" class="prow">
-          <span class="prow__text">
+          <button type="button" class="prow__text prow__edit" @click="openEdit(p)">
             <span class="prow__name truncate">{{ p.displayName }}</span>
             <span v-if="p.userId || p.notes" class="prow__meta truncate muted">{{ [p.userId ? 'Account linked' : '', p.notes || ''].filter(Boolean).join(', ') }}</span>
-          </span>
+          </button>
           <UiButton
             v-if="p.userId"
             variant="quiet"
@@ -166,13 +184,13 @@ async function unlink(p: PlayerDto) {
       <UiButton @click="bulkOpen = true">Add several</UiButton>
     </ActionBar>
 
-    <UiSheet :open="createOpen" title="New player" @close="createOpen = false">
+    <UiSheet :open="createOpen" :title="editing ? `Edit ${editing.displayName}` : 'New player'" @close="createOpen = false">
       <form id="create-player" class="form" novalidate @submit.prevent="create">
         <UiField v-model="name" label="Name" autocomplete="off" :maxlength="80" :error="nameError || undefined" required />
         <UiField v-model="notes" label="Notes" hint="Optional. Only you see these." multiline />
       </form>
       <template #actions>
-        <UiButton type="submit" form="create-player" variant="primary" size="lg" block :loading="creating">Create player</UiButton>
+        <UiButton type="submit" form="create-player" variant="primary" size="lg" block :loading="creating">{{ editing ? 'Save player' : 'Create player' }}</UiButton>
       </template>
     </UiSheet>
 
@@ -204,4 +222,16 @@ async function unlink(p: PlayerDto) {
 .prow__name { font-weight: 700; }
 .prow__meta { font-size: var(--text-sm); }
 .form { display: flex; flex-direction: column; gap: var(--s4); }
+.prow__edit {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: var(--tap);
+  justify-content: center;
+}
+.prow__edit:hover .prow__name { text-decoration: underline; }
 </style>

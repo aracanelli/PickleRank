@@ -8,6 +8,9 @@ export interface HistoryFilters {
   playerId: string
   secondaryPlayerId: string
   relationship: Relationship
+  /** Inclusive date range, yyyy-mm-dd. */
+  from: string
+  to: string
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
@@ -19,7 +22,9 @@ export function filtersFromQuery(q: Record<string, unknown>): HistoryFilters {
     playerId,
     // a second player only means something next to a first one
     secondaryPlayerId: playerId ? str(q.secondaryPlayerId) : '',
-    relationship: q.relationship === 'opponent' ? 'opponent' : 'teammate'
+    relationship: q.relationship === 'opponent' ? 'opponent' : 'teammate',
+    from: str(q.from),
+    to: str(q.to)
   }
 }
 
@@ -32,6 +37,8 @@ export function filtersToQuery(f: HistoryFilters): Record<string, string> {
     q.secondaryPlayerId = f.secondaryPlayerId
     q.relationship = f.relationship
   }
+  if (f.from) q.from = f.from
+  if (f.to) q.to = f.to
   return q
 }
 
@@ -42,11 +49,13 @@ export function historyOptions(f: HistoryFilters) {
     eventId: q.eventId,
     playerId: q.playerId,
     secondaryPlayerId: q.secondaryPlayerId,
-    relationship: q.relationship as Relationship | undefined
+    relationship: q.relationship as Relationship | undefined,
+    from: q.from,
+    to: q.to
   }
 }
 
-export const hasFilters = (f: HistoryFilters) => !!(f.eventId || f.playerId)
+export const hasFilters = (f: HistoryFilters) => !!(f.eventId || f.playerId || f.from || f.to)
 
 export interface EventGroup {
   id: string

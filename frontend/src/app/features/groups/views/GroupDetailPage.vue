@@ -1,14 +1,19 @@
 <script setup lang="ts">
 /**
  * League home. Organizers see tonight's event and the one next action;
- * players see their own standing and recent games.
+ * players see their own standing and recent games. Both see awards, standings and streaks.
  */
 import { ref, computed, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { Settings, RefreshCw, Trash2, Wallet, ChevronRight, CalendarClock } from 'lucide-vue-next'
+import { Settings, RefreshCw, Trash2, Wallet, ChevronRight, CalendarClock, Flame, Snowflake } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
+import { paymentsApi } from '@/app/features/payments/services/payments.api'
+import { formatMoney } from '@/app/features/payments/money'
+import { useGroupHistory, bustGroupHistory } from '@/app/features/rankings/composables/useGroupHistory'
+import { hotAndCold } from '@/app/features/rankings/utils/match-derivations'
+import AwardsTeaser from '@/app/features/awards/components/AwardsTeaser.vue'
 import { api } from '@/app/core/http/api-client'
 import type { EventDto, EventListItemDto, RankingEntryDto, MatchHistoryEntryDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
@@ -32,8 +37,13 @@ const rankings = ref<RankingEntryDto[]>([])
 const myGames = ref<MatchHistoryEntryDto[]>([])
 const loadingExtras = ref(true)
 const refreshing = ref(false)
+const totalOwed = ref<number | null>(null)
+// last 30 days of league games, shared with other screens for a minute
+const recent = useGroupHistory(groupId)
 
 const permanentCount = computed(() => league.players.filter(p => p.membershipType === 'PERMANENT').length)
+// history team ids are group player ids
+const streaks = computed(() => hotAndCold(recent.matches.value, new Map(league.players.map(p => [p.id, p.displayName]))))
 const activeProgress = computed(() => (active.value && active.value.games.length ? progress(active.value) : null))
 const myRank = computed(() => rankings.value.find(r => r.playerId === league.me?.playerId) ?? null)
 // Rankings and history use the global player id; profile routes use the league (group player) id.
@@ -47,16 +57,21 @@ async function loadExtras() {
     loadingExtras.value = false
     return
   }
+  totalOwed.value = null
   const tasks: Promise<unknown>[] = [
-    rankingsApi.getRankings(id).then(r => { rankings.value = r.rankings }).catch(() => { rankings.value = [] })
+    rankingsApi.getRankings(id).then(r => { rankings.value = r.rankings }).catch(() => { rankings.value = [] }),
+    recent.load()
   ]
   if (league.isOrganizer) {
     tasks.push(eventsApi.list(id).then(async res => {
-      const open = res.events.filter(e => e.status !== 'COMPLETED')
+      const open = orderUnfinished(res.events.filter(e => e.status !== 'COMPLETED'))
       unfinished.value = open
       recentEvents.value = res.events.filter(e => e.status === 'COMPLETED').slice(0, 3)
       active.value = open[0] ? await eventsApi.get(open[0].id).catch(() => null) : null
     }).catch(() => { unfinished.value = []; active.value = null }))
+    if (league.trackPayments) {
+      tasks.push(paymentsApi.getBalances(id).then(r => { totalOwed.value = r.totalOwed }).catch(() => { totalOwed.value = null }))
+    }
   } else if (league.me) {
     tasks.push(rankingsApi.getHistory(id, { playerId: league.me.playerId }).then(r => { myGames.value = r.matches.slice(0, 3) }).catch(() => { myGames.value = [] }))
   }
@@ -66,9 +81,19 @@ async function loadExtras() {
 
 watch(groupId, () => { void loadExtras() }, { immediate: true })
 
+/** Scoring in progress first, then the soonest upcoming event, then undated or past drafts, newest first. */
+function orderUnfinished(open: EventListItemDto[]) {
+  const now = Date.now()
+  const at = (e: EventListItemDto) => (e.startsAt ? new Date(e.startsAt).getTime() : NaN)
+  const rank = (e: EventListItemDto) => (e.status === 'IN_PROGRESS' ? 0 : at(e) >= now ? 1 : 2)
+  return [...open].sort((a, b) =>
+    rank(a) - rank(b) || (rank(a) === 1 ? at(a) - at(b) : (at(b) || 0) - (at(a) || 0)))
+}
+
 async function refresh() {
   refreshing.value = true
   api.invalidateCache(`/api/groups/${groupId.value}`)
+  bustGroupHistory(groupId.value)
   await league.load(groupId.value, true)
   await loadExtras()
   refreshing.value = false
@@ -191,6 +216,8 @@ function statusLine(e: EventListItemDto) {
         <p class="muted readonly">Scores are entered by league organizers on game night.</p>
       </section>
 
+      <AwardsTeaser :group-id="groupId" />
+
       <section class="section" aria-labelledby="stand-h">
         <div class="section-head">
           <h2 id="stand-h">Standings</h2>
@@ -212,6 +239,23 @@ function statusLine(e: EventListItemDto) {
             :to="profileId(r.playerId) ? `/groups/${groupId}/players/${profileId(r.playerId)}` : undefined"
           />
         </div>
+      </section>
+
+      <section v-if="streaks.hot || streaks.cold" class="section" aria-labelledby="streak-h">
+        <h2 id="streak-h">Streaks</h2>
+        <ul role="list" class="list">
+          <li v-for="s in [streaks.hot, streaks.cold].filter(x => !!x)" :key="s!.type" class="list__row">
+            <RouterLink :to="`/groups/${groupId}/players/${s!.groupPlayerId}`" class="list__main">
+              <Flame v-if="s!.type === 'W'" :size="20" aria-hidden="true" class="streak--hot" />
+              <Snowflake v-else :size="20" aria-hidden="true" class="streak--cold" />
+              <span class="list__text">
+                <span class="truncate list__title">{{ s!.displayName }}</span>
+                <span class="muted list__sub">{{ s!.type === 'W' ? 'Won' : 'Lost' }} the last {{ s!.length }} games</span>
+              </span>
+              <ChevronRight :size="18" aria-hidden="true" />
+            </RouterLink>
+          </li>
+        </ul>
       </section>
 
       <section v-if="!league.isOrganizer && myGames.length" class="section" aria-labelledby="games-h">
@@ -252,7 +296,10 @@ function statusLine(e: EventListItemDto) {
 
       <RouterLink v-if="league.isOrganizer && league.trackPayments" :to="`/groups/${groupId}/payments`" class="list__row list__main payments">
         <Wallet :size="20" aria-hidden="true" />
-        <span class="list__title">Sub payments</span>
+        <span class="list__text">
+          <span class="list__title">Sub payments</span>
+          <span v-if="totalOwed" class="muted list__sub">{{ formatMoney(totalOwed, league.group.settings.paymentSettings?.currency || undefined) }} owed by subs</span>
+        </span>
         <ChevronRight :size="18" aria-hidden="true" />
       </RouterLink>
 
@@ -261,12 +308,16 @@ function statusLine(e: EventListItemDto) {
           <template v-if="activeProgress">{{ activeProgress.remaining }} of {{ activeProgress.total }} games still need scores.</template>
           <template v-else>{{ statusLine(active) }}.</template>
         </template>
+        <template v-else-if="!permanentCount" #meta>
+          No regulars yet. Each court needs 4 players.
+        </template>
         <template v-else #meta>
           {{ permanentCount }} regulars on the roster. Each court needs 4 players.
         </template>
         <UiButton v-if="active" variant="primary" size="lg" :to="`/events/${active.id}`">
           {{ activeProgress ? `Resume scoring, round ${activeProgress.round + 1}` : 'Open event' }}
         </UiButton>
+        <UiButton v-else-if="!permanentCount" variant="primary" size="lg" :to="`/groups/${groupId}/players/manage`">Add players</UiButton>
         <UiButton v-else variant="primary" size="lg" :to="`/groups/${groupId}/events/new`">Start an event</UiButton>
       </ActionBar>
     </template>
@@ -356,5 +407,6 @@ function statusLine(e: EventListItemDto) {
 .list__title { font-weight: 700; }
 .list__sub { font-size: var(--text-sm); }
 .payments { border-top: 1px solid var(--line); }
-.payments .list__title { flex: 1; }
+.streak--hot { color: var(--bad); }
+.streak--cold { color: var(--court); }
 </style>

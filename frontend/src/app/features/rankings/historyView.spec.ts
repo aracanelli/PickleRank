@@ -11,25 +11,26 @@ const m = (over: Partial<MatchHistoryEntryDto>): MatchHistoryEntryDto => ({
 describe('history filters', () => {
   it('reads the query, ignoring a second player without a first', () => {
     expect(filtersFromQuery({ secondaryPlayerId: 'x', relationship: 'opponent' })).toEqual({
-      eventId: '', playerId: '', secondaryPlayerId: '', relationship: 'opponent'
+      eventId: '', playerId: '', secondaryPlayerId: '', relationship: 'opponent', from: '', to: ''
     })
     expect(filtersFromQuery({ playerId: 'p', secondaryPlayerId: 'x', eventId: 'e', relationship: 'bogus' })).toEqual({
-      eventId: 'e', playerId: 'p', secondaryPlayerId: 'x', relationship: 'teammate'
+      eventId: 'e', playerId: 'p', secondaryPlayerId: 'x', relationship: 'teammate', from: '', to: ''
     })
     expect(filtersFromQuery({ playerId: ['p'] }).playerId).toBe('')
   })
 
   it('writes only meaningful values back', () => {
-    expect(filtersToQuery({ eventId: '', playerId: '', secondaryPlayerId: 'x', relationship: 'opponent' })).toEqual({})
-    expect(filtersToQuery({ eventId: '', playerId: 'p', secondaryPlayerId: 'p', relationship: 'opponent' })).toEqual({ playerId: 'p' })
-    expect(filtersToQuery({ eventId: 'e', playerId: 'p', secondaryPlayerId: 'x', relationship: 'opponent' })).toEqual({
+    expect(filtersToQuery({ eventId: '', playerId: '', secondaryPlayerId: 'x', relationship: 'opponent', from: '', to: '' })).toEqual({})
+    expect(filtersToQuery({ eventId: '', playerId: 'p', secondaryPlayerId: 'p', relationship: 'opponent', from: '2026-01-01', to: '' })).toEqual({ playerId: 'p', from: '2026-01-01' })
+    expect(filtersToQuery({ eventId: 'e', playerId: 'p', secondaryPlayerId: 'x', relationship: 'opponent', from: '', to: '' })).toEqual({
       eventId: 'e', playerId: 'p', secondaryPlayerId: 'x', relationship: 'opponent'
     })
   })
 
   it('builds api options and detects active filters', () => {
     const f = filtersFromQuery({ playerId: 'p', secondaryPlayerId: 'x' })
-    expect(historyOptions(f)).toEqual({ eventId: undefined, playerId: 'p', secondaryPlayerId: 'x', relationship: 'teammate' })
+    expect(historyOptions(f)).toEqual({ eventId: undefined, playerId: 'p', secondaryPlayerId: 'x', relationship: 'teammate', from: undefined, to: undefined })
+    expect(hasFilters(filtersFromQuery({ to: '2026-02-01' }))).toBe(true)
     expect(hasFilters(f)).toBe(true)
     expect(hasFilters(filtersFromQuery({}))).toBe(false)
   })
