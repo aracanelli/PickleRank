@@ -55,7 +55,7 @@ class PaymentService:
 
         # Check if payment tracking is enabled
         settings = group.get("settings", {})
-        payment_settings = settings.get("paymentSettings", {})
+        payment_settings = settings.get("paymentSettings") or {}  # stored as null when never configured
         if not payment_settings.get("trackPayments", False):
             raise BadRequestError("Payment tracking is not enabled for this group")
 
@@ -102,7 +102,7 @@ class PaymentService:
 
         # Check if payment tracking is enabled
         settings = group.get("settings", {})
-        payment_settings = settings.get("paymentSettings", {})
+        payment_settings = settings.get("paymentSettings") or {}  # stored as null when never configured
         if not payment_settings.get("trackPayments", False):
             raise BadRequestError("Payment tracking is not enabled for this group")
 
@@ -153,7 +153,7 @@ class PaymentService:
 
         # Check if payment tracking is enabled
         settings = group.get("settings", {})
-        payment_settings = settings.get("paymentSettings", {})
+        payment_settings = settings.get("paymentSettings") or {}  # stored as null when never configured
         if not payment_settings.get("trackPayments", False):
             raise BadRequestError("Payment tracking is not enabled for this group")
 
@@ -199,7 +199,7 @@ class PaymentService:
 
         # Check if payment tracking is enabled
         settings = group.get("settings", {})
-        payment_settings = settings.get("paymentSettings", {})
+        payment_settings = settings.get("paymentSettings") or {}  # stored as null when never configured
         if not payment_settings.get("trackPayments", False):
             raise BadRequestError("Payment tracking is not enabled for this group")
 
@@ -295,7 +295,7 @@ class PaymentService:
             return 0
 
         settings = group.get("settings", {})
-        payment_settings = settings.get("paymentSettings", {})
+        payment_settings = settings.get("paymentSettings") or {}  # stored as null when never configured
 
         if not payment_settings.get("trackPayments", False):
             return 0
@@ -337,7 +337,7 @@ class PaymentService:
 
         # Check if payment tracking is enabled
         settings = group.get("settings", {})
-        payment_settings = settings.get("paymentSettings", {})
+        payment_settings = settings.get("paymentSettings") or {}  # stored as null when never configured
         if not payment_settings.get("trackPayments", False):
             raise BadRequestError("Payment tracking is not enabled for this group")
 

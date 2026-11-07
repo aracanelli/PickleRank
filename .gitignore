@@ -54,3 +54,12 @@ Thumbs.db
 
 # Local development
 *.local
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+
+# local test stack
+backend/tests/local_stack/.keys/
+backend/tests/local_stack/.run/
