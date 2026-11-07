@@ -32,8 +32,8 @@ async def get_rankings(
     db: Connection = Depends(get_db),
 ):
     """Get group rankings."""
-    # Set browser cache header (1 minute)
-    response.headers["Cache-Control"] = "public, max-age=60"
+    # Per-user data that changes when an event completes: never let the browser or a CDN reuse it.
+    response.headers["Cache-Control"] = "private, no-cache"
     
     # Check server-side cache first
     cache_key = f"rankings:{group_id}"

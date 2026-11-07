@@ -111,6 +111,11 @@ class TTLCache:
 # Rankings: 30 second TTL (frequently accessed, rarely changes)
 rankings_cache = TTLCache(default_ttl=30)
 
+
+async def invalidate_rankings(group_id) -> None:
+    """Drop cached rankings for a group after its ratings change."""
+    await rankings_cache.invalidate(f"rankings:{group_id}")
+
 # Player stats: 60 second TTL (accessed on profile pages)
 player_stats_cache = TTLCache(default_ttl=60)
 

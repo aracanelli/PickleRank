@@ -76,7 +76,7 @@ class EventService:
 
         # Check access
         group = await self.groups_repo.get_by_id(event["group_id"])
-        is_authorized = await self._is_owner_or_organizer(user_id, group) or await self.groups_repo.is_member(user_id, group["id"])
+        is_authorized = await self._is_owner_or_organizer(user_id, group) or await self.group_players_repo.is_member(user_id, group["id"])
         if not is_authorized:
             raise ForbiddenError("Only group members can view rating history")
         # Get actual known starting ratings and end ratings from DB
@@ -851,6 +851,10 @@ class EventService:
         await PaymentService(self.conn).charge_subs_for_event(
             event_id, event["group_id"], user_id
         )
+
+        # After commit: drop cached rankings so the league sees new ratings now.
+        from app.infrastructure.cache import invalidate_rankings
+        await invalidate_rankings(event["group_id"])
 
         return CompleteResponse(
             status=EventStatus.COMPLETED,

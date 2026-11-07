@@ -415,6 +415,9 @@ class GroupService:
                 player_id
             )
         
+        from app.infrastructure.cache import invalidate_rankings
+        await invalidate_rankings(group_id)
+
         # Get final player ratings
         final_ratings = await self.conn.fetch(
             """
