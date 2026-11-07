@@ -64,6 +64,7 @@ test('organizer runs a league night on the real API; member sees results', async
 
   await page.getByRole('button', { name: 'Complete event' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Complete event' }).click()
+  await page.getByRole('dialog').filter({ hasText: 'Ratings updated' }).getByRole('link', { name: 'See rankings' }).click()
   await expect(page).toHaveURL(new RegExp(`/groups/${GROUP}/rankings`))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rankings')
   // ratings moved: the leader is no longer at the 1000 starting rating

@@ -1,112 +1,86 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+/** Swap two players within one round (e.g. a late arrival, or someone needs a break). */
+import { ref, computed, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
-import type { GameDto, PlayerInfo } from '@/app/core/models/dto'
+import type { GameDto } from '@/app/core/models/dto'
 import { eventsApi } from '../services/events.api'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
-import Avatar from '@/app/core/ui/components/Avatar.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import { toast, announce } from '@/app/core/ui/feedback'
+import { roundPlayers } from '../liveEdits'
 
-const props = defineProps<{
-  eventId: string
-  roundIndex: number
-  /** Games of the selected round — every player in them can be swapped. */
-  roundGames: GameDto[]
-}>()
+const props = defineProps<{ open: boolean; eventId: string; roundIndex: number; games: GameDto[] }>()
+const emit = defineEmits<{ close: []; swapped: [] }>()
 
-const open = defineModel<boolean>({ required: true })
-const emit = defineEmits<{ swapped: [] }>()
+const picked = ref<string[]>([])
+const busy = ref(false)
+watch(() => props.open, o => { if (o) picked.value = [] })
 
-const toast = useToast()
-const selectedIds = ref<string[]>([])
-const isSwapping = ref(false)
-
-watch(open, (isOpen) => {
-  if (isOpen) selectedIds.value = []
-})
-
-// Group-player ids come from game.team1/team2 PlayerInfo
-const roundPlayers = computed<PlayerInfo[]>(() => {
-  const seen = new Map<string, PlayerInfo>()
-  for (const game of props.roundGames) {
-    for (const p of [...game.team1, ...game.team2]) {
-      if (!seen.has(p.id)) seen.set(p.id, p)
-    }
-  }
-  return [...seen.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
-})
+const players = computed(() => roundPlayers(props.games))
+const courtOf = (id: string) => props.games.find(g => [...g.team1, ...g.team2].some(p => p.id === id))?.courtIndex
+const nameOf = (id: string) => players.value.find(p => p.id === id)?.displayName ?? ''
 
 function toggle(id: string) {
-  if (selectedIds.value.includes(id)) {
-    selectedIds.value = selectedIds.value.filter((x) => x !== id)
-  } else if (selectedIds.value.length < 2) {
-    selectedIds.value = [...selectedIds.value, id]
-  }
+  if (picked.value.includes(id)) picked.value = picked.value.filter(x => x !== id)
+  else if (picked.value.length < 2) picked.value = [...picked.value, id]
+  else announce('Two players are already picked. Unpick one first.')
 }
 
-const canSwap = computed(() => selectedIds.value.length === 2)
+const label = computed(() =>
+  picked.value.length === 2 ? `Swap ${nameOf(picked.value[0])} and ${nameOf(picked.value[1])}` : `Pick ${2 - picked.value.length} more`
+)
 
-async function performSwap() {
-  if (!canSwap.value || isSwapping.value) return
-  isSwapping.value = true
+async function swap() {
+  if (picked.value.length !== 2 || busy.value) return
+  busy.value = true
   try {
-    const result = await eventsApi.swap(props.eventId, {
-      roundIndex: props.roundIndex,
-      player1Id: selectedIds.value[0],
-      player2Id: selectedIds.value[1]
-    })
-    for (const warning of result.warnings) toast.warning(warning)
-    toast.success('Players swapped')
-    open.value = false
+    const res = await eventsApi.swap(props.eventId, { roundIndex: props.roundIndex, player1Id: picked.value[0], player2Id: picked.value[1] })
+    for (const w of res.warnings ?? []) toast(w, 'bad')
+    toast('Players swapped')
     emit('swapped')
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to swap players'))
+    toast((e as { message?: string }).message || 'Players not swapped', 'bad')
   } finally {
-    isSwapping.value = false
+    busy.value = false
   }
 }
 </script>
 
 <template>
-  <Sheet v-model="open" :title="`Swap players · Round ${roundIndex + 1}`">
-    <div class="flex flex-col gap-3">
-      <p class="text-sm text-ink-muted">
-        Pick two players in this round to trade places — their court and team assignments are exchanged.
-      </p>
-      <div class="flex flex-col gap-1.5">
-        <button
-          v-for="player in roundPlayers"
-          :key="player.id"
-          type="button"
-          class="flex min-h-11 w-full items-center gap-3 rounded-xl border bg-surface-1 px-3 py-2 text-left transition-colors"
-          :class="[
-            selectedIds.includes(player.id)
-              ? 'border-brand ring-2 ring-brand/40'
-              : 'border-line hover:bg-surface-2',
-            !selectedIds.includes(player.id) && selectedIds.length >= 2 ? 'opacity-50' : ''
-          ]"
-          :aria-pressed="selectedIds.includes(player.id)"
-          @click="toggle(player.id)"
-        >
-          <Avatar :name="player.displayName" size="sm" :brand="selectedIds.includes(player.id)" />
-          <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{{ player.displayName }}</span>
-          <span
-            class="flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors"
-            :class="selectedIds.includes(player.id) ? 'border-brand bg-brand text-brand-contrast' : 'border-line-strong text-transparent'"
-            aria-hidden="true"
-          >
-            <Check class="size-4" />
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <template #footer>
-      <AppButton block :loading="isSwapping" :disabled="!canSwap" @click="performSwap">
-        {{ canSwap ? 'Swap players' : `Select ${2 - selectedIds.length} player${selectedIds.length === 1 ? '' : 's'}` }}
-      </AppButton>
+  <UiSheet :open="open" :title="`Swap two players in round ${roundIndex + 1}`" description="They trade places on their courts for this round only." @close="emit('close')">
+    <ul role="list" class="list">
+      <li v-for="p in players" :key="p.id">
+        <label class="pick" :class="{ 'pick--on': picked.includes(p.id) }">
+          <input type="checkbox" :checked="picked.includes(p.id)" @change="toggle(p.id)">
+          <span class="pick__box" aria-hidden="true"><Check v-if="picked.includes(p.id)" :size="18" /></span>
+          <span class="pick__name truncate">{{ p.displayName }}</span>
+          <span class="muted pick__court">Court <span class="num">{{ (courtOf(p.id) ?? 0) + 1 }}</span></span>
+        </label>
+      </li>
+    </ul>
+    <template #actions>
+      <UiButton variant="primary" size="lg" block :disabled="picked.length !== 2" :loading="busy" @click="swap">{{ label }}</UiButton>
     </template>
-  </Sheet>
+  </UiSheet>
 </template>
+
+<style scoped>
+.list { display: flex; flex-direction: column; list-style: none; padding: 0; margin: 0; }
+.pick {
+  position: relative;
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: 52px; padding: 0 var(--s1);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.pick input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.pick__box {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  border: 2px solid var(--line-strong); border-radius: 6px; background: var(--surface);
+}
+.pick--on .pick__box { background: var(--court); border-color: var(--court); color: var(--on-court); }
+.pick__name { flex: 1; }
+.pick--on .pick__name { font-weight: 700; }
+.pick__court { font-size: var(--text-sm); flex: none; }
+.pick:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: 6px; }
+</style>

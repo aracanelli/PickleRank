@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, Check } from 'lucide-vue-next'
+import { Search, Check, CalendarSync } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
 import { eventsApi } from '../services/events.api'
 import type { MembershipType } from '@/app/core/models/dto'
@@ -11,7 +11,8 @@ import UiStepper from '@/app/core/ui/UiStepper.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import ActionBar from '@/app/core/ui/ActionBar.vue'
-import { announce } from '@/app/core/ui/feedback'
+import { announce, toast } from '@/app/core/ui/feedback'
+import SpondImportPanel, { type SpondImport } from '@/app/features/spond/components/SpondImportPanel.vue'
 import {
   initialSelection, toggle, trimTo, requiredFor, selectionMessage,
   COURTS_MIN, COURTS_MAX, ROUNDS_MIN, ROUNDS_MAX
@@ -31,6 +32,8 @@ const query = ref('')
 const creating = ref(false)
 const error = ref('')
 let initialized = false
+const spondOpen = ref(false)
+const importNote = ref('')
 
 const required = computed(() => requiredFor(courts.value))
 const ready = computed(() => selected.value.size === required.value)
@@ -69,6 +72,26 @@ function onToggle(id: string) {
 
 function clearAll() {
   selected.value = new Set()
+  importNote.value = ''
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+// Spond import replaces the selection, using the same courts x 4 cap as picking by hand.
+async function onSpondImport(r: SpondImport) {
+  spondOpen.value = false
+  await league.load(groupId.value, true) // picks up players added during the import
+  const onRoster = new Set(league.players.map(p => p.id))
+  const ids = Array.from(new Set(r.ids)).filter(id => onRoster.has(id))
+  selected.value = trimTo(new Set(ids), required.value)
+  const missing = r.total - ids.length
+  const extra = ids.length - selected.value.size
+  importNote.value = [
+    `${ids.length} of ${r.total} people who said yes to ${r.eventName} matched roster players.`,
+    missing ? `${missing} didn't match anyone on your roster and ${missing === 1 ? 'was' : 'were'} left out. To include them, import again and choose Add as new player.` : '',
+    extra ? `Only ${required.value} fit on ${plural(courts.value, 'court', 'courts')}, so ${extra} matched ${extra === 1 ? 'player was' : 'players were'} left out. Add a court, then import again.` : ''
+  ].filter(Boolean).join(' ')
+  toast(`${plural(selected.value.size, 'player', 'players')} selected from Spond`)
 }
 
 async function create() {
@@ -126,6 +149,8 @@ async function create() {
 
       <fieldset class="group">
         <legend>Who's playing</legend>
+        <UiButton variant="secondary" block @click="spondOpen = true"><CalendarSync :size="18" aria-hidden="true" /> Import from Spond</UiButton>
+        <p v-if="importNote" class="import-note" role="status">{{ importNote }}</p>
         <div class="seg" role="group" aria-label="Show roster">
           <button
             type="button" class="seg__btn"
@@ -173,6 +198,15 @@ async function create() {
         </UiButton>
       </ActionBar>
     </form>
+
+    <SpondImportPanel
+      v-if="league.group && league.isOrganizer"
+      :open="spondOpen"
+      :group-id="groupId"
+      :players="league.players"
+      @close="spondOpen = false"
+      @import="onSpondImport"
+    />
   </div>
 </template>
 
@@ -238,4 +272,5 @@ legend { font-size: var(--text-md); font-weight: 700; padding: 0; margin-bottom:
 .pick--full .pick__box { border-color: var(--line); background: var(--surface-sunk); }
 .pick:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: 6px; }
 .error { color: var(--bad); font-weight: 700; }
+.import-note { padding: var(--s3); border-radius: var(--r-control); background: var(--surface-sunk); font-size: var(--text-sm); }
 </style>

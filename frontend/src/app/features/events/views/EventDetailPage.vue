@@ -7,9 +7,9 @@
  */
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave, RouterLink } from 'vue-router'
-import { ChevronLeft, ChevronRight, MoreHorizontal, Shuffle, Share2, Pencil, Trash2, Check, Wrench } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, MoreHorizontal, Shuffle, Share2, Pencil, Trash2, Check, Wrench, ArrowLeftRight, Users } from 'lucide-vue-next'
 import { eventsApi } from '../services/events.api'
-import type { EventDto, GameDto } from '@/app/core/models/dto'
+import type { EventDto, GameDto, RatingUpdateDto } from '@/app/core/models/dto'
 import { useLeagueStore } from '@/stores/league'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
 import CourtTile from '@/app/core/ui/CourtTile.vue'
@@ -22,6 +22,11 @@ import { announce, confirm, toast } from '@/app/core/ui/feedback'
 import { shareElementAsImage, safeFileName } from '@/app/core/ui/shareImage'
 import type { CourtState } from '@/app/core/ui/SaveStatus.vue'
 import ShareableSchedule from '../components/ShareableSchedule.vue'
+import SwapPlayersSheet from '../components/SwapPlayersSheet.vue'
+import ReteamSheet from '../components/ReteamSheet.vue'
+import RatingRevealSheet from '../components/RatingRevealSheet.vue'
+import { useWakeLock } from '@/app/core/ui/useWakeLock'
+import { mergeLive, relaxNote } from '../liveEdits'
 import { useScoreSaver } from '../composables/useScoreSaver'
 import { gamesByRound, currentRoundIndex, progress, eventTitle, isScored } from '../eventProgress'
 import { validatePair, digitsOnly } from '../scoreInput'
@@ -242,10 +247,13 @@ async function completeEvent() {
   if (!ok) return
   busy.value = 'complete'
   try {
-    await eventsApi.complete(event.value.id, event.value.groupId)
+    const res = await eventsApi.complete(event.value.id, event.value.groupId)
     saver.reset()
+    event.value = { ...event.value, status: res.status }
+    wake.release()
     toast('Event completed. Rankings updated.')
-    await router.push(`/groups/${event.value.groupId}/rankings`)
+    reveal.value = res.ratingUpdates ?? []
+    revealOpen.value = true
   } catch (e) {
     const msg = (e as { message?: string }).message || 'Event not completed'
     toast(`${msg}. Your scores are saved; try again.`, 'bad')
@@ -253,6 +261,64 @@ async function completeEvent() {
   } finally {
     busy.value = ''
   }
+}
+
+// ---- after completion: who moved ----
+const reveal = ref<RatingUpdateDto[]>([])
+const revealOpen = ref(false)
+
+// ---- live sync: other organizers' scores show up; courts being worked on here are left alone ----
+const LIVE_SYNC_MS = 8000
+let syncTimer: number | undefined
+let syncing = false
+async function syncTick() {
+  if (syncing || document.visibilityState !== 'visible' || !event.value || completed.value || busy.value) return
+  syncing = true
+  try {
+    const fresh = await eventsApi.get(event.value.id)
+    if (!event.value || fresh.id !== event.value.id) return
+    const open = sheetGame.value?.id
+    event.value = mergeLive(event.value, fresh, id => id === open || saver.status(id).state === 'saving' || saver.status(id).state === 'failed')
+  } catch { /* next tick retries */ } finally {
+    syncing = false
+  }
+}
+
+// ---- keep the screen on while scoring ----
+const wake = useWakeLock()
+watch(() => !!event.value && !completed.value, on => { if (on) void wake.request(); else void wake.release() }, { immediate: true })
+
+// ---- per-court changes ----
+const swapOpen = ref(false)
+const reteamGame = ref<GameDto | null>(null)
+function openReteam() {
+  reteamGame.value = sheetGame.value
+  closeSheet()
+}
+async function deleteGame() {
+  const g = sheetGame.value
+  if (!g) return
+  const ok = await confirm({
+    title: `Delete the court ${g.courtIndex + 1} game in round ${g.roundIndex + 1}?`,
+    body: isScored(g) ? `Its score ${g.scoreTeam1}–${g.scoreTeam2} is removed too. This can't be undone.` : "This can't be undone.",
+    confirmLabel: 'Delete game',
+    danger: true
+  })
+  if (!ok) return
+  closeSheet()
+  try {
+    await eventsApi.deleteGame(g.id)
+    saver.discardDraft(g.id)
+    toast('Game deleted')
+    await load({ keepRound: true })
+  } catch (e) {
+    toast((e as { message?: string }).message || 'Game not deleted', 'bad')
+  }
+}
+async function afterLineupChange() {
+  swapOpen.value = false
+  reteamGame.value = null
+  await load({ keepRound: true })
 }
 
 // ---- more menu ----
@@ -325,8 +391,11 @@ async function deleteEvent() {
 function beforeUnload(e: BeforeUnloadEvent) {
   if (saver.hasUnsaved()) { e.preventDefault(); e.returnValue = '' }
 }
-onMounted(() => window.addEventListener('beforeunload', beforeUnload))
-onUnmounted(() => { window.removeEventListener('beforeunload', beforeUnload); saver.dispose() })
+onMounted(() => {
+  window.addEventListener('beforeunload', beforeUnload)
+  syncTimer = window.setInterval(() => void syncTick(), LIVE_SYNC_MS)
+})
+onUnmounted(() => { window.removeEventListener('beforeunload', beforeUnload); clearInterval(syncTimer); saver.dispose() })
 onBeforeRouteLeave(async () => {
   if (!saver.hasUnsaved()) return true
   return confirm({
@@ -414,6 +483,7 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
 
         <div v-if="event.status === 'GENERATED' && scoredCount === 0" class="notice">
           <strong>Schedule ready.</strong> Tap a court to enter its score.
+          <span v-if="relaxNote(event.generationMeta)" class="muted">{{ relaxNote(event.generationMeta) }}</span>
           <UiButton variant="quiet" :loading="busy === 'generate'" @click="generate(true)"><Shuffle :size="18" aria-hidden="true" /> Shuffle again</UiButton>
         </div>
 
@@ -559,6 +629,10 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
             {{ sheetStatus?.state === 'failed' ? 'Retry' : sheetWas ? 'Replace score on' : 'Save' }} court {{ sheetGame ? sheetGame.courtIndex + 1 : '' }}
           </UiButton>
           <UiButton v-if="sheetWas" variant="quiet" block @click="clearCourt">Clear score</UiButton>
+          <div class="sheet-more">
+            <UiButton variant="quiet" @click="openReteam"><Users :size="18" aria-hidden="true" /> Change players</UiButton>
+            <UiButton variant="quiet" @click="deleteGame"><Trash2 :size="18" aria-hidden="true" /> Delete game</UiButton>
+          </div>
         </template>
       </UiSheet>
 
@@ -567,6 +641,7 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
         <div class="menu">
           <button type="button" class="menu__item" @click="startRename"><Pencil :size="20" aria-hidden="true" /> Rename event</button>
           <button v-if="hasGames" type="button" class="menu__item" :disabled="busy === 'share'" @click="share"><Share2 :size="20" aria-hidden="true" /> Share schedule as image</button>
+          <button v-if="hasGames && !completed" type="button" class="menu__item" @click="moreOpen = false; swapOpen = true"><ArrowLeftRight :size="20" aria-hidden="true" /> Swap two players in round {{ round + 1 }}</button>
           <button v-if="hasGames && !completed" type="button" class="menu__item" @click="generate(true)"><Shuffle :size="20" aria-hidden="true" /> Shuffle schedule</button>
           <button v-if="!completed" type="button" class="menu__item menu__item--bad" @click="deleteEvent"><Trash2 :size="20" aria-hidden="true" /> Delete event</button>
         </div>
@@ -580,6 +655,10 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
           <UiButton variant="primary" size="lg" block :disabled="!newName.trim()" :loading="busy === 'rename'" @click="saveName">Save name</UiButton>
         </template>
       </UiSheet>
+
+      <SwapPlayersSheet :open="swapOpen" :event-id="event.id" :round-index="round" :games="roundGames" @close="swapOpen = false" @swapped="afterLineupChange" />
+      <ReteamSheet :open="!!reteamGame" :event="event" :game="reteamGame" @close="reteamGame = null" @updated="afterLineupChange" />
+      <RatingRevealSheet :open="revealOpen" :updates="reveal" :group-id="event.groupId" @close="revealOpen = false" />
 
       <div ref="shareEl" class="offscreen" aria-hidden="true">
         <ShareableSchedule v-if="busy === 'share'" :event="event" :rounds="rounds" />
@@ -709,6 +788,8 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
 }
 .was { font-size: var(--text-sm); }
 
+.sheet-more { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s2); border-top: 1px solid var(--line); padding-top: var(--s2); }
+.sheet-more > :deep(.btn) { color: var(--ink-2); }
 .menu { display: flex; flex-direction: column; gap: var(--s1); }
 .menu__item {
   display: flex; align-items: center; gap: var(--s3);

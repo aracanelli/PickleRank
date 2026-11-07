@@ -13,13 +13,15 @@
  */
 import type { Plugin, Connect } from 'vite'
 import type { ServerResponse } from 'node:http'
+import { awardsRoutes } from './fake-awards'
+import { spondRoutes } from './fake-spond'
 
 type Membership = 'PERMANENT' | 'SUB'
 type Role = 'ORGANIZER' | 'PLAYER'
-interface GP { ratingDelta?: number; id: string; playerId: string; displayName: string; membershipType: Membership; role: Role; userId?: string; rating: number; gamesPlayed: number; wins: number; losses: number; ties: number; skillLevel?: string; inviteToken?: string }
+export interface GP { ratingDelta?: number; id: string; playerId: string; displayName: string; membershipType: Membership; role: Role; userId?: string; rating: number; gamesPlayed: number; wins: number; losses: number; ties: number; skillLevel?: string; inviteToken?: string }
 interface Game { id: string; roundIndex: number; courtIndex: number; t1: [string, string]; t2: [string, string]; s1?: number; s2?: number }
-interface Ev { id: string; groupId: string; name?: string; status: 'DRAFT' | 'GENERATED' | 'IN_PROGRESS' | 'COMPLETED'; startsAt: string; courts: number; rounds: number; participants: string[]; games: Game[]; seed: number }
-interface Group { id: string; ownerUserId: string; name: string; settings: Record<string, unknown>; createdAt: string; archived?: boolean }
+export interface Ev { id: string; groupId: string; name?: string; status: 'DRAFT' | 'GENERATED' | 'IN_PROGRESS' | 'COMPLETED'; startsAt: string; courts: number; rounds: number; participants: string[]; games: Game[]; seed: number }
+export interface Group { id: string; ownerUserId: string; name: string; settings: Record<string, unknown>; createdAt: string; archived?: boolean }
 interface Pay { id: string; gpId: string; amount: number; paymentType: 'ATTENDANCE' | 'PAYMENT' | 'ADJUSTMENT'; eventId?: string; notes?: string; createdAt: string }
 
 export const ORGANIZER = 'user_org'
@@ -163,7 +165,7 @@ const gpDto = (p: GP, groupId: string) => ({ ...p, groupId, winRate: p.gamesPlay
 function canSee(user: string, g: Group) { return g.ownerUserId === user || roster(g.id).some(p => p.userId === user) }
 function isOrg(user: string, g: Group) { return g.ownerUserId === user || roster(g.id).some(p => p.userId === user && p.role === 'ORGANIZER') }
 
-class HttpError extends Error { constructor(public status: number, msg: string) { super(msg) } }
+export class HttpError extends Error { constructor(public status: number, msg: string) { super(msg) } }
 const deny = () => { throw new HttpError(403, 'Only league organizers can do that') }
 const notFound = (what: string) => { throw new HttpError(404, `${what} not found`) }
 
@@ -234,7 +236,7 @@ function balances(groupId: string) {
   return { balances: list, totalOwed: -list.filter(b => b.balance < 0).reduce((s, b) => s + b.balance, 0) }
 }
 
-type Body = Record<string, any>
+export type Body = Record<string, any>
 async function route(method: string, path: string, q: URLSearchParams, body: Body, user: string): Promise<unknown> {
   let m: RegExpMatchArray | null
   const is = (re: RegExp, verb: string) => method === verb && (m = path.match(re)) !== null
@@ -302,7 +304,25 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
     const e = eventFor(m![1], user)
     if (cfg.failCompleteOnce) { cfg.failCompleteOnce = false; throw new HttpError(500, 'Server error while completing') }
     if (e.status === 'COMPLETED' || e.status === 'DRAFT') throw new HttpError(400, 'Event cannot be completed')
-    complete(e); return { status: e.status, ratingUpdates: [] }
+    const before = new Map(e.participants.map(id => [id, gpById(id)!.rating]))
+    complete(e)
+    return {
+      status: e.status,
+      ratingUpdates: e.participants.map(id => {
+        const p = gpById(id)!
+        const b = before.get(id)!
+        return { playerId: p.id, displayName: p.displayName, ratingBefore: b, ratingAfter: p.rating, delta: p.rating - b }
+      })
+    }
+  }
+  if (is(/^\/api\/events\/([\w-]+)\/swap$/, 'POST')) {
+    const e = eventFor(m![1], user); if (e.status === 'COMPLETED') throw new HttpError(400, 'Event is already completed')
+    const games = e.games.filter(g => g.roundIndex === body.roundIndex)
+    const a = String(body.player1Id), b = String(body.player2Id)
+    const swapIn = (t: [string, string]) => t.map(id => (id === a ? b : id === b ? a : id)) as [string, string]
+    for (const g of games) { g.t1 = swapIn(g.t1); g.t2 = swapIn(g.t2) }
+    if (e.status === 'GENERATED') e.status = 'IN_PROGRESS'
+    return { success: true, warnings: [] }
   }
   if (is(/^\/api\/events\/([\w-]+)\/rating-history$/, 'GET')) {
     // real shape: { [groupPlayerId]: [{ round, rating, delta?, type, label }] }
@@ -363,8 +383,26 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
   if (is(/^\/api\/players\/([\w-]+)$/, 'GET')) return globalPlayers().find(p => p.id === m![1]) ?? notFound('Player')
   if (is(/^\/api\/players\/([\w-]+)$/, 'PATCH')) { for (const list of state.gps.values()) for (const p of list) if (p.playerId === m![1] && body.displayName) p.displayName = body.displayName; return globalPlayers().find(p => p.id === m![1]) }
 
+  // feature fixtures live in their own files (fake-awards.ts, fake-spond.ts)
+  for (const ext of [awardsRoutes, spondRoutes]) {
+    const out = await ext({ method, path, q, body, user, ctx: fixtureContext })
+    if (out !== undefined) return out
+  }
   throw new HttpError(404, `No fake route for ${method} ${path}`)
 }
+
+/** What feature fixture files may use. */
+export interface FixtureContext {
+  group: (id: string, user: string) => Group
+  isOrg: (user: string, g: Group) => boolean
+  roster: (groupId: string) => GP[]
+  events: () => Ev[]
+  gpById: (id: string) => GP | undefined
+  HttpError: typeof HttpError
+  uid: (prefix: string) => string
+}
+export type FeatureRoutes = (req: { method: string; path: string; q: URLSearchParams; body: Body; user: string; ctx: FixtureContext }) => unknown | Promise<unknown>
+const fixtureContext: FixtureContext = { group, isOrg, roster, events: () => state.events, gpById, HttpError, uid }
 
 const extraPlayers: Array<{ id: string; displayName: string; createdAt: string }> = []
 function globalPlayers() {

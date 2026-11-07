@@ -46,6 +46,9 @@ test.describe('league night, start to finish (organizer)', () => {
     await expect(dialog).toContainText('Ratings update for 8 players')
     await dialog.getByRole('button', { name: 'Complete event' }).click()
 
+    const reveal = page.getByRole('dialog').filter({ hasText: 'Ratings updated' })
+    await expect(reveal).toContainText('8 players moved')
+    await reveal.getByRole('link', { name: 'See rankings' }).click()
     await expect(page).toHaveURL(new RegExp(`/groups/${LEAGUE}/rankings`))
     await expect(page.getByText('Event completed. Rankings updated.').first()).toBeAttached()
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()

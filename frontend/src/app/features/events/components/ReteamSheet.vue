@@ -1,100 +1,98 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
-import type { GameDto, PlayerInfo } from '@/app/core/models/dto'
+/** Change who plays on one court. Blocks anyone already playing elsewhere that round. */
+import { reactive, computed, watch, useId } from 'vue'
+import type { EventDto, GameDto } from '@/app/core/models/dto'
 import { eventsApi } from '../services/events.api'
-import { useToast } from '@/app/core/ui/composables/useToast'
-import { getApiErrorMessage } from '@/app/core/ui/composables/useApiError'
-import { useAsyncAction } from '@/app/core/ui/composables/useAsyncAction'
-import Sheet from '@/app/core/ui/components/Sheet.vue'
-import AppSelect from '@/app/core/ui/components/AppSelect.vue'
-import AppButton from '@/app/core/ui/components/AppButton.vue'
+import UiSheet from '@/app/core/ui/UiSheet.vue'
+import UiButton from '@/app/core/ui/UiButton.vue'
+import { toast } from '@/app/core/ui/feedback'
+import { eventPlayers, validateTeams, type Slots } from '../liveEdits'
 
-const props = defineProps<{
-  game: GameDto | null
-  /** Every player in the event (from all games) — selectable in any slot. */
-  allPlayers: PlayerInfo[]
-  groupId: string
-}>()
+const props = defineProps<{ open: boolean; event: EventDto; game: GameDto | null }>()
+const emit = defineEmits<{ close: []; updated: [] }>()
 
-const open = defineModel<boolean>({ required: true })
-const emit = defineEmits<{ updated: [] }>()
+const id = useId()
+const slots = reactive<Slots>({ team1P1: '', team1P2: '', team2P1: '', team2P2: '' })
+const state = reactive({ busy: false, tried: false })
 
-const toast = useToast()
+watch(() => [props.open, props.game?.id] as const, ([o]) => {
+  if (!o || !props.game) return
+  slots.team1P1 = props.game.team1[0]?.id ?? ''
+  slots.team1P2 = props.game.team1[1]?.id ?? ''
+  slots.team2P1 = props.game.team2[0]?.id ?? ''
+  slots.team2P2 = props.game.team2[1]?.id ?? ''
+  state.tried = false
+}, { immediate: true })
 
-const slots = reactive({ team1P1: '', team1P2: '', team2P1: '', team2P2: '' })
+const players = computed(() => eventPlayers(props.event))
+const names = computed(() => new Map(players.value.map(p => [p.id, p.displayName])))
+const round = computed(() => props.game ? props.event.games.filter(g => g.roundIndex === props.game!.roundIndex) : [])
+const error = computed(() => (props.game ? validateTeams(slots, props.game, round.value, names.value) : ''))
 
-function syncFromGame() {
-  slots.team1P1 = props.game?.team1[0]?.id ?? ''
-  slots.team1P2 = props.game?.team1[1]?.id ?? ''
-  slots.team2P1 = props.game?.team2[0]?.id ?? ''
-  slots.team2P2 = props.game?.team2[1]?.id ?? ''
-}
+const seats: Array<{ key: keyof Slots; label: string }> = [
+  { key: 'team1P1', label: 'Team one, first player' },
+  { key: 'team1P2', label: 'Team one, second player' },
+  { key: 'team2P1', label: 'Team two, first player' },
+  { key: 'team2P2', label: 'Team two, second player' }
+]
 
-watch(open, (isOpen) => {
-  if (isOpen) syncFromGame()
-})
-watch(() => props.game?.id, syncFromGame)
-
-const playerOptions = computed(() =>
-  [...props.allPlayers]
-    .sort((a, b) => a.displayName.localeCompare(b.displayName))
-    .map((p) => ({ label: p.displayName, value: p.id }))
-)
-
-const slotIds = computed(() => [slots.team1P1, slots.team1P2, slots.team2P1, slots.team2P2])
-
-const validationError = computed(() => {
-  if (slotIds.value.some((id) => !id)) return 'All four positions must be filled'
-  if (new Set(slotIds.value).size !== 4) return 'Each position needs a different player'
-  return ''
-})
-
-const { run: save, loading: isSaving } = useAsyncAction(async () => {
-  if (!props.game || validationError.value) return
+async function save() {
+  state.tried = true
+  if (!props.game || error.value || state.busy) return
+  state.busy = true
   try {
-    await eventsApi.updateGamePlayers(
-      props.game.id,
-      { team1P1: slots.team1P1, team1P2: slots.team1P2, team2P1: slots.team2P1, team2P2: slots.team2P2 },
-      props.groupId
-    )
-    toast.success('Teams updated')
-    open.value = false
+    await eventsApi.updateGamePlayers(props.game.id, { ...slots }, props.event.groupId)
+    toast(`Court ${props.game.courtIndex + 1} teams changed`)
     emit('updated')
   } catch (e) {
-    toast.error(getApiErrorMessage(e, 'Failed to update teams'))
+    toast((e as { message?: string }).message || 'Teams not changed', 'bad')
+  } finally {
+    state.busy = false
   }
-})
+}
 </script>
 
 <template>
-  <Sheet v-model="open" :title="game ? `Edit teams · Court ${game.courtIndex + 1}` : 'Edit teams'">
-    <div v-if="game" class="flex flex-col gap-4">
-      <section
-        v-for="team in [1, 2] as const"
-        :key="team"
-        class="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/50 p-4"
-      >
-        <h3 class="text-sm font-semibold text-ink">Team {{ team }}</h3>
-        <template v-if="team === 1">
-          <AppSelect v-model="slots.team1P1" label="Player 1" :options="playerOptions" />
-          <AppSelect v-model="slots.team1P2" label="Player 2" :options="playerOptions" />
-        </template>
-        <template v-else>
-          <AppSelect v-model="slots.team2P1" label="Player 1" :options="playerOptions" />
-          <AppSelect v-model="slots.team2P2" label="Player 2" :options="playerOptions" />
-        </template>
-      </section>
-
-      <p v-if="validationError" class="text-sm text-loss">{{ validationError }}</p>
-      <p v-else class="text-sm text-ink-faint">
-        Changing teams may recalculate ELO for entered scores.
-      </p>
-    </div>
-
-    <template #footer>
-      <AppButton block :loading="isSaving" :disabled="!!validationError" @click="save()">
-        Save teams
-      </AppButton>
+  <UiSheet
+    :open="open"
+    :title="game ? `Change players on court ${game.courtIndex + 1}` : 'Change players'"
+    :description="game ? `Round ${game.roundIndex + 1}. A saved score on this court stays with the court.` : undefined"
+    @close="emit('close')"
+  >
+    <form v-if="game" class="seats" novalidate @submit.prevent="save">
+      <template v-for="(s, i) in seats" :key="s.key">
+        <div v-if="i === 2" class="net" aria-hidden="true" />
+        <div class="seat">
+          <label :for="`${id}-${s.key}`">{{ s.label }}</label>
+          <select :id="`${id}-${s.key}`" v-model="slots[s.key]" :aria-invalid="state.tried && !!error || undefined">
+            <option value="" disabled>Choose a player</option>
+            <option v-for="p in players" :key="p.id" :value="p.id">{{ p.displayName }}</option>
+          </select>
+        </div>
+      </template>
+      <p v-if="state.tried && error" class="err" role="alert">{{ error }}</p>
+    </form>
+    <template #actions>
+      <UiButton variant="primary" size="lg" block :loading="state.busy" @click="save">
+        Save court {{ game ? game.courtIndex + 1 : '' }} players
+      </UiButton>
     </template>
-  </Sheet>
+  </UiSheet>
 </template>
+
+<style scoped>
+.seats { display: flex; flex-direction: column; gap: var(--s3); }
+.seat { display: flex; flex-direction: column; gap: var(--s1); }
+label { font-weight: 700; font-size: var(--text-sm); }
+select {
+  min-height: var(--tap);
+  padding: 0 var(--s3);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--ink);
+}
+select[aria-invalid='true'] { border-color: var(--bad); }
+.net { height: 2px; margin: var(--s1) 0; background: repeating-linear-gradient(90deg, var(--net) 0 6px, transparent 6px 10px); }
+.err { color: var(--bad); font-weight: 700; font-size: var(--text-sm); }
+</style>
