@@ -28,6 +28,9 @@ const screens: Screen[] = [
   { name: 'payments (tracking off)', path: `/groups/${LEAGUE}/payments`, user: 'user_org', ready: h1 },
   { name: 'player library', path: '/players', user: 'user_org', ready: h1 },
   { name: 'invite link (bad token)', path: '/link-player?token=nope', user: 'user_mem', ready: h1 },
+  { name: 'awards (organizer)', path: `/groups/${LEAGUE}/awards`, user: 'user_org', ready: h1 },
+  { name: 'awards (member)', path: `/groups/${LEAGUE}/awards`, user: 'user_mem', ready: h1 },
+  { name: 'head to head', path: `/groups/${LEAGUE}/history?h2h=pl_1,pl_2`, user: 'user_mem', ready: h1 },
   { name: 'not found', path: '/no/such/page', user: 'user_org', ready: h1 }
 ]
 
