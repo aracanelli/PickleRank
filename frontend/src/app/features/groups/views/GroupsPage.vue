@@ -4,7 +4,7 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { ChevronRight, Contact } from 'lucide-vue-next'
+import { ChevronRight } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
 import type { GroupListItemDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
@@ -148,16 +148,8 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
         </ul>
       </section>
 
-      <RouterLink to="/players" class="roster">
-        <span class="roster__icon"><Contact :size="22" aria-hidden="true" /></span>
-        <span class="league__text">
-          <span class="league__name">Your players</span>
-          <span class="league__sub">Everyone you've added, across all your leagues</span>
-        </span>
-        <ChevronRight :size="20" aria-hidden="true" class="league__go" />
-      </RouterLink>
 
-      <ActionBar>
+      <ActionBar above-tabs>
         <UiButton variant="primary" size="lg" @click="openCreate">Create a league</UiButton>
       </ActionBar>
     </template>
@@ -219,7 +211,7 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
 .hero__sub { margin-top: var(--s1); font-size: var(--text-sm); max-width: 26ch; }
 
 .leagues { display: flex; flex-direction: column; gap: var(--s2); }
-.league, .roster {
+.league {
   display: flex;
   align-items: center;
   gap: var(--s3);
@@ -231,7 +223,7 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
   color: var(--ink);
   text-decoration: none;
 }
-.league:hover, .roster:hover { border-color: var(--court); }
+.league:hover { border-color: var(--court); }
 .league__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .league__name {
   font-weight: 700;
@@ -253,15 +245,4 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
   font-weight: 700;
 }
 .league__go { flex: none; color: var(--ink-2); }
-.roster { background: transparent; border-style: dashed; }
-.roster__icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
-  background: var(--surface-sunk);
-  color: var(--ink);
-}
 </style>

@@ -19,7 +19,7 @@ watch(() => route.params.groupId, id => {
 }, { immediate: true })
 
 const showTabs = computed(() =>
-  auth.isAuthenticated && route.meta.chrome === 'league' && !!league.groupId
+  auth.isAuthenticated && (route.meta.chrome === 'home' || (route.meta.chrome === 'league' && !!league.groupId))
 )
 </script>
 

@@ -131,7 +131,7 @@ async function unlink(p: PlayerDto) {
 
 <template>
   <div class="page">
-    <PageHeader title="Your players" back-to="/groups" back-label="All leagues" subtitle="Everyone you've created. Add them to a league from its Players tab.">
+    <PageHeader title="Your players" subtitle="Everyone you've created. Add them to a league from its Players tab.">
       <template #actions><AccountButton /></template>
     </PageHeader>
 
@@ -178,7 +178,7 @@ async function unlink(p: PlayerDto) {
       </ul>
     </template>
 
-    <ActionBar v-if="!error">
+    <ActionBar v-if="!error" above-tabs>
       <template v-if="players.length" #meta>{{ count(players.length) }}</template>
       <UiButton variant="primary" @click="openCreate">New player</UiButton>
       <UiButton @click="bulkOpen = true">Add several</UiButton>

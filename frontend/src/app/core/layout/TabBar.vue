@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { Home, Trophy, History, Users, UserRound } from 'lucide-vue-next'
+import { Home, Trophy, History, Users, UserRound, LayoutList, Contact } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
 
 const route = useRoute()
 const league = useLeagueStore()
 
 const items = computed(() => {
+  // outside a league: your leagues and the players you've added across them
+  if (route.meta.chrome === 'home') {
+    return [
+      { key: 'leagues', label: 'Leagues', to: '/groups', icon: LayoutList, match: (p: string) => p === '/groups' },
+      { key: 'library', label: 'Players', to: '/players', icon: Contact, match: (p: string) => p === '/players' }
+    ]
+  }
   const g = league.groupId
   if (!g) return []
   const base = `/groups/${g}`

@@ -327,23 +327,32 @@ function statusLine(e: EventListItemDto) {
         </ul>
       </section>
 
-      <RouterLink v-if="league.isOrganizer && league.trackPayments" :to="`/groups/${groupId}/payments`" class="list__row list__main payments">
-        <Wallet :size="20" aria-hidden="true" />
-        <span class="list__text">
-          <span class="list__title">Sub payments</span>
-          <span v-if="totalOwed" class="muted list__sub">{{ formatMoney(totalOwed, league.group.settings.paymentSettings?.currency || undefined) }} owed by subs</span>
-        </span>
-        <ChevronRight :size="18" aria-hidden="true" />
-      </RouterLink>
-
-      <RouterLink v-if="league.isOrganizer" :to="`/groups/${groupId}/awards`" class="list__row list__main payments">
-        <Trophy :size="20" aria-hidden="true" />
-        <span class="list__text">
-          <span class="list__title">Generate awards</span>
-          <span class="muted list__sub">Season awards from the stats, plus your own categories and a vote</span>
-        </span>
-        <ChevronRight :size="18" aria-hidden="true" />
-      </RouterLink>
+      <!-- organizer tools: one list, new tools go in as rows -->
+      <section v-if="league.isOrganizer" class="section" aria-labelledby="tools-h">
+        <div class="section-head"><h2 id="tools-h">Run the league</h2></div>
+        <ul role="list" class="list">
+          <li v-if="league.trackPayments" class="list__row">
+            <RouterLink :to="`/groups/${groupId}/payments`" class="list__main">
+              <Wallet :size="20" aria-hidden="true" />
+              <span class="list__text">
+                <span class="list__title">Sub payments</span>
+                <span v-if="totalOwed" class="muted list__sub">{{ formatMoney(totalOwed, league.group.settings.paymentSettings?.currency || undefined) }} owed by subs</span>
+              </span>
+              <ChevronRight :size="18" aria-hidden="true" />
+            </RouterLink>
+          </li>
+          <li class="list__row">
+            <RouterLink :to="`/groups/${groupId}/awards`" class="list__main">
+              <Trophy :size="20" aria-hidden="true" />
+              <span class="list__text">
+                <span class="list__title">Generate awards</span>
+                <span class="muted list__sub">Season awards from the stats, plus your own categories and a vote</span>
+              </span>
+              <ChevronRight :size="18" aria-hidden="true" />
+            </RouterLink>
+          </li>
+        </ul>
+      </section>
     </template>
   </div>
 </template>
@@ -447,5 +456,4 @@ function statusLine(e: EventListItemDto) {
 .list__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .list__title { font-weight: 700; }
 .list__sub { font-size: var(--text-sm); }
-.payments { border-top: 1px solid var(--line); }
 </style>

@@ -4,8 +4,8 @@ import { getSafeRedirect } from '@/app/core/auth/redirectUtils'
 declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean
-    /** 'league' shows the league tab bar; anything else is a focused screen without it */
-    chrome?: 'league'
+    /** 'league' shows the league tabs, 'home' the Leagues/Players tabs; anything else is a focused screen without tabs */
+    chrome?: 'league' | 'home'
   }
 }
 
@@ -32,7 +32,7 @@ const router = createRouter({
       path: '/groups',
       name: 'groups',
       component: () => import('@/app/features/groups/views/GroupsPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, chrome: 'home' }
     },
     {
       path: '/groups/:groupId',
@@ -62,7 +62,7 @@ const router = createRouter({
       path: '/players',
       name: 'players',
       component: () => import('@/app/features/players/views/PlayersPage.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, chrome: 'home' }
     },
     {
       path: '/groups/:groupId/events/new',
