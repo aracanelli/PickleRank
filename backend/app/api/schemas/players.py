@@ -235,6 +235,7 @@ class GroupPlayerResponse(BaseModel):
     ties: int
     win_rate: float = Field(alias="winRate")
     rating_delta: Optional[float] = Field(None, alias="ratingDelta", description="Rating change from last completed event")
+    photo_version: Optional[int] = Field(None, alias="photoVersion", description="Set when the player has a photo; changes when it does")
 
     class Config:
         from_attributes = True

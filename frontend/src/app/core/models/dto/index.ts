@@ -29,6 +29,8 @@ export interface GroupDto {
   settings: GroupSettings
   createdAt: string
   updatedAt?: string
+  /** set when the league has a logo; changes when it does */
+  logoVersion?: number | null
 }
 
 export interface GroupListItemDto {
@@ -37,6 +39,7 @@ export interface GroupListItemDto {
   sport: string
   playerCount: number
   createdAt: string
+  logoVersion?: number | null
 }
 
 export interface GroupListResponse {
@@ -76,6 +79,8 @@ export interface GroupPlayerDto {
   ties: number
   winRate: number
   ratingDelta?: number
+  /** set when the player has a photo; changes when it does */
+  photoVersion?: number | null
 }
 
 export type SkillLevel = 'ADVANCED' | 'INTERMEDIATE' | 'BEGINNER'

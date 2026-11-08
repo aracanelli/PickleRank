@@ -76,6 +76,19 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains
 Content-Security-Policy: default-src 'self'
 ```
 
+### Image uploads (player photos, league logos)
+
+Endpoints: `PUT/GET/DELETE /api/groups/{groupId}/players/{groupPlayerId}/photo` and `/api/groups/{groupId}/logo`.
+
+- **Who can write**: a linked player for their own photo; the league owner or an organizer for any player in that league and for the logo. Everyone else gets 403. Photos belong to the league membership (`group_players.id`), so an organizer of one league cannot change how a player looks in another.
+- **Who can read**: the owner and linked members of the league, the same rule as the roster. Reads need the bearer token; the web app fetches the bytes through the API client and shows an object URL, so no image URL carries a secret.
+- **Size**: the body is read in chunks and refused with 413 past 2 MB, before any decoding (also the API-wide request cap, and under Vercel's 4.5 MB body limit). The web app downscales to 512 px first, as a convenience only.
+- **Format allowlist**: the bytes are decoded with Pillow restricted to JPEG, PNG and WebP. SVG, GIF, HEIC, HTML, truncated files and anything else get 415. The client's filename and Content-Type are ignored.
+- **Decompression bombs**: dimensions are checked (max 40 MP) before pixels are loaded, and `Image.MAX_IMAGE_PIXELS` is set to the same value.
+- **Re-encoding**: the image is turned upright with `ImageOps.exif_transpose`, shrunk to fit 512x512, rebuilt from raw pixels and saved as WebP. The uploaded bytes are never stored or served, so EXIF/GPS, ICC, XMP and any appended payload are dropped.
+- **Serving**: `Content-Type` comes from our own column (`image/webp`), with `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: private, max-age=86400`.
+- **Storage bound**: one row per player-in-league or league (`images` table, primary key `(kind, ref_id)`, upsert), capped at 1 MB by a CHECK. Row level security is on, so Supabase's REST roles cannot read the table. Uploads are rate-limited to 10 per minute per IP.
+
 ## Data Security
 
 ### Database Access

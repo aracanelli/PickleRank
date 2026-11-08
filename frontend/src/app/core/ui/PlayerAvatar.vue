@@ -6,6 +6,7 @@
  */
 import { computed } from 'vue'
 import { jerseyFor, initialsOf } from './jersey'
+import { useImage, playerPhotoPath } from './photo'
 
 const props = withDefaults(defineProps<{
   name: string
@@ -14,10 +15,13 @@ const props = withDefaults(defineProps<{
   size?: 'sm' | 'md' | 'lg' | 'xl'
   /** podium ring */
   medal?: 1 | 2 | 3
-}>(), { size: 'md' })
+  /** a group player (or anything with groupId, id, photoVersion); shows their photo when they have one */
+  photo?: { groupId: string; id: string; photoVersion?: number | null } | null
+}>(), { size: 'md', photo: null })
 
 const jersey = computed(() => jerseyFor(props.seed || props.name))
 const initials = computed(() => initialsOf(props.name))
+const src = useImage(() => props.photo ? { path: playerPhotoPath(props.photo.groupId, props.photo.id), version: props.photo.photoVersion } : null)
 </script>
 
 <template>
@@ -26,7 +30,7 @@ const initials = computed(() => initialsOf(props.name))
     :class="[`avatar--${size}`, medal ? `avatar--medal${medal}` : '']"
     :style="{ '--jersey': `var(--jersey-${jersey})` }"
     aria-hidden="true"
-  >{{ initials }}</span>
+  ><img v-if="src" class="avatar__img" :src="src" alt=""><template v-else>{{ initials }}</template></span>
 </template>
 
 <style scoped>
@@ -45,7 +49,9 @@ const initials = computed(() => initialsOf(props.name))
   line-height: 1;
   letter-spacing: 0.02em;
   user-select: none;
+  overflow: hidden;
 }
+.avatar__img { width: 100%; height: 100%; object-fit: cover; }
 .avatar--sm { --size: 28px; }
 .avatar--md { --size: 36px; }
 .avatar--lg { --size: 56px; }

@@ -5,15 +5,23 @@
  */
 import { computed } from 'vue'
 import { jerseyFor, initialsOf } from './jersey'
+import { useImage, leagueLogoPath } from './photo'
 
-const props = withDefaults(defineProps<{ name: string; size?: 'md' | 'lg' }>(), { size: 'md' })
+const props = withDefaults(defineProps<{
+  name: string
+  size?: 'md' | 'lg'
+  /** the league (anything with id and logoVersion); shows its uploaded logo when it has one */
+  logo?: { id: string; logoVersion?: number | null } | null
+}>(), { size: 'md', logo: null })
 
 const colour = computed(() => `var(--jersey-${jerseyFor(props.name)})`)
 const initials = computed(() => initialsOf(props.name))
+const src = useImage(() => props.logo ? { path: leagueLogoPath(props.logo.id), version: props.logo.logoVersion } : null)
 </script>
 
 <template>
-  <span class="crest num" :class="`crest--${size}`" :style="{ '--crest': colour }" aria-hidden="true">
+  <span v-if="src" class="crest crest--photo" :class="`crest--${size}`" aria-hidden="true"><img class="crest__img" :src="src" alt=""></span>
+  <span v-else class="crest num" :class="`crest--${size}`" :style="{ '--crest': colour }" aria-hidden="true">
     <svg class="crest__lines" viewBox="0 0 40 40" focusable="false">
       <!-- court outline, net, and both kitchen lines -->
       <rect x="5" y="5" width="30" height="30" rx="1" />
@@ -42,6 +50,8 @@ const initials = computed(() => initialsOf(props.name))
   overflow: hidden;
 }
 .crest--lg { --size: 72px; border-radius: 14px; }
+.crest--photo { background: var(--surface-sunk); }
+.crest__img { width: 100%; height: 100%; object-fit: cover; }
 .crest__lines {
   position: absolute;
   inset: 0;

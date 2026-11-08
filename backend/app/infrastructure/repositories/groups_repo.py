@@ -33,7 +33,8 @@ class GroupsRepository:
         """Get a group by ID."""
         row = await self.conn.fetchrow(
             """
-            SELECT g.id, g.owner_user_id, u.clerk_user_id, g.name, g.sport, g.settings_json, g.created_at, g.updated_at, g.is_archived
+            SELECT g.id, g.owner_user_id, u.clerk_user_id, g.name, g.sport, g.settings_json, g.created_at, g.updated_at, g.is_archived,
+                   (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'group' AND i.ref_id = g.id)::BIGINT AS logo_version
             FROM groups g
             JOIN users u ON u.id = g.owner_user_id
             WHERE g.id = $1
@@ -48,6 +49,7 @@ class GroupsRepository:
             """
             SELECT 
                 g.id, g.name, g.sport, g.created_at, g.is_archived,
+                (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'group' AND i.ref_id = g.id)::BIGINT AS logo_version,
                 COUNT(gp.id) as player_count
             FROM groups g
             LEFT JOIN group_players gp ON gp.group_id = g.id
@@ -65,6 +67,7 @@ class GroupsRepository:
             """
             SELECT 
                 g.id, g.name, g.sport, g.created_at, g.is_archived,
+                (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'group' AND i.ref_id = g.id)::BIGINT AS logo_version,
                 COUNT(gp.id) as player_count
             FROM groups g
             LEFT JOIN group_players gp ON gp.group_id = g.id

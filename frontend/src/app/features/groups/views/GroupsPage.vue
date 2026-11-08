@@ -121,7 +121,7 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
         <ul role="list" class="leagues">
           <li v-for="g in organized" :key="g.id">
             <RouterLink :to="`/groups/${g.id}`" class="league">
-              <LeagueCrest :name="g.name" />
+              <LeagueCrest :name="g.name" :logo="g" />
               <span class="league__text">
                 <span class="league__name">{{ g.name }}</span>
                 <span class="league__sub"><span class="league__role">Organizer</span>{{ players(g.playerCount) }}</span>
@@ -137,7 +137,7 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
         <ul role="list" class="leagues">
           <li v-for="g in playing" :key="g.id">
             <RouterLink :to="`/groups/${g.id}`" class="league">
-              <LeagueCrest :name="g.name" />
+              <LeagueCrest :name="g.name" :logo="g" />
               <span class="league__text">
                 <span class="league__name">{{ g.name }}</span>
                 <span class="league__sub">{{ players(g.playerCount) }}</span>

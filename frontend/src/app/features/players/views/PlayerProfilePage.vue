@@ -18,6 +18,8 @@ import AccountButton from '@/app/core/layout/AccountButton.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import CourtTile from '@/app/core/ui/CourtTile.vue'
+import PhotoControl from '@/app/core/ui/PhotoControl.vue'
+import { playerPhotoPath } from '@/app/core/ui/photo'
 import PlayerCard from '../components/PlayerCard.vue'
 import BadgeShelf from '../components/BadgeShelf.vue'
 import { computeBadges, playerTitle } from '../utils/badges'
@@ -244,6 +246,13 @@ const opponents = computed(() => {
           Head to head
         </UiButton>
         <UiButton v-if="league.isOrganizer" :to="{ path: `/groups/${groupId}/players/manage`, query: { edit: p.id } }">Edit player</UiButton>
+        <PhotoControl
+          v-if="isMe || league.isOrganizer"
+          kind="photo"
+          :path="playerPhotoPath(groupId, p.id)"
+          :has="!!p.photoVersion"
+          @changed="(v: number | null) => { if (stats) stats.player.photoVersion = v; league.load(groupId, true) }"
+        />
       </div>
 
       <BadgeShelf :badges="badges" />
