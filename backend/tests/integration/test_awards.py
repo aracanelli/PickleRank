@@ -210,6 +210,36 @@ class TestUpdateEdition:
         assert response.status_code == 403
 
 
+class TestPublish:
+    @patch("app.application.services.award_service.AwardService.set_published")
+    def test_publish_and_unpublish(self, mock_set, client):
+        """publish/unpublish route to set_published(True/False) and echo publishedAt."""
+        gid, eid = uuid4(), uuid4()
+        published = _make_edition(edition_id=eid).model_copy(
+            update={"published_at": datetime.now(timezone.utc)}
+        )
+        mock_set.return_value = published
+
+        response = client.post(f"/api/groups/{gid}/awards/{eid}/publish")
+        assert response.status_code == 200
+        assert response.json()["publishedAt"]
+        assert mock_set.call_args.args[-1] is True
+
+        mock_set.return_value = _make_edition(edition_id=eid)
+        response = client.post(f"/api/groups/{gid}/awards/{eid}/unpublish")
+        assert response.status_code == 200
+        assert "publishedAt" not in response.json()
+        assert mock_set.call_args.args[-1] is False
+
+    @patch("app.application.services.award_service.AwardService.set_published")
+    def test_publish_forbidden_for_members(self, mock_set, client):
+        mock_set.side_effect = ForbiddenError("Only owners and organizers can manage awards")
+        gid, eid = uuid4(), uuid4()
+        for action in ("publish", "unpublish"):
+            response = client.post(f"/api/groups/{gid}/awards/{eid}/{action}")
+            assert response.status_code == 403
+
+
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------

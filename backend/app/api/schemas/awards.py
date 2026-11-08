@@ -57,6 +57,8 @@ class AwardEditionDto(BaseModel):
     categories: List[AwardCategoryDto] = Field(default_factory=list)
     # status == VOTING_OPEN && caller has a linked player.
     can_vote: bool = Field(alias="canVote")
+    # Set once an organizer publishes; members see stat awards and results only after that.
+    published_at: Optional[datetime] = Field(None, alias="publishedAt")
     created_at: datetime = Field(alias="createdAt")
 
     class Config:

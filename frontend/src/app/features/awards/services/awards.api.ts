@@ -53,6 +53,15 @@ export const awardsApi = {
     return result
   },
 
+  /** Publish (members can see the awards) or unpublish (organizers only). */
+  async setPublished(groupId: string, editionId: string, published: boolean): Promise<AwardEditionDto> {
+    const result = await api.post<AwardEditionDto>(
+      `/api/groups/${groupId}/awards/${editionId}/${published ? 'publish' : 'unpublish'}`
+    )
+    api.invalidateCache(`/api/groups/${groupId}/awards`)
+    return result
+  },
+
   /** Add a voting category to a DRAFT edition. */
   async addCategory(
     groupId: string,

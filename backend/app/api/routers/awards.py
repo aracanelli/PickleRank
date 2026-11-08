@@ -83,6 +83,42 @@ async def update_edition(
 
 
 @router.post(
+    "/groups/{group_id}/awards/{edition_id}/publish",
+    response_model=AwardEditionDto,
+    response_model_exclude_none=True,
+)
+@limiter.limit(DEFAULT_RATE)
+async def publish_edition(
+    request: Request,
+    group_id: UUID,
+    edition_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Publish an edition so members can see its awards and results (organizer)."""
+    service = AwardService(db)
+    return await service.set_published(user.user_id, group_id, edition_id, True)
+
+
+@router.post(
+    "/groups/{group_id}/awards/{edition_id}/unpublish",
+    response_model=AwardEditionDto,
+    response_model_exclude_none=True,
+)
+@limiter.limit(DEFAULT_RATE)
+async def unpublish_edition(
+    request: Request,
+    group_id: UUID,
+    edition_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Connection = Depends(get_db),
+):
+    """Hide an edition from members again (organizer)."""
+    service = AwardService(db)
+    return await service.set_published(user.user_id, group_id, edition_id, False)
+
+
+@router.post(
     "/groups/{group_id}/awards/{edition_id}/categories",
     response_model=AwardCategoryDto,
     response_model_exclude_none=True,

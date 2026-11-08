@@ -2,7 +2,7 @@
 /**
  * League home block: the one awards item worth a tap right now, or nothing.
  * Voting you haven't finished beats voting you have; final results beat a draft;
- * drafts show only to organizers. Load failures render nothing; the awards page has the error state.
+ * members see awards only once published (or while voting is open). Load failures render nothing; the awards page has the error state.
  */
 import { ref, computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -35,15 +35,19 @@ const item = computed(() => {
     }
     return { title: 'Awards voting is open', body: e.canVote ? 'You voted in every category. Results show when voting closes.' : 'Results show when the organizer closes voting.', link: 'See awards' }
   }
+  // Members only get unpublished editions while voting is open (handled above).
+  if (!e.publishedAt) {
+    if (!league.isOrganizer) return null
+    return e.status === 'CLOSED'
+      ? { title: 'Awards results are ready', body: 'Only organizers can see these. Publish to share them.', link: 'Publish awards' }
+      : { title: 'Awards are in draft', body: 'Only organizers can see these. Publish when ready.', link: 'Finish setup' }
+  }
   if (e.status === 'CLOSED') {
     const top = cats.find(c => c.results?.length)
     const w = top?.results?.[0]
     return { title: 'Awards results are in', body: w ? `${top!.title}: ${w.displayName}` : 'See the season awards.', link: 'See results' }
   }
-  if (league.isOrganizer) {
-    return { title: 'Awards are in draft', body: cats.length ? 'Open voting when your categories are ready.' : 'Add voting categories, then open voting.', link: 'Finish setup' }
-  }
-  return null
+  return { title: 'Season awards are out', body: 'See who took the season honors.', link: 'See awards' }
 })
 </script>
 

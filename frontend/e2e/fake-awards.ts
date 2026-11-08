@@ -4,11 +4,12 @@ import type { Body, FeatureRoutes, FixtureContext } from './fake-api'
  * FIXTURE MODE ONLY: fake Awards endpoints mirroring backend/app/api/routers/awards.py and
  * award_service.py: organizer-only management (403), member-only reads, status transitions
  * DRAFT->VOTING_OPEN->CLOSED->VOTING_OPEN, at least one category to open voting, votes only while
- * open and only from a linked player, tallies only when CLOSED. Return undefined for other paths.
+ * open and only from a linked player, tallies only when CLOSED, publish/unpublish (members see an
+ * unpublished edition only while voting is open, without stat awards). Return undefined for other paths.
  */
 type Status = 'DRAFT' | 'VOTING_OPEN' | 'CLOSED'
 interface Cat { id: string; title: string; description?: string; votes: Map<string, string> }
-interface Edition { id: string; groupId: string; title: string; status: Status; statAwards: unknown[]; cats: Cat[]; createdAt: string }
+interface Edition { id: string; groupId: string; title: string; status: Status; statAwards: unknown[]; cats: Cat[]; publishedAt?: string; createdAt: string }
 
 const NEXT: Record<Status, Status[]> = { DRAFT: ['VOTING_OPEN'], VOTING_OPEN: ['CLOSED'], CLOSED: ['VOTING_OPEN'] }
 
@@ -28,6 +29,7 @@ function dto(ctx: FixtureContext, e: Edition, user: string) {
   const closed = e.status === 'CLOSED'
   return {
     id: e.id, title: e.title, status: e.status, statAwards: e.statAwards, createdAt: e.createdAt,
+    ...(e.publishedAt ? { publishedAt: e.publishedAt } : {}),
     canVote: e.status === 'VOTING_OPEN' && !!me,
     categories: e.cats.map(c => {
       const out: Record<string, unknown> = { id: c.id, title: c.title }
@@ -76,7 +78,9 @@ export const awardsRoutes: FeatureRoutes = ({ method, path, body, user, ctx }) =
 
   if (rest === '' && method === 'GET') {
     const latest = editions.filter(e => e.groupId === g.id).at(-1)
-    return latest ? dto(ctx, latest, user) : null
+    if (!latest) return null
+    if (latest.publishedAt || ctx.isOrg(user, g)) return dto(ctx, latest, user)
+    return latest.status === 'VOTING_OPEN' ? { ...dto(ctx, latest, user), statAwards: [] } : null
   }
   if (rest === '' && method === 'POST') {
     org()
@@ -99,6 +103,12 @@ export const awardsRoutes: FeatureRoutes = ({ method, path, body, user, ctx }) =
     const { e, c } = category(ctx, g.id, r[1])
     e.cats = e.cats.filter(x => x !== c)
     return null
+  }
+  if ((r = rest.match(/^([\w-]+)\/(publish|unpublish)$/)) && method === 'POST') {
+    org()
+    const e = edition(ctx, g.id, r[1])
+    e.publishedAt = r[2] === 'publish' ? e.publishedAt ?? new Date().toISOString() : undefined
+    return dto(ctx, e, user)
   }
   if ((r = rest.match(/^([\w-]+)\/categories$/)) && method === 'POST') {
     org()

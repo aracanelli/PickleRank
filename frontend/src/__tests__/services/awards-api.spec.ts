@@ -121,6 +121,16 @@ describe('awardsApi', () => {
     expect(JSON.parse(init.body)).toEqual({ nomineeGroupPlayerId: 'gp9' })
   })
 
+  it('setPublished POSTs to publish or unpublish', async () => {
+    mockResponse({ id: 'e1' })
+    await awardsApi.setPublished('group-123', 'e1', true)
+    expect(lastCall()[0]).toContain('/api/groups/group-123/awards/e1/publish')
+    expect(lastCall()[1].method).toBe('POST')
+
+    await awardsApi.setPublished('group-123', 'e1', false)
+    expect(lastCall()[0]).toContain('/api/groups/group-123/awards/e1/unpublish')
+  })
+
   it('deleteEdition DELETEs the edition', async () => {
     ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 204 })
 

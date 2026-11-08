@@ -119,6 +119,10 @@ async def run_migrations():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_award_editions_group ON award_editions(group_id)
         """)
+        # docs/migrations/20261108_awards_published.sql
+        await conn.execute("""
+            ALTER TABLE award_editions ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ NULL
+        """)
 
         print("Creating award_categories table...")
         await conn.execute("""

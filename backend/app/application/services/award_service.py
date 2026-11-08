@@ -126,6 +126,7 @@ class AwardService:
             statAwards=edition.get("stat_awards") or [],
             categories=category_dtos,
             canVote=can_vote,
+            publishedAt=edition.get("published_at"),
             createdAt=edition["created_at"],
         )
 
@@ -143,7 +144,27 @@ class AwardService:
         edition = await self.awards_repo.get_latest_edition(group_id)
         if not edition:
             return None
+        if edition.get("published_at") is None and not await self._is_owner_or_organizer(user_id, group):
+            # Unpublished: members can still vote while voting is open, but stat awards
+            # and results stay organizer-only until publish.
+            if edition["status"] != AwardEditionStatus.VOTING_OPEN.value:
+                return None
+            edition = {**edition, "stat_awards": []}
         return await self._build_edition_dto(group, edition, user_id)
+
+    async def set_published(
+        self, user_id: str, group_id: UUID, edition_id: UUID, published: bool
+    ) -> AwardEditionDto:
+        """POST publish/unpublish (organizer). Allowed in any status, with zero categories."""
+        group = await self._require_group(group_id)
+        await self._require_organizer(user_id, group)
+
+        edition = await self.awards_repo.get_edition(edition_id)
+        if not edition or str(edition["group_id"]) != str(group_id):
+            raise NotFoundError("Award edition", str(edition_id))
+
+        updated = await self.awards_repo.set_published(edition_id, published)
+        return await self._build_edition_dto(group, updated, user_id)
 
     async def create_edition(
         self,

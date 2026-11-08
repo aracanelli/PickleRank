@@ -363,6 +363,8 @@ export interface AwardEditionDto {
   categories: AwardCategoryDto[]
   /** True when status is VOTING_OPEN and the caller has a linked player. */
   canVote: boolean
+  /** Set once an organizer publishes. Until then members only see an open vote, never stat awards or results. */
+  publishedAt?: string
   createdAt: string
 }
 

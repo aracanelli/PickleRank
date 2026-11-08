@@ -28,7 +28,44 @@ test.describe('awards', () => {
     const vote = member.getByRole('dialog')
     await vote.getByRole('button').filter({ hasText: /Ana Ruiz/ }).first().click()
     await expect(member.getByText(/1 of 1/)).toBeVisible()
+    // voting works before publish, but season awards stay hidden
+    await expect(member.getByText('Season awards show here once the organizer publishes them.')).toBeVisible()
     await ctx.close()
+  })
+
+  test('members see awards only after publish; organizer can unpublish and start over', async ({ page, request, browser }) => {
+    await reset(request, 'default')
+    await as(page, 'user_org')
+    await page.goto(`/groups/${LEAGUE}/awards`)
+    await page.getByRole('button', { name: 'Create awards' }).click()
+    await expect(page.getByText('Only organizers can see these.')).toBeVisible()
+
+    const ctx = await browser.newContext()
+    const member = await ctx.newPage()
+    await as(member, 'user_mem')
+    await member.goto(`/groups/${LEAGUE}/awards`)
+    await expect(member.getByText('No awards yet')).toBeVisible()
+
+    // publish with zero categories while still in draft
+    await page.getByRole('button', { name: 'Publish awards' }).click()
+    await expect(page.getByText('Members can see these awards.')).toBeVisible()
+    await noHorizontalOverflow(page)
+
+    await member.reload()
+    await expect(member.getByRole('heading', { name: 'Season awards' })).toBeVisible()
+    await expect(member.getByText('No awards yet')).toBeHidden()
+    await expect(member.getByRole('button', { name: 'Publish awards' })).toBeHidden()
+
+    await page.getByRole('button', { name: 'Unpublish' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Unpublish' }).click()
+    await expect(page.getByText('Only organizers can see these.')).toBeVisible()
+    await member.reload()
+    await expect(member.getByText('No awards yet')).toBeVisible()
+    await ctx.close()
+
+    await page.getByRole('button', { name: 'Delete awards' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete awards' }).click()
+    await expect(page.getByRole('button', { name: 'Create awards' })).toBeVisible()
   })
 })
 

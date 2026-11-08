@@ -189,6 +189,7 @@ CREATE TABLE award_editions (
     title TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'VOTING_OPEN', 'CLOSED')),
     stat_awards JSONB NOT NULL DEFAULT '[]'::jsonb,
+    published_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

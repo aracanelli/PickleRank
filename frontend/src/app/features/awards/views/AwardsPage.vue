@@ -3,10 +3,11 @@
  * League awards. Organizers create an edition (stat awards frozen from rankings and history),
  * add voting categories, open voting, then close it to show results. Members vote while it is open.
  * Tallies only exist once voting is closed; the API leaves them out before that.
+ * Members see stat awards and results only after the organizer publishes; they can vote while voting is open.
  */
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { RefreshCw, Plus, Trash2, Link2 } from 'lucide-vue-next'
+import { RefreshCw, Plus, Trash2, Link2, Eye, EyeOff } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
 import { awardsApi } from '../services/awards.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
@@ -87,6 +88,8 @@ const statAwards = computed(() => {
   return hasDivisionSplit.value ? list.filter(a => (a.division ?? 'ALL') === division.value) : list
 })
 
+// Members reach an unpublished edition only while voting is open; the API strips its stat awards.
+const statsHidden = computed(() => !edition.value?.publishedAt && !league.isOrganizer)
 const categories = computed(() => edition.value?.categories ?? [])
 const voted = computed(() => categories.value.filter(c => c.myVote).length)
 const voteCategory = computed(() => categories.value.find(c => c.id === voteCategoryId.value) ?? null)
@@ -94,7 +97,7 @@ const nameFor = (gpId?: string | null) => (gpId ? league.players.find(p => p.id 
 
 const subtitle = computed(() => {
   switch (edition.value?.status) {
-    case 'DRAFT': return league.isOrganizer ? 'Draft. Members see the season awards; voting is not open yet.' : 'Voting has not opened yet.'
+    case 'DRAFT': return 'Voting has not opened yet.'
     case 'VOTING_OPEN': return 'Voting is open. Results stay hidden until the organizer closes voting.'
     case 'CLOSED': return 'Voting is closed. Results are final.'
     default: return undefined
@@ -141,7 +144,9 @@ const openVoting = () => setStatus('VOTING_OPEN', {
 
 const closeVoting = () => setStatus('CLOSED', {
   title: 'Close voting and show results?',
-  body: 'Votes are locked and everyone in the league sees the results. You can reopen voting later.',
+  body: edition.value?.publishedAt
+    ? 'Votes are locked and everyone in the league sees the results. You can reopen voting later.'
+    : 'Votes are locked. Members see the results once you publish the awards. You can reopen voting later.',
   confirmLabel: 'Close voting'
 }, 'Voting closed. Results are showing.')
 
@@ -150,6 +155,26 @@ const reopenVoting = () => setStatus('VOTING_OPEN', {
   body: 'Results are hidden again and members can change their votes.',
   confirmLabel: 'Reopen voting'
 }, 'Voting reopened')
+
+// Publishing works in any status, even with no categories. Members then see the season awards and results.
+async function setPublished(published: boolean) {
+  if (!edition.value || mutating.value) return
+  if (!published && !(await confirm({
+    title: 'Unpublish awards?',
+    body: 'Members stop seeing the season awards and results. Open voting stays open.',
+    confirmLabel: 'Unpublish'
+  }))) return
+  mutating.value = true
+  try {
+    await awardsApi.setPublished(groupId.value, edition.value.id, published)
+    toast(published ? 'Awards published. Members can see them.' : 'Awards unpublished')
+    await reload()
+  } catch (e) {
+    toast(errMsg(e, 'Awards not updated. Try again.'), 'bad')
+  } finally {
+    mutating.value = false
+  }
+}
 
 async function deleteCategory(c: AwardCategoryDto) {
   const ok = await confirm({ title: `Delete ${c.title}?`, body: 'Any votes cast in this category are lost.', confirmLabel: 'Delete category', danger: true })
@@ -252,6 +277,19 @@ async function vote(nomineeId: string) {
       </template>
 
       <template v-else>
+        <!-- Visibility: organizers always see everything; members only after publish -->
+        <section v-if="league.isOrganizer" class="section publish" aria-labelledby="publish-h">
+          <h2 id="publish-h">Visibility</h2>
+          <p class="publish__status" :class="{ 'publish__status--live': edition.publishedAt }">
+            <component :is="edition.publishedAt ? Eye : EyeOff" :size="20" aria-hidden="true" />
+            <span>{{ edition.publishedAt
+              ? 'Members can see these awards.'
+              : edition.status === 'VOTING_OPEN' ? 'Only organizers can see these. Members can still vote.' : 'Only organizers can see these.' }}</span>
+          </p>
+          <UiButton v-if="!edition.publishedAt" variant="primary" :loading="mutating" @click="setPublished(true)">Publish awards</UiButton>
+          <UiButton v-else variant="secondary" :loading="mutating" @click="setPublished(false)">Unpublish</UiButton>
+        </section>
+
         <!-- Draft: organizer sets up categories -->
         <section v-if="edition.status === 'DRAFT' && league.isOrganizer" class="section" aria-labelledby="cats-h">
           <div class="section-head">
@@ -306,26 +344,29 @@ async function vote(nomineeId: string) {
         <!-- Season awards -->
         <section class="section" aria-labelledby="season-h">
           <h2 id="season-h">Season awards</h2>
-          <template v-if="hasDivisionSplit">
-            <fieldset class="seg">
-              <legend class="visually-hidden">Players counted</legend>
-              <label class="seg__opt">
-                <input v-model="division" type="radio" name="award-division" value="PERMANENT" class="visually-hidden">
-                <span>Regulars</span>
-              </label>
-              <label class="seg__opt">
-                <input v-model="division" type="radio" name="award-division" value="ALL" class="visually-hidden">
-                <span>Everyone</span>
-              </label>
-            </fieldset>
-            <p class="muted note">{{ division === 'PERMANENT' ? 'Counts regulars only.' : 'Includes subs.' }}</p>
+          <p v-if="statsHidden" class="muted">Season awards show here once the organizer publishes them.</p>
+          <p v-else-if="!statAwards.length" class="muted">Not enough games were played to award season honors.</p>
+          <template v-else>
+            <template v-if="hasDivisionSplit">
+              <fieldset class="seg">
+                <legend class="visually-hidden">Players counted</legend>
+                <label class="seg__opt">
+                  <input v-model="division" type="radio" name="award-division" value="PERMANENT" class="visually-hidden">
+                  <span>Regulars</span>
+                </label>
+                <label class="seg__opt">
+                  <input v-model="division" type="radio" name="award-division" value="ALL" class="visually-hidden">
+                  <span>Everyone</span>
+                </label>
+              </fieldset>
+              <p class="muted note">{{ division === 'PERMANENT' ? 'Counts regulars only.' : 'Includes subs.' }}</p>
+            </template>
+            <ul role="list">
+              <li v-for="a in statAwards" :key="`${a.division ?? 'ALL'}:${a.key}`">
+                <StatAwardCard :award="a" :group-id="groupId" />
+              </li>
+            </ul>
           </template>
-          <p v-if="!statAwards.length" class="muted">Not enough games were played to award season honors.</p>
-          <ul v-else role="list">
-            <li v-for="a in statAwards" :key="`${a.division ?? 'ALL'}:${a.key}`">
-              <StatAwardCard :award="a" :group-id="groupId" />
-            </li>
-          </ul>
         </section>
 
         <section v-if="league.isOrganizer" class="section danger-zone" aria-labelledby="manage-h">
@@ -344,8 +385,8 @@ async function vote(nomineeId: string) {
             <template v-else-if="edition.status === 'VOTING_OPEN'">Results are hidden until you close voting.</template>
             <template v-else>Reopening hides results and lets members change votes.</template>
           </template>
-          <UiButton v-if="edition.status === 'DRAFT'" variant="primary" size="lg" :disabled="!categories.length" :loading="mutating" @click="openVoting">Open voting</UiButton>
-          <UiButton v-else-if="edition.status === 'VOTING_OPEN'" variant="primary" size="lg" :loading="mutating" @click="closeVoting">Close voting and show results</UiButton>
+          <UiButton v-if="edition.status === 'DRAFT'" :variant="edition.publishedAt ? 'primary' : 'secondary'" size="lg" :disabled="!categories.length" :loading="mutating" @click="openVoting">Open voting</UiButton>
+          <UiButton v-else-if="edition.status === 'VOTING_OPEN'" :variant="edition.publishedAt ? 'primary' : 'secondary'" size="lg" :loading="mutating" @click="closeVoting">Close voting and show results</UiButton>
           <UiButton v-else variant="secondary" size="lg" :loading="mutating" @click="reopenVoting">Reopen voting</UiButton>
         </ActionBar>
 
@@ -430,6 +471,11 @@ async function vote(nomineeId: string) {
   color: var(--ink);
 }
 .notice svg { flex: none; margin-top: 2px; }
+
+.publish { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); }
+.publish__status { display: flex; gap: var(--s2); align-items: flex-start; font-weight: 700; color: var(--ink-2); }
+.publish__status svg { flex: none; margin-top: 2px; }
+.publish__status--live { color: var(--ink); }
 
 .danger-zone { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); }
 </style>

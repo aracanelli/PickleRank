@@ -32,7 +32,7 @@ class AwardsRepository:
         """Return the most recently created edition for a group, or None."""
         row = await self.conn.fetchrow(
             """
-            SELECT id, group_id, title, status, stat_awards, created_at, updated_at
+            SELECT id, group_id, title, status, stat_awards, published_at, created_at, updated_at
             FROM award_editions
             WHERE group_id = $1
             ORDER BY created_at DESC
@@ -50,7 +50,7 @@ class AwardsRepository:
             """
             INSERT INTO award_editions (group_id, title, stat_awards)
             VALUES ($1, $2, $3::jsonb)
-            RETURNING id, group_id, title, status, stat_awards, created_at, updated_at
+            RETURNING id, group_id, title, status, stat_awards, published_at, created_at, updated_at
             """,
             group_id,
             title,
@@ -84,16 +84,31 @@ class AwardsRepository:
             UPDATE award_editions
             SET {', '.join(updates)}, updated_at = NOW()
             WHERE id = $1
-            RETURNING id, group_id, title, status, stat_awards, created_at, updated_at
+            RETURNING id, group_id, title, status, stat_awards, published_at, created_at, updated_at
         """
         row = await self.conn.fetchrow(query, *params)
+        return self._edition_row_to_dict(row)
+
+    async def set_published(self, edition_id: UUID, published: bool) -> Optional[Dict[str, Any]]:
+        """Publish (stamp published_at, keeping the first stamp) or unpublish (clear it)."""
+        row = await self.conn.fetchrow(
+            """
+            UPDATE award_editions
+            SET published_at = CASE WHEN $2 THEN COALESCE(published_at, NOW()) END,
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, group_id, title, status, stat_awards, published_at, created_at, updated_at
+            """,
+            edition_id,
+            published,
+        )
         return self._edition_row_to_dict(row)
 
     async def get_edition(self, edition_id: UUID) -> Optional[Dict[str, Any]]:
         """Get a single edition by id."""
         row = await self.conn.fetchrow(
             """
-            SELECT id, group_id, title, status, stat_awards, created_at, updated_at
+            SELECT id, group_id, title, status, stat_awards, published_at, created_at, updated_at
             FROM award_editions
             WHERE id = $1
             """,
