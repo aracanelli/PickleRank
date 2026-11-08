@@ -203,6 +203,9 @@ function history(groupId: string, q: URLSearchParams) {
   const out = []
   for (const e of state.events.filter(x => x.groupId === groupId && x.status === 'COMPLETED').sort((a, b) => b.startsAt.localeCompare(a.startsAt))) {
     if (eid && e.id !== eid) continue
+    const from = q.get('from'), to = q.get('to')
+    if (from && e.startsAt < from) continue
+    if (to && e.startsAt > to) continue
     for (const g of e.games) {
       if (pid && (!gp || ![...g.t1, ...g.t2].includes(gp.id))) continue
       if (sid) {
@@ -381,7 +384,14 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
   }
   if (is(/^\/api\/players\/([\w-]+)\/unlink$/, 'POST')) { for (const list of state.gps.values()) for (const p of list) if (p.playerId === m![1]) p.userId = undefined; return { id: m![1], displayName: 'x', createdAt: now() } }
   if (is(/^\/api\/players\/([\w-]+)$/, 'GET')) return globalPlayers().find(p => p.id === m![1]) ?? notFound('Player')
-  if (is(/^\/api\/players\/([\w-]+)$/, 'PATCH')) { for (const list of state.gps.values()) for (const p of list) if (p.playerId === m![1] && body.displayName) p.displayName = body.displayName; return globalPlayers().find(p => p.id === m![1]) }
+  if (is(/^\/api\/players\/([\w-]+)$/, 'PATCH')) {
+    const found = globalPlayers().find(p => p.id === m![1]) ?? notFound('Player')!
+    if (body.displayName != null && !String(body.displayName).trim()) throw new HttpError(422, 'Name is required')
+    for (const list of state.gps.values()) for (const p of list) if (p.playerId === m![1] && body.displayName) p.displayName = String(body.displayName).trim()
+    const extra = extraPlayers.find(p => p.id === m![1]); if (extra && body.displayName) extra.displayName = String(body.displayName).trim()
+    notes.set(m![1], body.notes ?? notes.get(m![1]))
+    return { ...found, displayName: body.displayName?.trim() || found.displayName, notes: notes.get(m![1]) }
+  }
 
   // feature fixtures live in their own files (fake-awards.ts, fake-spond.ts)
   for (const ext of [awardsRoutes, spondRoutes]) {
@@ -405,11 +415,12 @@ export type FeatureRoutes = (req: { method: string; path: string; q: URLSearchPa
 const fixtureContext: FixtureContext = { group, isOrg, roster, events: () => state.events, gpById, HttpError, uid }
 
 const extraPlayers: Array<{ id: string; displayName: string; createdAt: string }> = []
+const notes = new Map<string, string | undefined>()
 function globalPlayers() {
   const seen = new Map<string, { id: string; displayName: string; userId?: string; createdAt: string }>()
   for (const list of state.gps.values()) for (const p of list) if (!seen.has(p.playerId)) seen.set(p.playerId, { id: p.playerId, displayName: p.displayName, userId: p.userId, createdAt: daysAgo(30) })
   for (const p of extraPlayers) seen.set(p.id, p)
-  return [...seen.values()]
+  return [...seen.values()].map(p => ({ ...p, notes: notes.get(p.id) }))
 }
 function paymentsGroup(id: string, user: string) {
   const g = group(id, user); if (!isOrg(user, g)) deny()

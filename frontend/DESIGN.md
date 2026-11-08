@@ -1,34 +1,13 @@
-# PickleRank Frontend Design Standards
+# PickleRank frontend design standards ("Court Card")
 
-Mobile-first, bi-theme (light/dark), Tailwind CSS v4.
+The full system, its components and copy rules live in `src/app/core/ui/README.md`. In short:
 
-## Theming
-
-- `data-theme="light" | "dark"` on `<html>` is the source of truth; set pre-bundle by an inline script in `index.html`, managed by `src/stores/theme.ts` (preference `light | dark | system`, persisted to `localStorage['pr-theme']`).
-- Components use **semantic tokens** and are automatically bi-theme:
-  - Surfaces: `bg-surface-page`, `bg-surface-1` (cards), `bg-surface-2` (nested/hover), `bg-surface-3`
-  - Text: `text-ink`, `text-ink-muted`, `text-ink-faint`
-  - Borders: `border-line`, `border-line-strong`
-  - Brand: `bg-brand`, `text-brand`, `bg-brand-soft`, `text-brand-contrast` (text on brand), `brand-strong` (hover)
-  - Status: `win`, `loss`, `tie`, `warn`, `info`
-- The `dark:` variant is reserved for exceptions (e.g., shadow vs border treatments). Never hardcode grays.
-- Charts: use `useChartTheme()` from `src/app/core/ui/charts/chart-theme.ts` and remount via `:key="chartTheme.resolved.value"`.
-- Shareable images (html2canvas): hex-only scoped CSS, fixed-width brand-dark design — html2canvas cannot parse oklch.
-
-## Layout
-
-- Mobile-first: base styles are the 375px layout; `md:` (768) and `lg:` (1024) are additive for larger screens.
-- Content container: `mx-auto w-full max-w-5xl px-4 md:px-6`.
-- Safe areas: `pt-safe` / `pb-safe` / `px-safe` utilities (bottom tab bar and sheets need `pb-safe`).
-
-## Interaction
-
-- Touch targets ≥ 44px: interactive primitives use `min-h-11 min-w-11`.
-- Text inputs are ≥ 16px (`text-base`) to prevent iOS focus-zoom.
-- Bottom sheets (`Sheet`) are the modal primitive on mobile; centered dialog on `md:`+.
-- Destructive actions confirm via `useConfirm()`; mutations report via `useToast()`.
-
-## Typography
-
-- Page title: `text-xl md:text-2xl font-semibold`; section: `text-base font-semibold`; body: `text-sm md:text-base`.
-- Numeric data (ratings, scores): `font-mono tabular-nums`.
+- Mobile-first, light and dark. Semantic tokens in `src/styles/tokens.css` (contrast-tested by
+  `tokens.spec.ts`); `data-theme` on `<html>` is set by `src/stores/theme.ts` (Light, Dark, Match phone).
+- Every matchup is drawn as a court seen from above (`CourtTile`): court number in the blue gutter,
+  team one, dashed net, team two. Optic yellow is a fill only: current round, winner marker, save flash.
+- Atkinson Hyperlegible Next for text, Barlow Condensed (`.num`) for scores, ratings and counts. Self-hosted.
+- Primary controls are at least 44x44 CSS px; inputs at least 16px; focused fields clear sticky bars.
+- Each screen has one obvious next action (`ActionBar`, thumb zone) or says why it is read-only.
+- Destructive or result-changing actions confirm via `confirm()`; outcomes are announced (`toast`, `announce`).
+- Share images (html2canvas) use fixed hex colors and a light palette.
