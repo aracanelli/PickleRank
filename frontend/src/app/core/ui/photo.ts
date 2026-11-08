@@ -83,7 +83,7 @@ export function cropRect(w: number, h: number, zoom: number, pan: Pan, view: num
   return { sx: clamp(w / 2 - size / 2 - p.x / s, 0, w - size), sy: clamp(h / 2 - size / 2 - p.y / s, 0, h - size), size }
 }
 
-/** Draw the chosen square at 512x512 and encode it: WebP, or JPEG where the browser can't encode WebP. */
+/** Draw the chosen square at 512x512 and encode it: WebP, or PNG where the browser can't encode WebP. */
 export async function encodeCrop(bmp: ImageBitmap, r: CropRect): Promise<Blob> {
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = MAX_SIDE
@@ -94,13 +94,10 @@ export async function encodeCrop(bmp: ImageBitmap, r: CropRect): Promise<Blob> {
   const toBlob = (type: string, q: number) => new Promise<Blob | null>(resolve => canvas.toBlob(resolve, type, q))
   const webp = await toBlob('image/webp', 0.85)
   if (webp?.type === 'image/webp') return webp
-  // JPEG has no transparency: put a white backing under see-through logos instead of black
-  ctx.globalCompositeOperation = 'destination-over'
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, MAX_SIDE, MAX_SIDE)
-  const jpeg = await toBlob('image/jpeg', 0.9)
-  if (!jpeg) throw new PhotoError("The picture couldn't be prepared. Try again.")
-  return jpeg
+  // PNG keeps see-through logos; 512x512 RGBA is under 1 MB raw, so it stays under the upload cap
+  const png = await toBlob('image/png', 1)
+  if (!png) throw new PhotoError("The picture couldn't be prepared. Try again.")
+  return png
 }
 
 /** Plain-language message for a failed upload or removal. */

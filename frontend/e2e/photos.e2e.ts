@@ -35,10 +35,10 @@ test.describe('photos', () => {
     const saved = await card.locator('img').evaluate(async (img: HTMLImageElement) => {
       await img.decode()
       const head = new Uint8Array(await (await fetch(img.src)).arrayBuffer()).slice(0, 12)
-      return { w: img.naturalWidth, h: img.naturalHeight, webp: String.fromCharCode(...head.slice(8, 12)) === 'WEBP', jpeg: head[0] === 0xff }
+      return { w: img.naturalWidth, h: img.naturalHeight, webp: String.fromCharCode(...head.slice(8, 12)) === 'WEBP', png: head[0] === 0x89 && head[1] === 0x50 }
     })
     expect(saved).toMatchObject({ w: 512, h: 512 })
-    expect(saved.webp || saved.jpeg).toBe(true)
+    expect(saved.webp || saved.png).toBe(true)
     await expect(page.getByRole('button', { name: 'Change photo' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Remove photo' }).click()
