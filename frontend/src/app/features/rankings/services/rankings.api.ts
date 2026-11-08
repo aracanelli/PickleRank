@@ -16,6 +16,7 @@ export const rankingsApi = {
       eventId?: string;
       secondaryPlayerId?: string;
       relationship?: 'teammate' | 'opponent';
+      limit?: number;
     }
   ): Promise<MatchHistoryResponse> {
     const params = new URLSearchParams()
@@ -25,6 +26,7 @@ export const rankingsApi = {
     if (options?.eventId) params.set('eventId', options.eventId)
     if (options?.secondaryPlayerId) params.set('secondaryPlayerId', options.secondaryPlayerId)
     if (options?.relationship) params.set('relationship', options.relationship)
+    if (options?.limit) params.set('limit', String(options.limit))
 
     const query = params.toString()
     return api.get(`/api/groups/${groupId}/history${query ? `?${query}` : ''}`)

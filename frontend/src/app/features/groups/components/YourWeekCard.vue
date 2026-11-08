@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * League home, for anyone linked to a player here: how your last week went, where you stand,
+ * League home, for anyone linked to a player here: how you did at the league's last event, where you stand,
  * who you're chasing and what's next for you. The personal half of the dashboard.
  */
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ChevronUp, ChevronDown, Target, Handshake, Milestone, ChevronRight } from 'lucide-vue-next'
+import { Target, Handshake, Milestone, ChevronRight } from 'lucide-vue-next'
 import type { GroupPlayerDto } from '@/app/core/models/dto'
 import type { MyNight, Chase } from '../utils/lastWeek'
 import { MILESTONES } from '../utils/pulse'
@@ -18,9 +18,12 @@ const props = defineProps<{
   rankChange: number
   week: MyNight | null
   chase: Chase | null
+  /** the league's last event with scores, or null before the first one */
+  eventName: string | null
 }>()
 
 const word = { W: 'won', L: 'lost', T: 'tied' } as const
+const ordinal = (n: number) => `${n}${['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] ?? ['th', 'st', 'nd', 'rd'][n % 100] ?? 'th'}`
 const firstName = computed(() => props.me.displayName.trim().split(/\s+/)[0])
 const delta = computed(() => Math.round(props.me.ratingDelta ?? 0))
 const nextMilestone = computed(() => {
@@ -30,11 +33,11 @@ const nextMilestone = computed(() => {
 
 const verdict = computed(() => {
   const w = props.week
-  if (!w) return 'You sat out last week.'
+  if (!w) return props.eventName ? `You missed ${props.eventName}.` : 'No events played yet.'
   if (w.wins && !w.losses && !w.ties) return 'A perfect night.'
   if (w.wins > w.losses) return 'A winning night.'
   if (w.wins === w.losses) return 'Even night.'
-  return 'A tough night. Next week is yours.'
+  return 'A tough night.'
 })
 </script>
 
@@ -48,7 +51,7 @@ const verdict = computed(() => {
         <span v-if="week" class="you__rec">
           <span class="num you__score">{{ week.wins }}–{{ week.losses }}<template v-if="week.ties">–{{ week.ties }}</template></span>
           <span class="you__dots">
-            <span class="visually-hidden">Last week: {{ week.form.map(f => word[f]).join(', ') }}</span>
+            <span class="visually-hidden">{{ eventName }}: {{ week.form.map(f => word[f]).join(', ') }}</span>
             <span v-for="(f, i) in week.form" :key="i" class="dot" :class="`dot--${f}`" aria-hidden="true" />
           </span>
         </span>
@@ -56,32 +59,19 @@ const verdict = computed(() => {
       <ChevronRight :size="20" aria-hidden="true" class="you__go" />
     </RouterLink>
 
-    <dl class="facts">
-      <div class="fact">
-        <dt>Rank</dt>
-        <dd>
-          <span class="num fact__big">{{ rank ? `#${rank}` : '–' }}</span>
-          <span v-if="rankChange > 0" class="move up"><ChevronUp :size="14" aria-hidden="true" />{{ rankChange }}<span class="visually-hidden"> places up</span></span>
-          <span v-else-if="rankChange < 0" class="move down"><ChevronDown :size="14" aria-hidden="true" />{{ -rankChange }}<span class="visually-hidden"> places down</span></span>
-        </dd>
-      </div>
-      <div class="fact">
-        <dt>Rating</dt>
-        <dd>
-          <span class="num fact__big">{{ Math.round(me.rating) }}</span>
-          <span v-if="delta" class="move" :class="delta > 0 ? 'up' : 'down'">{{ delta > 0 ? '+' : '−' }}{{ Math.abs(delta) }}</span>
-        </dd>
-      </div>
-      <div class="fact">
-        <dt>Win rate</dt>
-        <dd><span class="num fact__big">{{ Math.round(me.winRate * 100) }}%</span></dd>
-      </div>
-    </dl>
+    <!-- where you stand, said as a sentence rather than a row of stat tiles -->
+    <p class="stand">
+      <template v-if="rank">
+        <b class="num">{{ ordinal(rank) }}</b> in the league<template v-if="rankChange">, <span :class="rankChange > 0 ? 'up' : 'down'">{{ rankChange > 0 ? 'up' : 'down' }} {{ Math.abs(rankChange) }}</span></template>.
+      </template>
+      Rating <b class="num">{{ Math.round(me.rating) }}</b><template v-if="delta">, <span :class="delta > 0 ? 'up' : 'down'">{{ delta > 0 ? 'up' : 'down' }} {{ Math.abs(delta) }}</span></template>.
+      You win <b class="num">{{ Math.round(me.winRate * 100) }}%</b> of your games.
+    </p>
 
     <ul role="list" class="notes">
       <li v-if="chase" class="note">
         <Target :size="18" aria-hidden="true" />
-        <span v-if="chase.leading">You lead {{ chase.name }} by {{ chase.points }} {{ chase.points === 1 ? 'point' : 'points' }}. Hold on to #1.</span>
+        <span v-if="chase.leading">You're #1, {{ chase.points }} {{ chase.points === 1 ? 'point' : 'points' }} ahead of {{ chase.name }}.</span>
         <span v-else>{{ chase.points }} {{ chase.points === 1 ? 'point' : 'points' }} behind {{ chase.name }} for #{{ chase.rank }}.</span>
       </li>
       <li v-if="week?.bestPartner" class="note">
@@ -119,12 +109,8 @@ const verdict = computed(() => {
 .dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
 .dot--T { height: 4px; border-radius: 2px; background: var(--ink-2); align-self: center; }
 
-.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: var(--s2); margin: 0; }
-.fact { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-control); }
-.fact dt { font-size: var(--text-xs); font-weight: 700; color: var(--ink-2); }
-.fact dd { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s1); }
-.fact__big { font-size: var(--text-xl); line-height: 1.1; }
-.move { display: inline-flex; align-items: center; font-weight: 700; font-size: var(--text-sm); }
+.stand { margin: 0; line-height: 1.5; }
+.stand b { font-size: var(--text-lg); }
 .up { color: var(--ok); }
 .down { color: var(--bad); }
 

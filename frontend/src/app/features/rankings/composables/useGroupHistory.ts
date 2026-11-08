@@ -17,6 +17,7 @@ export function bustGroupHistory(groupId?: string) {
 
 /**
  * Recent (last 30 days) match history for a group, memoized for 60s.
+ * With nothing in 30 days it falls back to the league's last event, so home is always event based.
  * The history endpoint is unpaginated; the date bound keeps payloads sane.
  */
 export function useGroupHistory(groupId: Ref<string>) {
@@ -37,9 +38,14 @@ export function useGroupHistory(groupId: Ref<string>) {
       const from = new Date(Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000)
         .toISOString()
         .slice(0, 10)
-      const response = await rankingsApi.getHistory(key, { from })
-      matches.value = response.matches
-      memo.set(key, { ts: Date.now(), data: response.matches })
+      let data = (await rankingsApi.getHistory(key, { from })).matches
+      if (!data.length) {
+        // quiet stretch: still show the league's last event, however old (history is newest first)
+        const newest = (await rankingsApi.getHistory(key, { limit: 1 })).matches[0]
+        if (newest) data = (await rankingsApi.getHistory(key, { eventId: newest.eventId })).matches
+      }
+      matches.value = data
+      memo.set(key, { ts: Date.now(), data })
     } catch (e) {
       error.value = (e as Error)?.message || 'Failed to load history'
     } finally {

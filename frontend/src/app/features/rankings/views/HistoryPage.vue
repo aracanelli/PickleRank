@@ -164,6 +164,9 @@ async function onSaved() {
 }
 
 // Round headings carry the round, so a tile only says how the filtered player did.
+const stubMonth = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short' })
+const stubDay = (iso: string) => new Date(iso).getDate()
+
 function caption(m: MatchHistoryEntryDto) {
   const who = nameOf(filters.value.playerId)
   const o = outcomeFor(m, who)
@@ -401,6 +404,11 @@ function byRound(list: MatchHistoryEntryDto[]) {
       <template v-else>
       <section v-for="ev in groups" :key="ev.id" class="evcard" :aria-labelledby="`ev-${ev.id}`">
         <div class="evhead">
+          <!-- a date stub like a league-night ticket; the header stays pinned while you scroll its games -->
+          <span v-if="ev.date" class="stub" aria-hidden="true">
+            <span class="stub__mon">{{ stubMonth(ev.date) }}</span>
+            <span class="stub__day num">{{ stubDay(ev.date) }}</span>
+          </span>
           <div class="evhead__text">
             <h2 :id="`ev-${ev.id}`" class="truncate">{{ eventTitle({ name: ev.name, startsAt: ev.date }) }}</h2>
             <p class="evhead__date">{{ formatDay(ev.date) }}, {{ ev.matches.length }} {{ ev.matches.length === 1 ? 'game' : 'games' }}</p>
@@ -517,19 +525,33 @@ function byRound(list: MatchHistoryEntryDto[]) {
 
 /* each event is one framed block, so it is clear which event a court belongs to */
 .evcard {
-  border: 1px solid var(--line-strong);
-  border-left: 6px solid var(--court);
+  border: 2px solid var(--line-strong);
   border-radius: var(--r-tile);
   background: var(--surface);
-  overflow: hidden;
 }
-.evcard + .evcard { margin-top: var(--s2); }
+.evcard + .evcard { margin-top: var(--s4); }
 .evhead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3);
   padding: var(--s3);
-  background: var(--court-tint);
-  border-bottom: 1px solid var(--line);
+  border-radius: calc(var(--r-tile) - 2px) calc(var(--r-tile) - 2px) 0 0;
+  background: var(--surface);
+  border-bottom: 2px solid var(--line-strong);
 }
+.stub {
+  flex: none;
+  display: flex; flex-direction: column; align-items: center;
+  width: 3.25rem;
+  padding: 4px 0 2px;
+  border-radius: var(--r-control);
+  background: var(--court);
+  color: var(--on-court);
+  line-height: 1;
+}
+.stub__mon { font-size: var(--text-xs); font-weight: 700; }
+.stub__day { font-size: 1.75rem; }
 .evhead__text { flex: 1 1 12rem; min-width: 0; }
 .evhead__date { font-size: var(--text-sm); color: var(--ink-2); }
 .evcard__hint { margin: var(--s3) var(--s3) 0; font-size: var(--text-sm); color: var(--ink-2); }

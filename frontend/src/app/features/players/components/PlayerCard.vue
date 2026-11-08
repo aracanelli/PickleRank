@@ -20,7 +20,7 @@ const props = defineProps<{
 
 const jersey = computed(() => `var(--jersey-${jerseyFor(props.player.displayName)})`)
 const FORM_WORD = { W: 'won', L: 'lost', T: 'tied' } as const
-const formLabel = computed(() => `Last week, ${props.form.length} ${props.form.length === 1 ? 'game' : 'games'} in order played: ${props.form.map(o => FORM_WORD[o]).join(', ')}`)
+const formLabel = computed(() => `Last event, ${props.form.length} ${props.form.length === 1 ? 'game' : 'games'} in order played: ${props.form.map(o => FORM_WORD[o]).join(', ')}`)
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 </script>
 
@@ -61,7 +61,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
     </dl>
 
     <div v-if="form.length" class="pcard__form" role="img" :aria-label="formLabel">
-      <span aria-hidden="true">Last week</span>
+      <span aria-hidden="true">Last event</span>
       <!-- same shapes as everywhere else: filled won, ring lost, bar tied -->
       <span class="pcard__dots" aria-hidden="true">
         <span v-for="(o, i) in form" :key="i" class="dot" :class="`dot--${o}`" />

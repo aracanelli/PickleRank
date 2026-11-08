@@ -16,10 +16,13 @@ const items = computed(() => {
     { key: 'rankings', label: 'Rankings', to: `${base}/rankings`, icon: Trophy, match: (p: string) => p.startsWith(`${base}/rankings`) },
     { key: 'history', label: 'History', to: `${base}/history`, icon: History, match: (p: string) => p.startsWith(`${base}/history`) }
   ]
+  // organizers who also play get both tabs; Me wins on your own profile
+  const mine = league.me ? `${base}/players/${league.me.id}` : null
   if (league.isOrganizer) {
-    list.push({ key: 'players', label: 'Players', to: `${base}/players/manage`, icon: Users, match: (p: string) => p.startsWith(`${base}/players`) })
-  } else if (league.me) {
-    list.push({ key: 'me', label: 'Me', to: `${base}/players/${league.me.id}`, icon: UserRound, match: (p: string) => p.startsWith(`${base}/players`) })
+    list.push({ key: 'players', label: 'Players', to: `${base}/players/manage`, icon: Users, match: (p: string) => p.startsWith(`${base}/players`) && p !== mine })
+  }
+  if (mine) {
+    list.push({ key: 'me', label: 'Me', to: mine, icon: UserRound, match: (p: string) => (league.isOrganizer ? p === mine : p.startsWith(`${base}/players`)) })
   }
   return list
 })

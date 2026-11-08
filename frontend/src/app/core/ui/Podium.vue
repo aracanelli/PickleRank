@@ -17,11 +17,11 @@ export interface PodiumEntry {
   ties: number
   to?: RouteLocationRaw
   isMe?: boolean
-  /** places moved since last week: positive is up */
+  /** places moved since the last event: positive is up */
   move?: number
-  /** rating change last week */
+  /** rating change at the last event */
   delta?: number
-  /** last week's results in play order */
+  /** results at the last event, in play order */
   form?: Array<'W' | 'L' | 'T'>
 }
 
@@ -49,10 +49,10 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
           <span v-if="e.move || e.delta" class="step__move num">
             <span v-if="e.move && e.move > 0" class="up"><ChevronUp :size="14" aria-hidden="true" /><span class="visually-hidden">, up </span>{{ e.move }}</span>
             <span v-else-if="e.move && e.move < 0" class="down"><ChevronDown :size="14" aria-hidden="true" /><span class="visually-hidden">, down </span>{{ -e.move }}</span>
-            <span v-if="e.delta"><span class="visually-hidden">, rating change last week </span>{{ signed(e.delta) }}</span>
+            <span v-if="e.delta"><span class="visually-hidden">, rating change last event </span>{{ signed(e.delta) }}</span>
           </span>
           <span v-if="e.form?.length" class="step__form">
-            <span class="visually-hidden">, last week: {{ e.form.map(f => word[f]).join(', ') }}</span>
+            <span class="visually-hidden">, last event: {{ e.form.map(f => word[f]).join(', ') }}</span>
             <span v-for="(f, k) in e.form" :key="k" class="dot" :class="`dot--${f}`" aria-hidden="true" />
           </span>
         </span>
@@ -122,7 +122,7 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
 .step__move .down { color: var(--bad); }
 .step__form { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 3px; margin-top: 3px; }
 /* same shapes as standings rows: filled won, ring lost, bar tied */
-.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot--W { background: var(--ok); }
 .dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
 .dot--T { height: 3px; border-radius: 2px; background: var(--ink-2); align-self: center; }

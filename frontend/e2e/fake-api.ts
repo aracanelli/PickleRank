@@ -227,7 +227,8 @@ function history(groupId: string, q: URLSearchParams) {
       })
     }
   }
-  return { matches: out }
+  const limit = Number(q.get('limit')) || 0
+  return { matches: limit ? out.slice(0, limit) : out }
 }
 
 function balances(groupId: string) {

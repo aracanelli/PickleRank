@@ -28,7 +28,7 @@ const moments = computed<Moment[]>(() => {
   const out: Moment[] = []
 
   const { hot, cold } = hotAndCold(props.matches, new Map(props.players.map(p => [p.id, p.displayName])))
-  if (hot) out.push({ key: 'hot', icon: Flame, tone: 'hot', title: `${hot.displayName} has won ${hot.length} straight`, sub: 'Hottest streak in the league', to: profile(hot.groupPlayerId) })
+  if (hot) out.push({ key: 'hot', icon: Flame, tone: 'hot', title: `${hot.displayName} has won ${hot.length} straight`, sub: 'Longest current winning run', to: profile(hot.groupPlayerId) })
 
   const rival = rivalry(props.matches)
   if (rival) {
@@ -37,25 +37,25 @@ const moments = computed<Moment[]>(() => {
     out.push({
       key: 'rival', icon: Swords,
       title: `${name(rival.a)} vs ${name(rival.b)}`,
-      sub: `${record} in ${plural(rival.meetings, 'meeting')}. ${rival.aWins === rival.bWins ? 'Dead even.' : 'Too close to call.'}`,
+      sub: `${record} in ${plural(rival.meetings, 'meeting')}${rival.aWins === rival.bWins ? ', dead even' : ''}`,
       to: a && b ? `/groups/${props.groupId}/history?h2h=${a},${b}` : undefined
     })
   }
 
   const duo = dynamicDuo(props.matches)
-  if (duo) out.push({ key: 'duo', icon: Handshake, title: `${name(duo.a)} and ${name(duo.b)}`, sub: `Won ${duo.wins} of ${duo.games} together. Best pair going.` })
+  if (duo) out.push({ key: 'duo', icon: Handshake, title: `${name(duo.a)} and ${name(duo.b)}`, sub: `Won ${duo.wins} of ${duo.games} together` })
 
   for (const m of milestones(props.rankings)) {
     const gp = props.players.find(p => p.playerId === m.playerId)
     out.push({
       key: `ms-${m.playerId}`, icon: Milestone,
       title: m.toGo ? `${m.name} is ${plural(m.toGo, 'game')} from ${m.target}` : `${m.name} has played ${m.target} games`,
-      sub: m.toGo ? 'Milestone in sight' : 'A round number. Nice.',
+      sub: m.toGo ? 'Next milestone' : 'Milestone reached',
       to: gp ? profile(gp.id) : undefined
     })
   }
 
-  if (cold) out.push({ key: 'cold', icon: Snowflake, tone: 'cold', title: `${cold.displayName} has dropped ${cold.length} in a row`, sub: 'Due a bounce-back', to: profile(cold.groupPlayerId) })
+  if (cold) out.push({ key: 'cold', icon: Snowflake, tone: 'cold', title: `${cold.displayName} has dropped ${cold.length} in a row`, sub: 'Longest current losing run', to: profile(cold.groupPlayerId) })
   return out
 })
 </script>

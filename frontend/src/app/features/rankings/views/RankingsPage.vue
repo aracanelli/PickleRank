@@ -191,7 +191,7 @@ async function share() {
               <span v-else-if="row.rankChange < 0" class="move move--down">
                 <ChevronDown :size="16" aria-hidden="true" />Down {{ -row.rankChange }}
               </span>
-              <span v-if="row.delta">{{ signed(row.delta) }} last week</span>
+              <span v-if="row.delta">{{ signed(row.delta) }} last event</span>
             </p>
           </li>
         </ol>

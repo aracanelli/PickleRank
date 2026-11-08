@@ -14,7 +14,7 @@ defineProps<{
   isMe?: boolean
   sub?: boolean
   /** jersey colour key: global player id */
-  /** last week's results, in play order */
+  /** results at the last event, in play order */
   form?: Array<'W' | 'L' | 'T'>
 }>()
 
@@ -30,14 +30,17 @@ const word = { W: 'won', L: 'lost', T: 'tied' } as const
       <span class="srow__rec muted">
         <span class="visually-hidden">Record: </span>{{ wins }}–{{ losses }}<template v-if="ties">–{{ ties }}</template>
         <span v-if="sub">, sub</span>
-        <span v-if="form?.length" class="form">
-          <span class="visually-hidden">, last week: {{ form.map(f => word[f]).join(', ') }}</span>
-          <!-- shape carries the meaning too: filled won, ring lost, bar tied -->
-          <span v-for="(f, i) in form" :key="i" class="form__dot" :class="`form__dot--${f}`" aria-hidden="true" />
-        </span>
       </span>
     </span>
-    <span class="srow__rating num"><span class="visually-hidden">Rating </span>{{ Math.round(rating) }}</span>
+    <!-- the rating with the last event's results under it, like a scoreboard's game marks -->
+    <span class="srow__score">
+      <span class="srow__rating num"><span class="visually-hidden">Rating </span>{{ Math.round(rating) }}</span>
+      <span v-if="form?.length" class="form">
+        <span class="visually-hidden">Last event: {{ form.map(f => word[f]).join(', ') }}</span>
+        <!-- shape carries the meaning too: filled won, ring lost, bar tied -->
+        <span v-for="(f, i) in form" :key="i" class="form__dot" :class="`form__dot--${f}`" aria-hidden="true" />
+      </span>
+    </span>
     <ChevronRight v-if="to" :size="18" class="srow__chev" aria-hidden="true" />
   </component>
 </template>
@@ -66,11 +69,12 @@ const word = { W: 'won', L: 'lost', T: 'tied' } as const
 .srow__name { font-weight: 700; }
 .srow__you { font-weight: 400; color: var(--ink-2); }
 .srow__rec { font-size: var(--text-sm); font-variant-numeric: tabular-nums; display: flex; align-items: center; flex-wrap: wrap; column-gap: 2px; }
-.srow__rating { font-size: var(--text-lg); }
+.srow__score { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.srow__rating { font-size: var(--text-lg); line-height: 1; }
 .srow__chev { color: var(--ink-2); flex: none; }
 
-.form { display: inline-flex; align-items: center; gap: 3px; margin-left: var(--s2); }
-.form__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.form { display: inline-flex; align-items: center; gap: 4px; }
+.form__dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .form__dot--W { background: var(--ok); }
 .form__dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
 .form__dot--T { height: 3px; border-radius: 2px; background: var(--ink-2); }

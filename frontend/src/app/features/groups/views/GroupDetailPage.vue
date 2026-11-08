@@ -47,7 +47,6 @@ const recent = useGroupHistory(groupId)
 
 const permanentCount = computed(() => league.players.filter(p => p.membershipType === 'PERMANENT').length)
 const activeProgress = computed(() => (active.value && active.value.games.length ? progress(active.value) : null))
-const myRank = computed(() => rankings.value.find(r => r.playerId === league.me?.playerId) ?? null)
 // Rankings and history use the global player id; profile routes use the league (group player) id.
 const profileId = (playerId: string) => league.players.find(p => p.playerId === playerId)?.id
 const profileTo = (playerId: string) => {
@@ -60,19 +59,25 @@ const formOf = (playerId: string) => {
   const id = profileId(playerId)
   return id ? nightForm(night.value, id) : undefined
 }
-// movement since before the last event, over everyone shown on home
-const moves = computed(() => new Map(rankingRows(rankings.value, league.players, 'all').map(r => [r.entry.playerId, r])))
-const podium = computed(() => rankings.value.slice(0, 3).map(r => ({
+// home standings are the full-time players, ranked among themselves; subs show on the rankings page
+const regulars = computed(() => rankingRows(rankings.value, league.players, 'permanent'))
+const standings = computed(() => regulars.value.map(r => ({ ...r.entry, rank: r.rank })))
+// a sub keeps their place in the full list
+const meRow = computed(() => {
+  const id = league.me?.playerId
+  if (!id) return undefined
+  return regulars.value.find(r => r.entry.playerId === id) ?? rankingRows(rankings.value, league.players, 'all').find(r => r.entry.playerId === id)
+})
+const podium = computed(() => regulars.value.slice(0, 3).map(({ entry: r, rankChange, delta }) => ({
   playerId: r.playerId, name: r.displayName, rating: r.rating, wins: r.wins, losses: r.losses, ties: r.ties,
   isMe: !!league.me && r.playerId === league.me.playerId,
   to: profileTo(r.playerId),
-  move: moves.value.get(r.playerId)?.rankChange,
-  delta: moves.value.get(r.playerId)?.delta,
+  move: rankChange,
+  delta,
   form: formOf(r.playerId)
 })))
 const myWeek = computed(() => (league.me ? myNight(night.value, league.me.id) : null))
-const myChase = computed(() => (league.me ? chase(rankings.value, league.me.playerId) : null))
-const myMove = computed(() => (league.me ? moves.value.get(league.me.playerId)?.rankChange ?? 0 : 0))
+const myChase = computed(() => (league.me ? chase(meRow.value?.sub ? rankings.value : standings.value, league.me.playerId) : null))
 
 async function loadExtras() {
   loadingExtras.value = true
@@ -243,8 +248,9 @@ function statusLine(e: EventListItemDto) {
         v-if="league.me && !loadingExtras"
         :group-id="groupId"
         :me="league.me"
-        :rank="myRank?.rank ?? null"
-        :rank-change="myMove"
+        :rank="meRow?.rank ?? null"
+        :rank-change="meRow?.rankChange ?? 0"
+        :event-name="night ? night.eventName || 'the last event' : null"
         :week="myWeek"
         :chase="myChase"
       />
@@ -263,12 +269,12 @@ function statusLine(e: EventListItemDto) {
           <h2 id="stand-h">Standings</h2>
           <RouterLink :to="`/groups/${groupId}/rankings`" class="more">All rankings</RouterLink>
         </div>
-        <UiState v-if="loadingExtras && !rankings.length" kind="loading" title="Loading standings" />
-        <p v-else-if="!rankings.length" class="muted">Standings appear after the first completed event.</p>
+        <UiState v-if="loadingExtras && !standings.length" kind="loading" title="Loading standings" />
+        <p v-else-if="!standings.length" class="muted">Standings appear after the first completed event.</p>
         <div v-else>
           <Podium :entries="podium" />
           <StandingRow
-            v-for="r in rankings.slice(3, 5)"
+            v-for="r in standings.slice(3, 5)"
             :key="r.playerId"
             :rank="r.rank"
             :name="r.displayName"

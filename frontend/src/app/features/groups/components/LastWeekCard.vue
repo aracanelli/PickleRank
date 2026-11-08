@@ -62,7 +62,7 @@ const headlines = computed<Headline[]>(() => {
 <template>
   <section v-if="stats" class="section" aria-labelledby="lastweek-h">
     <div class="section-head">
-      <h2 id="lastweek-h">Last week</h2>
+      <h2 id="lastweek-h">Last event</h2>
       <RouterLink :to="`/events/${night.eventId}`" class="more">Every game</RouterLink>
     </div>
 
