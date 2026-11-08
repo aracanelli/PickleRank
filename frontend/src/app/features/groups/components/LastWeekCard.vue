@@ -104,7 +104,7 @@ const headlines = computed<Headline[]>(() => {
   color: #ffffff;
 }
 .board__when { margin: 0 0 var(--s2); font-size: var(--text-sm); font-weight: 700; }
-.board__nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr)); gap: var(--s2); margin: 0; }
+.board__nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(3.75rem, 1fr)); gap: var(--s2); margin: 0; }
 .board__nums div { display: flex; flex-direction: column-reverse; }
 .board__nums dt { font-size: var(--text-xs); font-weight: 700; opacity: 0.85; }
 .board__nums dd { margin: 0; font-size: 2.25rem; line-height: 1; color: var(--optic); }
