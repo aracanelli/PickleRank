@@ -15,8 +15,30 @@ test.describe('photos', () => {
     await page.getByTestId('photo-input').setInputFiles({ name: 'evil.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg onload="alert(1)"/>') })
     await expect(page.getByText('Use a JPEG, PNG or WebP image.')).toBeVisible()
 
+    // cancelling the crop uploads nothing
     await page.getByTestId('photo-input').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG })
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(card.locator('img')).toHaveCount(0)
+
+    await page.getByTestId('photo-input').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: PNG })
+    const crop = page.getByRole('dialog', { name: 'Position your photo' })
+    const frame = crop.getByTestId('crop-frame')
+    await expect(frame).toBeFocused()
+    await crop.getByRole('slider', { name: 'Zoom' }).fill('2.5')
+    await frame.press('ArrowRight')
+    await frame.press('+')
+    await expect(crop.getByRole('slider', { name: 'Zoom' })).toHaveValue('2.75')
+    await crop.getByRole('button', { name: 'Use photo' }).click()
     await expect(card.locator('img')).toHaveAttribute('src', /^blob:/)
+    // what was saved is the 512px cropped square as WebP, or JPEG where WebP can't be encoded; never the original PNG
+    const saved = await card.locator('img').evaluate(async (img: HTMLImageElement) => {
+      await img.decode()
+      const head = new Uint8Array(await (await fetch(img.src)).arrayBuffer()).slice(0, 12)
+      return { w: img.naturalWidth, h: img.naturalHeight, webp: String.fromCharCode(...head.slice(8, 12)) === 'WEBP', jpeg: head[0] === 0xff }
+    })
+    expect(saved).toMatchObject({ w: 512, h: 512 })
+    expect(saved.webp || saved.jpeg).toBe(true)
     await expect(page.getByRole('button', { name: 'Change photo' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Remove photo' }).click()
@@ -37,6 +59,7 @@ test.describe('photos', () => {
     await as(page, 'user_org')
     await page.goto(`/groups/${LEAGUE}/settings`)
     await page.getByTestId('photo-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG })
+    await page.getByRole('dialog', { name: 'Position the logo' }).getByRole('button', { name: 'Use logo' }).click()
     await expect(page.getByRole('button', { name: 'Change logo' })).toBeVisible()
     await page.goto('/groups')
     await expect(page.locator('.crest__img').first()).toHaveAttribute('src', /^blob:/)
