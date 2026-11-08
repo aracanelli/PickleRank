@@ -5,14 +5,13 @@
  */
 import { ref, computed, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { Settings, RefreshCw, Trash2, Wallet, ChevronRight, CalendarClock, Flame, Snowflake } from 'lucide-vue-next'
+import { Settings, RefreshCw, Trash2, Wallet, ChevronRight, CalendarClock } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
 import { paymentsApi } from '@/app/features/payments/services/payments.api'
 import { formatMoney } from '@/app/features/payments/money'
 import { useGroupHistory, bustGroupHistory } from '@/app/features/rankings/composables/useGroupHistory'
-import { hotAndCold } from '@/app/features/rankings/utils/match-derivations'
 import AwardsTeaser from '@/app/features/awards/components/AwardsTeaser.vue'
 import { api } from '@/app/core/http/api-client'
 import type { EventDto, EventListItemDto, RankingEntryDto, MatchHistoryEntryDto } from '@/app/core/models/dto'
@@ -22,6 +21,9 @@ import UiButton from '@/app/core/ui/UiButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import ActionBar from '@/app/core/ui/ActionBar.vue'
 import StandingRow from '@/app/core/ui/StandingRow.vue'
+import Podium from '@/app/core/ui/Podium.vue'
+import LeaguePulse from '../components/LeaguePulse.vue'
+import { formFor } from '../utils/pulse'
 import CourtTile from '@/app/core/ui/CourtTile.vue'
 import { confirm, toast } from '@/app/core/ui/feedback'
 import { progress, eventTitle, formatDay } from '@/app/features/events/eventProgress'
@@ -42,12 +44,24 @@ const totalOwed = ref<number | null>(null)
 const recent = useGroupHistory(groupId)
 
 const permanentCount = computed(() => league.players.filter(p => p.membershipType === 'PERMANENT').length)
-// history team ids are group player ids
-const streaks = computed(() => hotAndCold(recent.matches.value, new Map(league.players.map(p => [p.id, p.displayName]))))
 const activeProgress = computed(() => (active.value && active.value.games.length ? progress(active.value) : null))
 const myRank = computed(() => rankings.value.find(r => r.playerId === league.me?.playerId) ?? null)
 // Rankings and history use the global player id; profile routes use the league (group player) id.
 const profileId = (playerId: string) => league.players.find(p => p.playerId === playerId)?.id
+const profileTo = (playerId: string) => {
+  const id = profileId(playerId)
+  return id ? `/groups/${groupId.value}/players/${id}` : undefined
+}
+const podium = computed(() => rankings.value.slice(0, 3).map(r => ({
+  playerId: r.playerId, name: r.displayName, rating: r.rating, wins: r.wins, losses: r.losses, ties: r.ties,
+  isMe: !!league.me && r.playerId === league.me.playerId,
+  to: profileTo(r.playerId)
+})))
+// history team ids are group player ids
+const formOf = (playerId: string) => {
+  const id = profileId(playerId)
+  return id ? formFor(recent.matches.value, id) : undefined
+}
 
 async function loadExtras() {
   loadingExtras.value = true
@@ -168,6 +182,7 @@ function statusLine(e: EventListItemDto) {
           <template v-if="activeProgress">
             <span class="tonight__round num">Round {{ activeProgress.round + 1 }} of {{ active.rounds }}</span>
             <span class="tonight__meta">
+              {{ activeProgress.roundGames.length * 4 }} players on court.
               {{ activeProgress.roundScored }} of {{ activeProgress.roundGames.length }} courts scored this round.
               {{ activeProgress.scored }} of {{ activeProgress.total }} games overall.
             </span>
@@ -178,7 +193,7 @@ function statusLine(e: EventListItemDto) {
                 :key="g.id"
                 class="pip"
                 :class="{ 'pip--done': g.scoreTeam1 != null && g.scoreTeam2 != null }"
-              >{{ g.courtIndex + 1 }}</span>
+              ><span class="pip__n">{{ g.courtIndex + 1 }}</span></span>
             </span>
           </template>
           <span v-else class="tonight__meta">{{ statusLine(active) }}. {{ active.courts }} courts, {{ active.rounds }} rounds.</span>
@@ -226,8 +241,9 @@ function statusLine(e: EventListItemDto) {
         <UiState v-if="loadingExtras && !rankings.length" kind="loading" title="Loading standings" />
         <p v-else-if="!rankings.length" class="muted">Standings appear after the first completed event.</p>
         <div v-else>
+          <Podium :entries="podium" />
           <StandingRow
-            v-for="r in rankings.slice(0, 5)"
+            v-for="r in rankings.slice(3, 5)"
             :key="r.playerId"
             :rank="r.rank"
             :name="r.displayName"
@@ -235,28 +251,14 @@ function statusLine(e: EventListItemDto) {
             :wins="r.wins"
             :losses="r.losses"
             :ties="r.ties"
+            :form="formOf(r.playerId)"
             :is-me="!!league.me && r.playerId === league.me.playerId"
-            :to="profileId(r.playerId) ? `/groups/${groupId}/players/${profileId(r.playerId)}` : undefined"
+            :to="profileTo(r.playerId)"
           />
         </div>
       </section>
 
-      <section v-if="streaks.hot || streaks.cold" class="section" aria-labelledby="streak-h">
-        <h2 id="streak-h">Streaks</h2>
-        <ul role="list" class="list">
-          <li v-for="s in [streaks.hot, streaks.cold].filter(x => !!x)" :key="s!.type" class="list__row">
-            <RouterLink :to="`/groups/${groupId}/players/${s!.groupPlayerId}`" class="list__main">
-              <Flame v-if="s!.type === 'W'" :size="20" aria-hidden="true" class="streak--hot" />
-              <Snowflake v-else :size="20" aria-hidden="true" class="streak--cold" />
-              <span class="list__text">
-                <span class="truncate list__title">{{ s!.displayName }}</span>
-                <span class="muted list__sub">{{ s!.type === 'W' ? 'Won' : 'Lost' }} the last {{ s!.length }} games</span>
-              </span>
-              <ChevronRight :size="18" aria-hidden="true" />
-            </RouterLink>
-          </li>
-        </ul>
-      </section>
+      <LeaguePulse :group-id="groupId" :matches="recent.matches.value" :rankings="rankings" :players="league.players" />
 
       <section v-if="!league.isOrganizer && myGames.length" class="section" aria-labelledby="games-h">
         <div class="section-head">
@@ -357,18 +359,23 @@ function statusLine(e: EventListItemDto) {
 .tonight__round { font-size: var(--text-xl); line-height: 1.1; }
 .tonight__meta { font-size: var(--text-sm); }
 .pips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+/* each pip is a tiny court seen from above: sidelines, a net down the middle, the court number on it */
 .pip {
+  --pip-line: var(--on-court);
+  --pip-fill: var(--court);
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 32px; height: 32px;
-  padding: 0 6px;
-  border-radius: 6px;
-  border: 2px solid var(--on-court);
+  min-width: 54px; height: 30px;
+  border-radius: 3px;
+  border: 2px solid var(--pip-line);
+  background: linear-gradient(var(--pip-line), var(--pip-line)) center / 2px 100% no-repeat, var(--pip-fill);
   font-family: var(--font-num);
   font-weight: 700;
   font-size: var(--text-md);
+  line-height: 1;
 }
-.pip--done { background: var(--on-court); color: var(--court); border-color: var(--on-court); }
-.pip--done::after { content: '✓'; font-family: var(--font-ui); font-size: 13px; margin-left: 3px; }
+.pip__n { padding: 1px 3px; background: var(--pip-fill); color: var(--pip-line); }
+.pip--done { --pip-line: var(--court); --pip-fill: var(--on-court); border-color: var(--on-court); }
+.pip--done .pip__n::after { content: '✓'; font-family: var(--font-ui); font-size: 12px; margin-left: 2px; }
 .pips-label { font-size: var(--text-xs); font-weight: 700; margin-top: var(--s2); }
 
 .mine {
@@ -407,6 +414,4 @@ function statusLine(e: EventListItemDto) {
 .list__title { font-weight: 700; }
 .list__sub { font-size: var(--text-sm); }
 .payments { border-top: 1px solid var(--line); }
-.streak--hot { color: var(--bad); }
-.streak--cold { color: var(--court); }
 </style>

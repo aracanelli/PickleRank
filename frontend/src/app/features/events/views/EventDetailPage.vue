@@ -25,6 +25,8 @@ import ShareableSchedule from '../components/ShareableSchedule.vue'
 import SwapPlayersSheet from '../components/SwapPlayersSheet.vue'
 import ReteamSheet from '../components/ReteamSheet.vue'
 import RatingRevealSheet from '../components/RatingRevealSheet.vue'
+import NightRecap from '../components/NightRecap.vue'
+import PlayerAvatar from '@/app/core/ui/PlayerAvatar.vue'
 import { useWakeLock } from '@/app/core/ui/useWakeLock'
 import { mergeLive, relaxNote } from '../liveEdits'
 import { useScoreSaver } from '../composables/useScoreSaver'
@@ -465,6 +467,8 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
       </section>
 
       <template v-else>
+        <NightRecap v-if="completed" :event="event" :updates="reveal" />
+
         <nav class="rounds" aria-label="Rounds">
           <button
             v-for="(_, i) in rounds"
@@ -507,6 +511,11 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
               />
             </li>
           </ol>
+          <!-- below the board, so saving the last court never shifts the tiles under a thumb -->
+          <p v-if="!completed && roundDone(round)" class="inbooks">
+            <span class="inbooks__ball" aria-hidden="true" />
+            {{ prog?.allScored ? `All ${rounds.length} rounds in the books.` : `Round ${round + 1} in the books.` }}
+          </p>
         </section>
 
         <section v-if="completed" class="section">
@@ -576,7 +585,7 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
           </div>
           <div class="team-in">
             <label :for="`s1-${sheetGame.id}`" class="team-in__names">
-              <span v-for="p in sheetGame.team1" :key="p.id" class="truncate">{{ p.displayName }}</span>
+              <span v-for="p in sheetGame.team1" :key="p.id" class="team-in__p"><PlayerAvatar :name="p.displayName" size="sm" /><span class="truncate">{{ p.displayName }}</span></span>
             </label>
             <input
               :id="`s1-${sheetGame.id}`"
@@ -601,7 +610,7 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
           <div class="sheet-net" aria-hidden="true" />
           <div class="team-in">
             <label :for="`s2-${sheetGame.id}`" class="team-in__names">
-              <span v-for="p in sheetGame.team2" :key="p.id" class="truncate">{{ p.displayName }}</span>
+              <span v-for="p in sheetGame.team2" :key="p.id" class="team-in__p"><PlayerAvatar :name="p.displayName" size="sm" /><span class="truncate">{{ p.displayName }}</span></span>
             </label>
             <input
               :id="`s2-${sheetGame.id}`"
@@ -712,6 +721,22 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
 .round-h .num { font-size: var(--text-xl); }
 .round-h__of { font-size: var(--text-md); font-weight: 400; }
 
+.inbooks {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-top: var(--s3);
+  font-weight: 700;
+  font-size: var(--text-md);
+  animation: inbooks 420ms var(--ease) 1;
+}
+.inbooks__ball {
+  flex: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--optic);
+  box-shadow: 0 0 0 1.5px var(--on-optic);
+}
+@keyframes inbooks { from { opacity: 0; transform: translateY(6px); } }
+
 .board { display: flex; flex-direction: column; gap: var(--s3); list-style: none; padding: 0; margin: 0; }
 
 .notice {
@@ -766,7 +791,9 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
   font-size: var(--text-lg);
   font-weight: 700;
   line-height: 1.2;
+  gap: var(--s1);
 }
+.team-in__p { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
 .score-in {
   width: 88px;
   height: 72px;

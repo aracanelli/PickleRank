@@ -14,6 +14,9 @@ import PageHeader from '@/app/core/layout/PageHeader.vue'
 import AccountButton from '@/app/core/layout/AccountButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import StandingRow from '@/app/core/ui/StandingRow.vue'
+import Podium from '@/app/core/ui/Podium.vue'
+import { useGroupHistory, bustGroupHistory } from '../composables/useGroupHistory'
+import { formFor } from '@/app/features/groups/utils/pulse'
 import { toast } from '@/app/core/ui/feedback'
 import { shareElementAsImage, safeFileName } from '@/app/core/ui/shareImage'
 import ShareableRankings from '../components/ShareableRankings.vue'
@@ -32,6 +35,19 @@ const filter = ref<RankingFilter>('permanent')
 const shareEl = ref<HTMLElement | null>(null)
 
 const rows = computed(() => rankingRows(rankings.value, league.players, filter.value))
+const podium = computed(() => rows.value.slice(0, 3).map(r => ({
+  playerId: r.entry.playerId,
+  name: r.entry.displayName,
+  rating: r.entry.rating,
+  wins: r.entry.wins,
+  losses: r.entry.losses,
+  ties: r.entry.ties,
+  isMe: !!league.me && r.entry.playerId === league.me.playerId,
+  to: r.profileId ? `/groups/${groupId.value}/players/${r.profileId}` : undefined
+})))
+// form dots come from the shared 30-day history; history team ids are group player ids
+const recent = useGroupHistory(groupId)
+const form = (profileId?: string) => (profileId ? formFor(recent.matches.value, profileId) : undefined)
 const subCount = computed(() => rankings.value.length - rankingRows(rankings.value, league.players, 'permanent').length)
 
 async function load() {
@@ -41,6 +57,7 @@ async function load() {
   if (!league.error) {
     try {
       rankings.value = (await rankingsApi.getRankings(groupId.value)).rankings
+      void recent.load()
     } catch (e) {
       loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
     }
@@ -52,6 +69,7 @@ watch(groupId, () => { void load() }, { immediate: true })
 async function refresh() {
   refreshing.value = true
   api.invalidateCache(`/api/groups/${groupId.value}`)
+  bustGroupHistory(groupId.value)
   await league.load(groupId.value, true)
   await load()
   refreshing.value = false
@@ -145,8 +163,10 @@ async function share() {
           title="No regulars ranked yet"
           body="Only subs have played so far. Choose Everyone to see them."
         />
-        <ol v-else role="list" class="ranks" aria-label="Rankings">
-          <li v-for="row in rows" :key="row.entry.playerId" class="rank">
+        <template v-else>
+        <Podium :entries="podium" />
+        <ol v-if="rows.length > 3" role="list" class="ranks" aria-label="Rankings from 4th">
+          <li v-for="row in rows.slice(3)" :key="row.entry.playerId" class="rank">
             <StandingRow
               :rank="row.rank"
               :name="row.entry.displayName"
@@ -155,6 +175,7 @@ async function share() {
               :losses="row.entry.losses"
               :ties="row.entry.ties"
               :sub="row.sub"
+              :form="form(row.profileId)"
               :is-me="!!league.me && row.entry.playerId === league.me.playerId"
               :to="row.profileId ? `/groups/${groupId}/players/${row.profileId}` : undefined"
             />
@@ -170,6 +191,7 @@ async function share() {
             </p>
           </li>
         </ol>
+        </template>
       </template>
 
       <div ref="shareEl" class="offscreen" aria-hidden="true">
@@ -229,7 +251,7 @@ async function share() {
   height: 1.5rem;
   overflow: hidden;
   white-space: nowrap;
-  margin: calc(var(--s1) * -1) 0 0 calc(2.25rem + var(--s3));
+  margin: calc(var(--s1) * -1) 0 0 calc(2.25rem + 28px + var(--s3) * 2);
   font-size: var(--text-md);
   line-height: 1.5rem;
   color: var(--ink-2);

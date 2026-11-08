@@ -5,6 +5,7 @@
  * in the score sheet header, in event recaps and in history.
  */
 import { computed } from 'vue'
+import { Donut } from 'lucide-vue-next'
 import SaveStatus, { type CourtState } from './SaveStatus.vue'
 
 const props = withDefaults(defineProps<{
@@ -29,6 +30,8 @@ const winner = computed(() => {
   return 0
 })
 const isTie = computed(() => hasScore.value && props.score1 === props.score2)
+// only once the score is confirmed: a draft 11–0 that is still saving is not a bagel yet
+const isBagel = computed(() => winner.value !== 0 && Math.min(props.score1!, props.score2!) === 0 && (props.state === 'saved' || props.state === 'final'))
 
 </script>
 
@@ -75,6 +78,7 @@ const isTie = computed(() => hasScore.value && props.score1 === props.score2)
         <span class="visually-hidden">. </span>
         <SaveStatus :state="state" :failed-text="failedText" />
         <span v-if="isTie" class="court__tie">Tie</span>
+        <span v-if="isBagel" class="court__bagel"><span class="visually-hidden">, </span><Donut :size="16" aria-hidden="true" />Bagel</span>
         <span v-if="caption" class="court__caption" aria-hidden="true">{{ caption }}</span>
       </span>
     </span>
@@ -188,6 +192,20 @@ const isTie = computed(() => hasScore.value && props.score1 === props.score2)
   flex-wrap: wrap;
   gap: var(--s2);
   margin-top: var(--s2);
+}
+.court__bagel {
+  /* a rubber stamp on the scorecard */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 6px;
+  background: var(--optic);
+  color: var(--on-optic);
+  box-shadow: inset 0 0 0 1.5px var(--on-optic);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  transform: rotate(-3deg);
 }
 .court__tie, .court__caption { font-size: var(--text-sm); color: var(--ink-2); font-weight: 700; }
 </style>

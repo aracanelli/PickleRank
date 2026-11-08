@@ -18,6 +18,9 @@ import AccountButton from '@/app/core/layout/AccountButton.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import CourtTile from '@/app/core/ui/CourtTile.vue'
+import PlayerCard from '../components/PlayerCard.vue'
+import BadgeShelf from '../components/BadgeShelf.vue'
+import { computeBadges, playerTitle } from '../utils/badges'
 import { toast } from '@/app/core/ui/feedback'
 import { ratingSeries, signed, type SeriesPoint } from '../ratingSeries'
 import { computeFormGuide } from '../utils/form-guide'
@@ -79,8 +82,16 @@ const profileId = (id: string) => league.players.find(gp => gp.id === id || gp.p
 
 // ---- form and recent games (history team ids are group player ids) ----
 const form = computed(() => (p.value ? computeFormGuide(games.value, p.value.id) : []))
-const FORM_WORD = { W: 'won', L: 'lost', T: 'tied' } as const
-const formLabel = computed(() => `Last ${form.value.length} games, newest first: ${form.value.map(o => FORM_WORD[o]).join(', ')}`)
+const subtitle = computed(() => (isMe.value ? `${summary.value}. This is you.` : summary.value))
+const badgeInput = computed(() => ({
+  matches: games.value,
+  groupPlayerId: p.value?.id ?? '',
+  history: stats.value?.history ?? [],
+  advanced: stats.value?.advanced,
+  gamesPlayed: p.value?.gamesPlayed
+}))
+const badges = computed(() => computeBadges(badgeInput.value))
+const title = computed(() => playerTitle({ ...badgeInput.value, leagueGamesPlayed: league.players.map(gp => gp.gamesPlayed) }))
 const recentGames = computed(() => sortNewestFirst(games.value).slice(0, 3))
 // you against them when you're looking at someone else; otherwise pick an opponent there
 const h2hQuery = computed(() => {
@@ -218,23 +229,12 @@ const opponents = computed(() => {
     <UiState v-else-if="error" heading="h1" kind="error" title="Player stats didn't load" :body="error.message" @retry="loadStats" />
 
     <template v-else-if="p">
-      <PageHeader :title="p.displayName" :back-to="`/groups/${groupId}`" :back-label="league.group?.name || 'League'" :subtitle="isMe ? `${summary}. This is you.` : summary">
+      <PageHeader :title="p.displayName" :back-to="`/groups/${groupId}`" :back-label="league.group?.name || 'League'">
         <template #actions><AccountButton /></template>
+        <template #title>
+          <PlayerCard :player="p" :rank="rank" :subtitle="subtitle" :title="title" :form="form" />
+        </template>
       </PageHeader>
-
-      <div class="standing">
-        <span v-if="rank" class="standing__rank num">#{{ rank }}</span>
-        <span class="standing__detail">
-          <span><span class="num standing__rating">{{ Math.round(p.rating) }}</span> rating</span>
-          <span class="muted">{{ p.wins }} {{ p.wins === 1 ? 'win' : 'wins' }}, {{ p.losses }} {{ p.losses === 1 ? 'loss' : 'losses' }}<template v-if="p.ties">, {{ p.ties }} {{ p.ties === 1 ? 'tie' : 'ties' }}</template></span>
-        </span>
-        <span v-if="form.length" class="form" role="img" :aria-label="formLabel">
-          <span class="form__label" aria-hidden="true">Form</span>
-          <span class="form__row" aria-hidden="true">
-            <span v-for="(o, i) in form" :key="i" class="form__o num" :class="`form__o--${o}`">{{ o }}</span>
-          </span>
-        </span>
-      </div>
 
       <div class="links">
         <UiButton :to="{ path: `/groups/${groupId}/history`, query: { playerId: p.playerId } }">
@@ -245,6 +245,8 @@ const opponents = computed(() => {
         </UiButton>
         <UiButton v-if="league.isOrganizer" :to="{ path: `/groups/${groupId}/players/manage`, query: { edit: p.id } }">Edit player</UiButton>
       </div>
+
+      <BadgeShelf :badges="badges" />
 
       <section class="section" aria-labelledby="chart-h">
         <div class="section-head">
@@ -330,20 +332,6 @@ const opponents = computed(() => {
 </template>
 
 <style scoped>
-.standing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s4);
-  padding: var(--s4);
-  border-radius: var(--r-tile);
-  background: var(--court-tint);
-  color: var(--ink);
-}
-.standing__rank { font-size: var(--text-xl); min-width: 3ch; }
-.standing__detail { flex: 1; display: flex; flex-direction: column; }
-.standing__rating { font-size: var(--text-lg); }
-
 .links { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .links > * { flex: 1 1 9.5rem; }
 
@@ -383,19 +371,5 @@ const opponents = computed(() => {
 }
 .partner__name { flex: 1; font-weight: 700; }
 
-.form { flex-basis: 100%; display: flex; align-items: center; gap: var(--s3); }
-.form__label { font-size: var(--text-sm); font-weight: 700; }
-.form__row { display: flex; gap: 4px; }
-.form__o {
-  display: grid; place-items: center;
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  font-weight: 700;
-  font-size: var(--text-md);
-  background: var(--surface);
-  color: var(--ink);
-}
-.form__o--W { background: var(--ok-tint); color: var(--ok); }
-.form__o--L { background: var(--bad-tint); color: var(--bad); }
 .games { display: flex; flex-direction: column; gap: var(--s3); list-style: none; margin: 0; padding: 0; }
 </style>
