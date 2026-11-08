@@ -37,6 +37,22 @@
   --wait: #8a5a00;
   --wait-tint: #fbf0d9;
 
+
+  /* player jerseys: white text on each passes 4.5:1; same in both themes */
+  --jersey-1: #1e5aa8;
+  --jersey-2: #1b7a43;
+  --jersey-3: #6d3fc0;
+  --jersey-4: #b3261e;
+  --jersey-5: #9a4d00;
+  --jersey-6: #00707a;
+  --jersey-7: #a3166e;
+  --jersey-8: #3d4a5c;
+
+  /* podium medals: rings and fills, never text */
+  --medal-1: #e2b007;
+  --medal-2: #a7b2bf;
+  --medal-3: #c07a3e;
+
   --focus: #1e5aa8;
   --scrim: rgb(19 35 58 / 0.48);
 

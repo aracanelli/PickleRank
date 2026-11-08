@@ -52,3 +52,9 @@ describe.each([['light', light], ['dark', dark]] as const)('%s tokens', (_name, 
     expect(media).toEqual(explicit)
   })
 })
+
+describe('jersey colours', () => {
+  it.each([1, 2, 3, 4, 5, 6, 7, 8])('white initials on jersey %s meet 4.5:1', n => {
+    expect(ratio('#ffffff', light[`jersey-${n}`])).toBeGreaterThanOrEqual(4.5)
+  })
+})
