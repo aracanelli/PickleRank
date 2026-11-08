@@ -8,9 +8,7 @@ import { RouterLink } from 'vue-router'
 import { Flame, Snowflake, Swords, Handshake, Milestone, ChevronRight } from 'lucide-vue-next'
 import type { MatchHistoryEntryDto, RankingEntryDto, GroupPlayerDto } from '@/app/core/models/dto'
 import { hotAndCold } from '@/app/features/rankings/utils/match-derivations'
-import { rivalry, dynamicDuo, milestones, gameOfTheWeek } from '../utils/pulse'
-import { formatDay } from '@/app/features/events/eventProgress'
-import CourtTile from '@/app/core/ui/CourtTile.vue'
+import { rivalry, dynamicDuo, milestones } from '../utils/pulse'
 
 const props = defineProps<{
   groupId: string
@@ -60,14 +58,12 @@ const moments = computed<Moment[]>(() => {
   if (cold) out.push({ key: 'cold', icon: Snowflake, tone: 'cold', title: `${cold.displayName} has dropped ${cold.length} in a row`, sub: 'Due a bounce-back', to: profile(cold.groupPlayerId) })
   return out
 })
-
-const best = computed(() => gameOfTheWeek(props.matches))
 </script>
 
 <template>
-  <section v-if="moments.length || best" class="section" aria-labelledby="pulse-h">
+  <section v-if="moments.length" class="section" aria-labelledby="pulse-h">
     <h2 id="pulse-h">League pulse</h2>
-    <ul v-if="moments.length" role="list" class="pulse">
+    <ul role="list" class="pulse">
       <li v-for="m in moments" :key="m.key">
         <component :is="m.to ? RouterLink : 'div'" :to="m.to" class="moment">
           <span class="moment__icon" :class="m.tone && `moment__icon--${m.tone}`" aria-hidden="true">
@@ -81,19 +77,6 @@ const best = computed(() => gameOfTheWeek(props.matches))
         </component>
       </li>
     </ul>
-
-    <template v-if="best">
-      <h3 class="gotw">Closest game this week</h3>
-      <CourtTile
-        :court="best.courtIndex + 1"
-        :team1="best.team1"
-        :team2="best.team2"
-        :score1="best.scoreTeam1"
-        :score2="best.scoreTeam2"
-        state="final"
-        :caption="`${best.eventName || 'Event'}, ${formatDay(best.date)}`"
-      />
-    </template>
   </section>
 </template>
 
@@ -125,5 +108,4 @@ const best = computed(() => gameOfTheWeek(props.matches))
 .moment__title { font-weight: 700; overflow-wrap: anywhere; }
 .moment__sub { font-size: var(--text-sm); }
 .moment__chev { flex: none; color: var(--ink-2); }
-.gotw { font-size: var(--text-md); margin: var(--s4) 0 var(--s2); }
 </style>

@@ -20,7 +20,7 @@ const props = defineProps<{
 
 const jersey = computed(() => `var(--jersey-${jerseyFor(props.player.displayName)})`)
 const FORM_WORD = { W: 'won', L: 'lost', T: 'tied' } as const
-const formLabel = computed(() => `Last ${props.form.length} games, newest first: ${props.form.map(o => FORM_WORD[o]).join(', ')}`)
+const formLabel = computed(() => `Last week, ${props.form.length} ${props.form.length === 1 ? 'game' : 'games'} in order played: ${props.form.map(o => FORM_WORD[o]).join(', ')}`)
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 </script>
 
@@ -61,9 +61,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
     </dl>
 
     <div v-if="form.length" class="pcard__form" role="img" :aria-label="formLabel">
-      <span aria-hidden="true">Form</span>
-      <span class="pcard__chips" aria-hidden="true">
-        <span v-for="(o, i) in form" :key="i" class="chip num" :class="`chip--${o}`">{{ o }}</span>
+      <span aria-hidden="true">Last week</span>
+      <!-- same shapes as everywhere else: filled won, ring lost, bar tied -->
+      <span class="pcard__dots" aria-hidden="true">
+        <span v-for="(o, i) in form" :key="i" class="dot" :class="`dot--${o}`" />
       </span>
     </div>
   </div>
@@ -157,16 +158,16 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 .pcard__record .num { font-size: var(--text-xl); }
 
 .pcard__form { display: flex; align-items: center; gap: var(--s3); font-size: var(--text-sm); font-weight: 700; }
-.pcard__chips { display: flex; gap: 4px; }
-.chip {
-  display: grid; place-items: center;
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  font-weight: 700;
-  font-size: var(--text-md);
+.pcard__dots {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 999px;
   background: var(--surface);
-  color: var(--ink);
 }
-.chip--W { background: var(--ok-tint); color: var(--ok); }
-.chip--L { background: var(--bad-tint); color: var(--bad); }
+.dot { width: 12px; height: 12px; border-radius: 50%; }
+.dot--W { background: var(--ok); }
+.dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
+.dot--T { height: 4px; border-radius: 2px; background: var(--ink-2); align-self: center; }
 </style>

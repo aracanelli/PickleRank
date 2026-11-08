@@ -7,6 +7,7 @@
 import { computed } from 'vue'
 import { jerseyFor, initialsOf } from './jersey'
 import { useImage, playerPhotoPath } from './photo'
+import { useLeagueStore } from '@/stores/league'
 
 const props = withDefaults(defineProps<{
   name: string
@@ -21,7 +22,15 @@ const props = withDefaults(defineProps<{
 
 const jersey = computed(() => jerseyFor(props.seed || props.name))
 const initials = computed(() => initialsOf(props.name))
-const src = useImage(() => props.photo ? { path: playerPhotoPath(props.photo.groupId, props.photo.id), version: props.photo.photoVersion } : null)
+// Without an explicit photo, find the player by name in the open league, so every list shows photos
+// without threading ids through each screen. shortcut: two players with the same name share the first's photo.
+const league = useLeagueStore()
+const who = computed(() => {
+  if (props.photo) return props.photo
+  const gp = league.groupId ? league.players.find(p => p.displayName === props.name) : undefined
+  return gp ? { groupId: league.groupId as string, id: gp.id, photoVersion: gp.photoVersion } : null
+})
+const src = useImage(() => who.value ? { path: playerPhotoPath(who.value.groupId, who.value.id), version: who.value.photoVersion } : null)
 </script>
 
 <template>

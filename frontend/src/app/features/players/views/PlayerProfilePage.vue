@@ -25,7 +25,7 @@ import BadgeShelf from '../components/BadgeShelf.vue'
 import { computeBadges, playerTitle } from '../utils/badges'
 import { toast } from '@/app/core/ui/feedback'
 import { ratingSeries, signed, type SeriesPoint } from '../ratingSeries'
-import { computeFormGuide } from '../utils/form-guide'
+import { lastNight, nightForm } from '@/app/features/groups/utils/lastWeek'
 import { sortNewestFirst } from '@/app/features/rankings/utils/match-derivations'
 import { formatDay } from '@/app/features/events/eventProgress'
 
@@ -83,7 +83,8 @@ const summary = computed(() => {
 const profileId = (id: string) => league.players.find(gp => gp.id === id || gp.playerId === id)?.id
 
 // ---- form and recent games (history team ids are group player ids) ----
-const form = computed(() => (p.value ? computeFormGuide(games.value, p.value.id) : []))
+// their most recent league night, in the order they played
+const form = computed(() => (p.value ? nightForm(lastNight(games.value), p.value.id) : []))
 const subtitle = computed(() => (isMe.value ? `${summary.value}. This is you.` : summary.value))
 const badgeInput = computed(() => ({
   matches: games.value,

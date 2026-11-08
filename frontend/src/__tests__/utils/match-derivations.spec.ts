@@ -6,7 +6,6 @@ import {
   hotAndCold,
   groupByEvent
 } from '@/app/features/rankings/utils/match-derivations'
-import { computeFormGuide } from '@/app/features/players/utils/form-guide'
 import { computeH2H } from '@/app/features/players/utils/head-to-head'
 
 let seq = 0
@@ -101,19 +100,6 @@ describe('groupByEvent', () => {
     expect(groups).toHaveLength(2)
     expect(groups[0].eventId).toBe('e2')
     expect(groups[0].matches).toHaveLength(2)
-  })
-})
-
-describe('computeFormGuide', () => {
-  it('returns last N outcomes newest first, skipping unscored', () => {
-    const matches = [
-      match({ date: '2026-07-01T19:00:00Z', result: 'TEAM2_WIN' }),
-      match({ date: '2026-07-02T19:00:00Z', result: 'UNSET' }),
-      match({ date: '2026-07-03T19:00:00Z', result: 'TIE' }),
-      match({ date: '2026-07-04T19:00:00Z', result: 'TEAM1_WIN' })
-    ]
-    expect(computeFormGuide(matches, 'a', 5)).toEqual(['W', 'T', 'L'])
-    expect(computeFormGuide(matches, 'a', 2)).toEqual(['W', 'T'])
   })
 })
 

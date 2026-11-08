@@ -1,5 +1,5 @@
 import type { MatchHistoryEntryDto, RankingEntryDto } from '@/app/core/models/dto'
-import { outcomeFor, sortNewestFirst, type Outcome } from '@/app/features/rankings/utils/match-derivations'
+import { outcomeFor } from '@/app/features/rankings/utils/match-derivations'
 
 // "League pulse" moments for league home. Pure derivations over recent history.
 // Team ids on history entries are GROUP-PLAYER ids; rankings use GLOBAL player ids.
@@ -92,29 +92,4 @@ export function milestones(rankings: RankingEntryDto[], within = 3, limit = 2): 
   }
   out.sort((x, y) => x.toGo - y.toGo || y.target - x.target)
   return out.slice(0, limit)
-}
-
-/** The closest finished game (margin of 3 or less) in the week before the newest game; higher totals break ties. */
-export function gameOfTheWeek(matches: MatchHistoryEntryDto[], maxMargin = 3): MatchHistoryEntryDto | null {
-  const withScores = matches.filter(m => isScored(m) && m.scoreTeam1 != null && m.scoreTeam2 != null)
-  if (!withScores.length) return null
-  const newest = Math.max(...withScores.map(m => new Date(m.date).getTime()))
-  const week = withScores.filter(m => newest - new Date(m.date).getTime() <= 7 * 24 * 60 * 60 * 1000)
-  const margin = (m: MatchHistoryEntryDto) => Math.abs(m.scoreTeam1! - m.scoreTeam2!)
-  const total = (m: MatchHistoryEntryDto) => m.scoreTeam1! + m.scoreTeam2!
-  const close = sortNewestFirst(week).filter(m => margin(m) <= maxMargin)
-  // stable sort keeps newest first among equals
-  close.sort((x, y) => margin(x) - margin(y) || total(y) - total(x))
-  return close[0] ?? null
-}
-
-/** Last `n` results for one player, newest first. */
-export function formFor(matches: MatchHistoryEntryDto[], groupPlayerId: string, n = 5): Outcome[] {
-  const out: Outcome[] = []
-  for (const m of sortNewestFirst(matches)) {
-    const o = outcomeFor(m, groupPlayerId)
-    if (o) out.push(o)
-    if (out.length === n) break
-  }
-  return out
 }

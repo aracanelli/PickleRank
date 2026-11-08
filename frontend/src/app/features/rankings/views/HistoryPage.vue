@@ -399,16 +399,17 @@ function byRound(list: MatchHistoryEntryDto[]) {
       />
 
       <template v-else>
-      <section v-for="ev in groups" :key="ev.id" class="section" :aria-labelledby="`ev-${ev.id}`">
+      <section v-for="ev in groups" :key="ev.id" class="evcard" :aria-labelledby="`ev-${ev.id}`">
         <div class="evhead">
           <div class="evhead__text">
             <h2 :id="`ev-${ev.id}`" class="truncate">{{ eventTitle({ name: ev.name, startsAt: ev.date }) }}</h2>
-            <p class="muted evhead__date">{{ formatDay(ev.date) }}, {{ ev.matches.length }} {{ ev.matches.length === 1 ? 'game' : 'games' }}</p>
+            <p class="evhead__date">{{ formatDay(ev.date) }}, {{ ev.matches.length }} {{ ev.matches.length === 1 ? 'game' : 'games' }}</p>
           </div>
           <UiButton v-if="league.isOrganizer" variant="secondary" :loading="opening === ev.id" @click="openEditor(ev.id)">
             <Wrench :size="18" aria-hidden="true" /> Correct scores
           </UiButton>
         </div>
+        <p v-if="league.isOrganizer" class="evcard__hint">Tap a court to correct its score in this event.</p>
         <div v-for="r in byRound(ev.matches)" :key="r.index" class="round">
         <h3 class="round__h">Round {{ r.index + 1 }}</h3>
         <ol role="list" class="games">
@@ -514,11 +515,34 @@ function byRound(list: MatchHistoryEntryDto[]) {
 .filterbar__text { font-weight: 700; }
 .filterbar__btns { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
-.evhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-bottom: var(--s3); }
+/* each event is one framed block, so it is clear which event a court belongs to */
+.evcard {
+  border: 1px solid var(--line-strong);
+  border-left: 6px solid var(--court);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  overflow: hidden;
+}
+.evcard + .evcard { margin-top: var(--s2); }
+.evhead {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3);
+  padding: var(--s3);
+  background: var(--court-tint);
+  border-bottom: 1px solid var(--line);
+}
 .evhead__text { flex: 1 1 12rem; min-width: 0; }
-.evhead__date { font-size: var(--text-sm); }
-.round + .round { margin-top: var(--s4); }
-.round__h { font-size: var(--text-md); margin-bottom: var(--s2); }
+.evhead__date { font-size: var(--text-sm); color: var(--ink-2); }
+.evcard__hint { margin: var(--s3) var(--s3) 0; font-size: var(--text-sm); color: var(--ink-2); }
+.round { padding: var(--s3); }
+.round + .round { border-top: 1px dashed var(--line); }
+.round__h {
+  display: inline-block;
+  margin-bottom: var(--s2);
+  padding: 2px var(--s2);
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  font-size: var(--text-sm);
+}
 .games { display: flex; flex-direction: column; gap: var(--s3); list-style: none; margin: 0; padding: 0; }
 /* every game here is final; the section says so, so the tile's own "Final" is noise */
 .games :deep(.court__foot .status) { display: none; }

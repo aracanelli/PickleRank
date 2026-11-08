@@ -419,19 +419,6 @@ function statusLine(e: EventListItemDto) {
 .pip--done { --pip-line: var(--court); --pip-fill: var(--on-court); border-color: var(--on-court); }
 .pip--done .pip__n::after { content: '✓'; font-family: var(--font-ui); font-size: 12px; margin-left: 2px; }
 
-.mine {
-  display: flex;
-  align-items: center;
-  gap: var(--s4);
-  padding: var(--s4);
-  border-radius: var(--r-tile);
-  background: var(--court-tint);
-  color: var(--ink);
-  text-decoration: none;
-}
-.mine__rank { font-size: var(--text-xl); min-width: 3ch; }
-.mine__detail { flex: 1; display: flex; flex-direction: column; }
-.mine__rating { font-size: var(--text-lg); }
 .readonly { font-size: var(--text-sm); }
 
 .list { display: flex; flex-direction: column; }
