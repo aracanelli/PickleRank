@@ -6,7 +6,7 @@ allowlist of formats, checked for decompression bombs, then re-encoded to a
 small WebP. The uploaded bytes are never stored or served.
 """
 from io import BytesIO
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from uuid import UUID
 
 from asyncpg import Connection
@@ -97,16 +97,17 @@ class ImageService:
         if not await self.group_players_repo.is_member(user_id, group["id"]):
             raise ForbiddenError("You do not have access to this group")
 
-    async def _require_photo_editor(self, user_id: str, group_id: UUID, group_player_id: UUID) -> None:
-        """Organizers and the owner may edit any player's photo; a linked player only their own."""
+    async def _require_photo_editor(self, user_id: str, group_id: UUID, group_player_id: UUID) -> dict:
+        """Organizers and the owner may edit any player's photo; a linked player only their own. Returns the membership row."""
         group = await self._require_group(group_id)
         gp = await self.images_repo.get_group_player(group_id, group_player_id)
         if not gp:
             raise NotFoundError("Player", str(group_player_id))
         if gp["user_id"] is not None and str(gp["user_id"]) == user_id:
-            return
+            return gp
         if not await self._is_owner_or_organizer(user_id, group):
             raise ForbiddenError("Only organizers or the player can change this photo")
+        return gp
 
     async def _require_logo_editor(self, user_id: str, group_id: UUID) -> None:
         group = await self._require_group(group_id)
@@ -117,14 +118,18 @@ class ImageService:
     # Use cases
     # ------------------------------------------------------------------
 
-    async def set_player_photo(self, user_id: str, group_id: UUID, group_player_id: UUID, raw: bytes) -> int:
-        await self._require_photo_editor(user_id, group_id, group_player_id)
+    # A photo belongs to the player (players.id), not to one league membership,
+    # so it shows in every league they play in. Returns those leagues so callers can refresh rosters.
+    async def set_player_photo(self, user_id: str, group_id: UUID, group_player_id: UUID, raw: bytes) -> Tuple[int, List[UUID]]:
+        gp = await self._require_photo_editor(user_id, group_id, group_player_id)
         data, w, h = normalize_image(raw)
-        return await self.images_repo.upsert("player", group_player_id, OUTPUT_MIME, data, w, h)
+        version = await self.images_repo.upsert("player", gp["player_id"], OUTPUT_MIME, data, w, h)
+        return version, await self.images_repo.league_ids_of(gp["player_id"])
 
-    async def delete_player_photo(self, user_id: str, group_id: UUID, group_player_id: UUID) -> None:
-        await self._require_photo_editor(user_id, group_id, group_player_id)
-        await self.images_repo.delete("player", group_player_id)
+    async def delete_player_photo(self, user_id: str, group_id: UUID, group_player_id: UUID) -> List[UUID]:
+        gp = await self._require_photo_editor(user_id, group_id, group_player_id)
+        await self.images_repo.delete("player", gp["player_id"])
+        return await self.images_repo.league_ids_of(gp["player_id"])
 
     async def set_group_logo(self, user_id: str, group_id: UUID, raw: bytes) -> int:
         await self._require_logo_editor(user_id, group_id)
@@ -137,9 +142,10 @@ class ImageService:
 
     async def get_player_photo(self, user_id: str, group_id: UUID, group_player_id: UUID) -> Optional[dict]:
         await self._require_member(user_id, await self._require_group(group_id))
-        if not await self.images_repo.get_group_player(group_id, group_player_id):
+        gp = await self.images_repo.get_group_player(group_id, group_player_id)
+        if not gp:
             raise NotFoundError("Player", str(group_player_id))
-        return await self.images_repo.get("player", group_player_id)
+        return await self.images_repo.get("player", gp["player_id"])
 
     async def get_group_logo(self, user_id: str, group_id: UUID) -> Optional[dict]:
         await self._require_member(user_id, await self._require_group(group_id))

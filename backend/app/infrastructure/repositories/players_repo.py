@@ -388,7 +388,7 @@ class GroupPlayersRepository:
             SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating, 
                    gp.games_played, gp.wins, gp.losses, gp.ties,
                    p.display_name, u.clerk_user_id as user_id,
-                   (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'player' AND i.ref_id = gp.id)::BIGINT AS photo_version, gp.created_at, gp.updated_at,
+                   (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'player' AND i.ref_id = gp.player_id)::BIGINT AS photo_version, gp.created_at, gp.updated_at,
                    CASE WHEN gp.games_played > 0 
                         THEN ROUND((gp.wins + 0.5 * gp.ties)::NUMERIC / gp.games_played, 3)
                         ELSE 0 
@@ -409,7 +409,7 @@ class GroupPlayersRepository:
             SELECT gp.id, gp.group_id, gp.player_id, gp.membership_type, gp.skill_level, gp.role, gp.rating,
                    gp.games_played, gp.wins, gp.losses, gp.ties,
                    p.display_name, u.clerk_user_id as user_id,
-                   (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'player' AND i.ref_id = gp.id)::BIGINT AS photo_version,
+                   (SELECT FLOOR(EXTRACT(EPOCH FROM i.updated_at) * 1000) FROM images i WHERE i.kind = 'player' AND i.ref_id = gp.player_id)::BIGINT AS photo_version,
                    CASE WHEN gp.games_played > 0 
                         THEN ROUND((gp.wins + 0.5 * gp.ties)::NUMERIC / gp.games_played, 3)
                         ELSE 0 

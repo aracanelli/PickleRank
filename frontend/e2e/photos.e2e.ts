@@ -39,11 +39,23 @@ test.describe('photos', () => {
     })
     expect(saved).toMatchObject({ w: 512, h: 512 })
     expect(saved.webp || saved.png).toBe(true)
-    await expect(page.getByRole('button', { name: 'Change photo' })).toBeVisible()
+    // one button on the page; Remove lives inside Edit
+    await expect(page.getByRole('button', { name: 'Remove photo' })).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'Remove photo' }).click()
+    // the photo follows the player to league home and rankings
+    await page.goto(`/groups/${LEAGUE}`)
+    await expect(page.locator('img.avatar__img').first()).toHaveAttribute('src', /^blob:/)
+    await page.goto(`/groups/${LEAGUE}/rankings`)
+    await expect(page.locator('img.avatar__img').first()).toHaveAttribute('src', /^blob:/)
+
+    await page.goto(`/groups/${LEAGUE}/players/gp_2`)
+    await page.getByRole('button', { name: 'Edit photo' }).click()
+    const edit = page.getByRole('dialog', { name: 'Position your photo' })
+    await expect(edit.getByRole('button', { name: 'Choose another' })).toBeVisible()
+    await edit.getByRole('button', { name: 'Remove photo' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Remove photo' }).click()
     await expect(card.locator('img')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Add photo' })).toBeVisible()
   })
 
   test("a member cannot change someone else's photo", async ({ page, request }) => {
@@ -51,7 +63,7 @@ test.describe('photos', () => {
     await as(page, 'user_mem')
     await page.goto(`/groups/${LEAGUE}/players/gp_1`)
     await expect(page.locator('.pcard')).toBeVisible()
-    await expect(page.getByRole('button', { name: /Add photo|Change photo/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Add photo|Edit photo/ })).toHaveCount(0)
   })
 
   test('an organizer sets the league logo and it shows on the leagues list', async ({ page, request }) => {
@@ -60,7 +72,7 @@ test.describe('photos', () => {
     await page.goto(`/groups/${LEAGUE}/settings`)
     await page.getByTestId('photo-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG })
     await page.getByRole('dialog', { name: 'Position the logo' }).getByRole('button', { name: 'Use logo' }).click()
-    await expect(page.getByRole('button', { name: 'Change logo' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Edit logo' })).toBeVisible()
     await page.goto('/groups')
     await expect(page.locator('.crest__img').first()).toHaveAttribute('src', /^blob:/)
   })

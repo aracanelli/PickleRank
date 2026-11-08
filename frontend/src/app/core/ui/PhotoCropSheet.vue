@@ -10,8 +10,13 @@ import UiButton from './UiButton.vue'
 import { cropRect, clampPan, encodeCrop, photoErrorMessage, ZOOM_MIN, ZOOM_MAX, type Pan } from './photo'
 import { toast } from './feedback'
 
-const props = defineProps<{ bitmap: ImageBitmap | null; kind: 'photo' | 'logo' }>()
-const emit = defineEmits<{ cancel: []; use: [image: Blob] }>()
+const props = defineProps<{
+  bitmap: ImageBitmap | null
+  kind: 'photo' | 'logo'
+  /** editing a saved one: offer Choose another and Remove here, not on the page */
+  editing?: boolean
+}>()
+const emit = defineEmits<{ cancel: []; use: [image: Blob]; pick: []; remove: [] }>()
 
 const VIEW = 240 // frame side in CSS px; fits a 320px-wide phone inside the sheet
 const STEP = 10
@@ -139,7 +144,11 @@ async function use() {
       </label>
     </div>
     <template #actions>
-      <UiButton variant="primary" size="lg" block :loading="busy" @click="use">Use {{ kind }}</UiButton>
+      <UiButton variant="primary" size="lg" block :loading="busy" @click="use">{{ editing ? 'Save' : `Use ${kind}` }}</UiButton>
+      <div v-if="editing" class="crop__more">
+        <UiButton :disabled="busy" @click="emit('pick')">Choose another</UiButton>
+        <UiButton variant="danger" :disabled="busy" @click="emit('remove')">Remove {{ kind }}</UiButton>
+      </div>
       <UiButton size="lg" block :disabled="busy" @click="emit('cancel')">Cancel</UiButton>
     </template>
   </UiSheet>
@@ -164,6 +173,7 @@ async function use() {
 /* LeagueCrest's corner radius (10px at 52px) scaled to the frame */
 .crop__frame--logo { border-radius: calc(var(--view) * 10 / 52); }
 .crop__canvas { display: block; width: 100%; height: 100%; }
+.crop__more { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--s2); }
 .crop__hint { font-size: var(--text-sm); text-align: center; }
 .crop__zoom { display: flex; align-items: center; gap: var(--s3); width: 100%; font-weight: 700; font-size: var(--text-sm); }
 .crop__zoom input { flex: 1; min-height: var(--tap); accent-color: var(--court); }

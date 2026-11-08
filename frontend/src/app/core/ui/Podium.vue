@@ -44,8 +44,12 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
           </span>
           <span class="visually-hidden">{{ place[i] }}: </span>
           <span class="step__name truncate">{{ e.name }}<span v-if="e.isMe" class="step__you"> (you)</span></span>
+        </span>
+        <!-- the stand itself carries the numbers, like a scoreboard plinth; taller for first -->
+        <span class="step__block">
+          <span class="step__place num" aria-hidden="true">{{ i + 1 }}</span>
           <span class="step__rating num"><span class="visually-hidden">, rating </span>{{ Math.round(e.rating) }}</span>
-          <span class="step__rec muted"><span class="visually-hidden">, record </span>{{ e.wins }}–{{ e.losses }}<template v-if="e.ties">–{{ e.ties }}</template></span>
+          <span class="step__rec"><span class="visually-hidden">, record </span>{{ e.wins }}–{{ e.losses }}<template v-if="e.ties">–{{ e.ties }}</template></span>
           <span v-if="e.move || e.delta" class="step__move num">
             <span v-if="e.move && e.move > 0" class="up"><ChevronUp :size="14" aria-hidden="true" /><span class="visually-hidden">, up </span>{{ e.move }}</span>
             <span v-else-if="e.move && e.move < 0" class="down"><ChevronDown :size="14" aria-hidden="true" /><span class="visually-hidden">, down </span>{{ -e.move }}</span>
@@ -55,9 +59,6 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
             <span class="visually-hidden">, last event: {{ e.form.map(f => word[f]).join(', ') }}</span>
             <span v-for="(f, k) in e.form" :key="k" class="dot" :class="`dot--${f}`" aria-hidden="true" />
           </span>
-        </span>
-        <span class="step__block" aria-hidden="true">
-          <span class="step__place num">{{ i + 1 }}</span>
         </span>
       </component>
     </li>
@@ -113,49 +114,65 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
 }
 .step__name { max-width: 100%; font-weight: 700; font-size: var(--text-sm); }
 .step__you { font-weight: 400; color: var(--ink-2); }
-.step__rating { font-size: var(--text-xl); line-height: 1.1; }
+.step__rating { font-size: var(--text-xl); line-height: 1; }
 .step--1 .step__rating { font-size: 2.25rem; }
-.step__rec { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.step__move { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); color: var(--ink-2); }
+.step__rec { font-size: var(--text-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+.step__move { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: var(--s2); font-size: var(--text-sm); }
 .step__move .up, .step__move .down { display: inline-flex; align-items: center; font-weight: 700; }
 .step__move .up { color: var(--ok); }
 .step__move .down { color: var(--bad); }
-.step__form { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 3px; margin-top: 3px; }
+.step__form { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 2px; }
 /* same shapes as standings rows: filled won, ring lost, bar tied */
 .dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot--W { background: var(--ok); }
 .dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
 .dot--T { height: 3px; border-radius: 2px; background: var(--ink-2); align-self: center; }
 
+/* a plinth in a wash of its medal colour, edged in the full colour; text stays ink for contrast */
 .step__block {
+  --medal: var(--medal-1);
+  position: relative;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: var(--s2);
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 22px 2px var(--s3);
+  border: 2px solid var(--medal);
+  border-bottom: 0;
   border-radius: var(--r-control) var(--r-control) 0 0;
+  background: color-mix(in srgb, var(--medal) 18%, var(--surface));
+  color: var(--ink);
+  text-align: center;
 }
-.step--1 .step__block { height: 76px; background: var(--medal-1); }
-.step--2 .step__block { height: 52px; background: var(--medal-2); }
-.step--3 .step__block { height: 36px; background: var(--medal-3); padding-top: 4px; }
-/* place numbers sit on a surface chip: medal colours are fills, never text backgrounds */
+.step--1 .step__block { min-height: 176px; }
+.step--2 .step__block { --medal: var(--medal-2); min-height: 148px; }
+.step--3 .step__block { --medal: var(--medal-3); min-height: 132px; }
+/* the place sits on the plinth's top edge in the solid medal colour; fixed dark ink reads on all three */
 .step__place {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: grid;
   place-items: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 4px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--surface);
-  color: var(--ink);
+  background: var(--medal);
+  color: #13233a;
+  box-shadow: 0 0 0 3px var(--bg);
   font-weight: 700;
   font-size: var(--text-lg);
   line-height: 1;
 }
+.step__who { padding-bottom: 20px; }
 
 @media (prefers-reduced-motion: no-preference) {
   .step__block { animation: rise 420ms var(--ease) both; transform-origin: bottom; }
+  .step__block > * { animation: fade 300ms 380ms var(--ease) both; }
   .step--1 .step__block { animation-delay: 120ms; }
   .step--3 .step__block { animation-delay: 60ms; }
 }
 @keyframes rise { from { transform: scaleY(0.4); } }
+@keyframes fade { from { opacity: 0; } }
 </style>

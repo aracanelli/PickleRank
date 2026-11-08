@@ -51,8 +51,9 @@ def _serve(image: dict | None) -> Response:
     return Response(content=bytes(image["data"]), media_type=image["mime"], headers=IMAGE_HEADERS)
 
 
-async def _forget_cached_rosters(group_id: UUID) -> None:
-    await group_cache.invalidate(f"group_players:{group_id}")
+async def _forget_cached_rosters(group_ids: list[UUID]) -> None:
+    for gid in group_ids:
+        await group_cache.invalidate(f"group_players:{gid}")
 
 
 @router.put("/groups/{group_id}/players/{group_player_id}/photo")
@@ -64,10 +65,10 @@ async def put_player_photo(
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
-    """Set a player's photo. The player themself, or an organizer/owner of the league."""
+    """Set a player's photo, shown in every league they play in. The player themself, or an organizer/owner of this league."""
     raw = await _read_capped(request)
-    version = await ImageService(db).set_player_photo(user.user_id, group_id, group_player_id, raw)
-    await _forget_cached_rosters(group_id)
+    version, leagues = await ImageService(db).set_player_photo(user.user_id, group_id, group_player_id, raw)
+    await _forget_cached_rosters(leagues)
     return {"photoVersion": version}
 
 
@@ -80,8 +81,8 @@ async def delete_player_photo(
     user: CurrentUser = Depends(get_current_user),
     db: Connection = Depends(get_db),
 ):
-    await ImageService(db).delete_player_photo(user.user_id, group_id, group_player_id)
-    await _forget_cached_rosters(group_id)
+    leagues = await ImageService(db).delete_player_photo(user.user_id, group_id, group_player_id)
+    await _forget_cached_rosters(leagues)
 
 
 @router.get("/groups/{group_id}/players/{group_player_id}/photo")

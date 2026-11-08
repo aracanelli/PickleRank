@@ -16,6 +16,7 @@ from tests.integration.conftest import TEST_USER_ID
 
 GROUP_ID = uuid4()
 GP_ID = uuid4()
+PLAYER_ID = uuid4()
 OTHER_USER = uuid4()
 
 GROUPS = "app.infrastructure.repositories.groups_repo.GroupsRepository"
@@ -58,16 +59,18 @@ def repos():
          patch(f"{IMAGES}.upsert", new_callable=AsyncMock) as upsert, \
          patch(f"{IMAGES}.delete", new_callable=AsyncMock) as delete, \
          patch(f"{IMAGES}.get", new_callable=AsyncMock) as get_image, \
+         patch(f"{IMAGES}.league_ids_of", new_callable=AsyncMock) as leagues, \
          patch(f"{GPLAYERS}.is_organizer", new_callable=AsyncMock) as is_org, \
          patch(f"{GPLAYERS}.is_member", new_callable=AsyncMock) as is_member:
         get_group.return_value = _group()
-        get_gp.return_value = {"id": GP_ID, "user_id": OTHER_USER}
+        get_gp.return_value = {"id": GP_ID, "player_id": PLAYER_ID, "user_id": OTHER_USER}
+        leagues.return_value = [GROUP_ID]
         upsert.return_value = 1762560000000
         is_org.return_value = False
         is_member.return_value = True
         yield {
             "get_group": get_group, "get_gp": get_gp, "upsert": upsert, "delete": delete,
-            "get_image": get_image, "is_org": is_org, "is_member": is_member,
+            "get_image": get_image, "leagues": leagues, "is_org": is_org, "is_member": is_member,
         }
 
 
@@ -77,12 +80,12 @@ LOGO_URL = f"/api/groups/{GROUP_ID}/logo"
 
 class TestAuthorization:
     def test_linked_player_can_set_own_photo(self, client, repos):
-        repos["get_gp"].return_value = {"id": GP_ID, "user_id": UUID(TEST_USER_ID)}
+        repos["get_gp"].return_value = {"id": GP_ID, "player_id": PLAYER_ID, "user_id": UUID(TEST_USER_ID)}
         r = client.put(PHOTO_URL, content=_png())
         assert r.status_code == 200
         assert r.json() == {"photoVersion": 1762560000000}
         kind, ref, mime, data, w, h = repos["upsert"].call_args.args
-        assert (kind, ref, mime) == ("player", GP_ID, "image/webp")
+        assert (kind, ref, mime) == ("player", PLAYER_ID, "image/webp")  # one photo per player, every league
         assert data[:4] == b"RIFF" and data[8:12] == b"WEBP"
 
     def test_organizer_can_set_any_player_photo(self, client, repos):
@@ -105,7 +108,7 @@ class TestAuthorization:
         repos["delete"].assert_not_called()
 
     def test_unlinked_player_does_not_match_anyone(self, client, repos):
-        repos["get_gp"].return_value = {"id": GP_ID, "user_id": None}
+        repos["get_gp"].return_value = {"id": GP_ID, "player_id": PLAYER_ID, "user_id": None}
         assert client.put(PHOTO_URL, content=_png()).status_code == 403
 
     def test_player_cannot_set_logo(self, client, repos):
@@ -128,7 +131,7 @@ class TestAuthorization:
     def test_organizer_can_remove_photo(self, client, repos):
         repos["is_org"].return_value = True
         assert client.delete(PHOTO_URL).status_code == 204
-        repos["delete"].assert_called_once_with("player", GP_ID)
+        repos["delete"].assert_called_once_with("player", PLAYER_ID)
 
 
 class TestUploadValidation:

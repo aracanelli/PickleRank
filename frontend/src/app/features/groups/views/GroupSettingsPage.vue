@@ -207,11 +207,11 @@ async function archive() {
           <PhotoControl
             kind="logo"
             :path="leagueLogoPath(groupId)"
-            :has="!!league.group.logoVersion"
+            :version="league.group.logoVersion"
             @changed="(v: number | null) => { if (league.group) league.group.logoVersion = v }"
           />
         </div>
-        <p class="muted hint">A square JPEG, PNG or WebP works best. Everyone in the league sees it.</p>
+        <p class="muted hint">Any JPEG, PNG or WebP. You can zoom and move it to fit. Everyone in the league sees it.</p>
       </section>
       <p class="warn"><AlertTriangle :size="20" aria-hidden="true" /> <span>Changes affect future events; historical events remain recorded.</span></p>
 

@@ -251,7 +251,7 @@ const opponents = computed(() => {
           v-if="isMe || league.isOrganizer"
           kind="photo"
           :path="playerPhotoPath(groupId, p.id)"
-          :has="!!p.photoVersion"
+          :version="p.photoVersion"
           @changed="(v: number | null) => { if (stats) stats.player.photoVersion = v; league.load(groupId, true) }"
         />
       </div>

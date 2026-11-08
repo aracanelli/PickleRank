@@ -166,7 +166,7 @@ const eventDto = (e: Ev) => ({
   id: e.id, groupId: e.groupId, name: e.name, status: e.status, startsAt: e.startsAt, courts: e.courts, rounds: e.rounds,
   participantCount: e.participants.length, games: e.games.map(gameDto)
 })
-const gpDto = (p: GP, groupId: string) => ({ ...p, groupId, winRate: p.gamesPlayed ? (p.wins + 0.5 * p.ties) / p.gamesPlayed : 0, photoVersion: version(`player:${p.id}`) })
+const gpDto = (p: GP, groupId: string) => ({ ...p, groupId, winRate: p.gamesPlayed ? (p.wins + 0.5 * p.ties) / p.gamesPlayed : 0, photoVersion: version(`player:${p.playerId}`) })
 
 function canSee(user: string, g: Group) { return g.ownerUserId === user || roster(g.id).some(p => p.userId === user) }
 function isOrg(user: string, g: Group) { return g.ownerUserId === user || roster(g.id).some(p => p.userId === user && p.role === 'ORGANIZER') }
@@ -464,7 +464,8 @@ const MAGIC: Array<[string, (b: Buffer) => boolean]> = [
 async function imageRoute(req: Connect.IncomingMessage, res: ServerResponse, groupId: string, gpId: string | undefined, user: string) {
   const g = group(groupId, user)
   if (gpId && !roster(g.id).some(p => p.id === gpId)) notFound('Player')
-  const key = gpId ? `player:${gpId}` : `group:${g.id}`
+  // like the API: one photo per player (global id), shown in every league they play in
+  const key = gpId ? `player:${roster(g.id).find(p => p.id === gpId)!.playerId}` : `group:${g.id}`
   if (req.method === 'GET') {
     const found = images.get(key) ?? notFound('Image')!
     res.statusCode = 200

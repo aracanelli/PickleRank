@@ -1,7 +1,7 @@
 """
 Images repository - player photos and league logos stored as re-encoded bytes.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from asyncpg import Connection
@@ -52,11 +52,16 @@ class ImagesRepository:
             "DELETE FROM images WHERE kind = $1 AND ref_id = $2", kind, ref_id
         )
 
+    async def league_ids_of(self, player_id: UUID) -> List[UUID]:
+        """Every league the player belongs to: their one photo shows in all of them."""
+        rows = await self.conn.fetch("SELECT group_id FROM group_players WHERE player_id = $1", player_id)
+        return [r["group_id"] for r in rows]
+
     async def get_group_player(self, group_id: UUID, group_player_id: UUID) -> Optional[Dict[str, Any]]:
         """The membership row plus the internal user id it is linked to (None when unlinked)."""
         row = await self.conn.fetchrow(
             """
-            SELECT gp.id, p.user_id
+            SELECT gp.id, gp.player_id, p.user_id
             FROM group_players gp
             JOIN players p ON p.id = gp.player_id
             WHERE gp.id = $1 AND gp.group_id = $2

@@ -42,6 +42,13 @@ export function useImage(source: () => { path: string; version?: number | null }
 
 export class PhotoError extends Error {}
 
+/** The saved image as a bitmap, so Edit can re-crop it (it is already 512px, so zooming in softens it). */
+export async function savedBitmap(path: string, version: number): Promise<ImageBitmap> {
+  const url = await load(path, version)
+  if (!url) throw new PhotoError("The saved picture couldn't be loaded. Choose a new one.")
+  return createImageBitmap(await (await fetch(url)).blob())
+}
+
 /** Check the pick, then decode it upright. A convenience only: the server validates everything again. */
 export async function decodePick(file: File): Promise<ImageBitmap> {
   if (!ACCEPT.split(',').includes(file.type)) throw new PhotoError('Use a JPEG, PNG or WebP image.')
