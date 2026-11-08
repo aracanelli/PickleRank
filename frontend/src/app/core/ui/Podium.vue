@@ -4,7 +4,7 @@
  * DOM order stays 1, 2, 3 so screen readers hear the ranking in order; CSS places the steps.
  */
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
-import { Crown } from 'lucide-vue-next'
+import { Crown, ChevronUp, ChevronDown } from 'lucide-vue-next'
 import PlayerAvatar from './PlayerAvatar.vue'
 
 export interface PodiumEntry {
@@ -17,12 +17,20 @@ export interface PodiumEntry {
   ties: number
   to?: RouteLocationRaw
   isMe?: boolean
+  /** places moved since last week: positive is up */
+  move?: number
+  /** rating change last week */
+  delta?: number
+  /** last week's results in play order */
+  form?: Array<'W' | 'L' | 'T'>
 }
 
 defineProps<{ entries: PodiumEntry[] }>()
 
 const place = ['1st', '2nd', '3rd']
 const medal = (i: number) => (i + 1) as 1 | 2 | 3
+const word = { W: 'won', L: 'lost', T: 'tied' } as const
+const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
 </script>
 
 <template>
@@ -38,6 +46,15 @@ const medal = (i: number) => (i + 1) as 1 | 2 | 3
           <span class="step__name truncate">{{ e.name }}<span v-if="e.isMe" class="step__you"> (you)</span></span>
           <span class="step__rating num"><span class="visually-hidden">, rating </span>{{ Math.round(e.rating) }}</span>
           <span class="step__rec muted"><span class="visually-hidden">, record </span>{{ e.wins }}–{{ e.losses }}<template v-if="e.ties">–{{ e.ties }}</template></span>
+          <span v-if="e.move || e.delta" class="step__move num">
+            <span v-if="e.move && e.move > 0" class="up"><ChevronUp :size="14" aria-hidden="true" /><span class="visually-hidden">, up </span>{{ e.move }}</span>
+            <span v-else-if="e.move && e.move < 0" class="down"><ChevronDown :size="14" aria-hidden="true" /><span class="visually-hidden">, down </span>{{ -e.move }}</span>
+            <span v-if="e.delta"><span class="visually-hidden">, rating change last week </span>{{ signed(e.delta) }}</span>
+          </span>
+          <span v-if="e.form?.length" class="step__form">
+            <span class="visually-hidden">, last week: {{ e.form.map(f => word[f]).join(', ') }}</span>
+            <span v-for="(f, k) in e.form" :key="k" class="dot" :class="`dot--${f}`" aria-hidden="true" />
+          </span>
         </span>
         <span class="step__block" aria-hidden="true">
           <span class="step__place num">{{ i + 1 }}</span>
@@ -99,6 +116,16 @@ const medal = (i: number) => (i + 1) as 1 | 2 | 3
 .step__rating { font-size: var(--text-xl); line-height: 1.1; }
 .step--1 .step__rating { font-size: 2.25rem; }
 .step__rec { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.step__move { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); color: var(--ink-2); }
+.step__move .up, .step__move .down { display: inline-flex; align-items: center; font-weight: 700; }
+.step__move .up { color: var(--ok); }
+.step__move .down { color: var(--bad); }
+.step__form { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 3px; margin-top: 3px; }
+/* same shapes as standings rows: filled won, ring lost, bar tied */
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot--W { background: var(--ok); }
+.dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
+.dot--T { height: 3px; border-radius: 2px; background: var(--ink-2); align-self: center; }
 
 .step__block {
   display: flex;

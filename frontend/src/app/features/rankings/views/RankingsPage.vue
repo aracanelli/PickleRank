@@ -16,7 +16,7 @@ import UiState from '@/app/core/ui/UiState.vue'
 import StandingRow from '@/app/core/ui/StandingRow.vue'
 import Podium from '@/app/core/ui/Podium.vue'
 import { useGroupHistory, bustGroupHistory } from '../composables/useGroupHistory'
-import { formFor } from '@/app/features/groups/utils/pulse'
+import { lastNight, nightForm } from '@/app/features/groups/utils/lastWeek'
 import { toast } from '@/app/core/ui/feedback'
 import { shareElementAsImage, safeFileName } from '@/app/core/ui/shareImage'
 import ShareableRankings from '../components/ShareableRankings.vue'
@@ -35,6 +35,10 @@ const filter = ref<RankingFilter>('permanent')
 const shareEl = ref<HTMLElement | null>(null)
 
 const rows = computed(() => rankingRows(rankings.value, league.players, filter.value))
+// last-week dots come from the shared 30-day history; history team ids are group player ids
+const recent = useGroupHistory(groupId)
+const night = computed(() => lastNight(recent.matches.value))
+const form = (profileId?: string) => (profileId ? nightForm(night.value, profileId) : undefined)
 const podium = computed(() => rows.value.slice(0, 3).map(r => ({
   playerId: r.entry.playerId,
   name: r.entry.displayName,
@@ -43,11 +47,11 @@ const podium = computed(() => rows.value.slice(0, 3).map(r => ({
   losses: r.entry.losses,
   ties: r.entry.ties,
   isMe: !!league.me && r.entry.playerId === league.me.playerId,
-  to: r.profileId ? `/groups/${groupId.value}/players/${r.profileId}` : undefined
+  to: r.profileId ? `/groups/${groupId.value}/players/${r.profileId}` : undefined,
+  move: r.rankChange,
+  delta: r.delta,
+  form: form(r.profileId)
 })))
-// form dots come from the shared 30-day history; history team ids are group player ids
-const recent = useGroupHistory(groupId)
-const form = (profileId?: string) => (profileId ? formFor(recent.matches.value, profileId) : undefined)
 const subCount = computed(() => rankings.value.length - rankingRows(rankings.value, league.players, 'permanent').length)
 
 async function load() {
@@ -187,7 +191,7 @@ async function share() {
               <span v-else-if="row.rankChange < 0" class="move move--down">
                 <ChevronDown :size="16" aria-hidden="true" />Down {{ -row.rankChange }}
               </span>
-              <span v-if="row.delta">{{ signed(row.delta) }} last event</span>
+              <span v-if="row.delta">{{ signed(row.delta) }} last week</span>
             </p>
           </li>
         </ol>

@@ -5,7 +5,7 @@
  */
 import { ref, computed, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { Settings, RefreshCw, Trash2, Wallet, ChevronRight, CalendarClock } from 'lucide-vue-next'
+import { Settings, RefreshCw, Trash2, Wallet, ChevronRight, CalendarClock, Trophy } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
@@ -22,7 +22,10 @@ import UiState from '@/app/core/ui/UiState.vue'
 import StandingRow from '@/app/core/ui/StandingRow.vue'
 import Podium from '@/app/core/ui/Podium.vue'
 import LeaguePulse from '../components/LeaguePulse.vue'
-import { formFor } from '../utils/pulse'
+import LastWeekCard from '../components/LastWeekCard.vue'
+import YourWeekCard from '../components/YourWeekCard.vue'
+import { lastNight, nightForm, myNight, chase } from '../utils/lastWeek'
+import { rankingRows } from '@/app/features/rankings/rankingsView'
 import CourtTile from '@/app/core/ui/CourtTile.vue'
 import { confirm, toast } from '@/app/core/ui/feedback'
 import { progress, eventTitle, formatDay } from '@/app/features/events/eventProgress'
@@ -51,16 +54,25 @@ const profileTo = (playerId: string) => {
   const id = profileId(playerId)
   return id ? `/groups/${groupId.value}/players/${id}` : undefined
 }
+// the league's most recent night; history team ids are group player ids
+const night = computed(() => lastNight(recent.matches.value))
+const formOf = (playerId: string) => {
+  const id = profileId(playerId)
+  return id ? nightForm(night.value, id) : undefined
+}
+// movement since before the last event, over everyone shown on home
+const moves = computed(() => new Map(rankingRows(rankings.value, league.players, 'all').map(r => [r.entry.playerId, r])))
 const podium = computed(() => rankings.value.slice(0, 3).map(r => ({
   playerId: r.playerId, name: r.displayName, rating: r.rating, wins: r.wins, losses: r.losses, ties: r.ties,
   isMe: !!league.me && r.playerId === league.me.playerId,
-  to: profileTo(r.playerId)
+  to: profileTo(r.playerId),
+  move: moves.value.get(r.playerId)?.rankChange,
+  delta: moves.value.get(r.playerId)?.delta,
+  form: formOf(r.playerId)
 })))
-// history team ids are group player ids
-const formOf = (playerId: string) => {
-  const id = profileId(playerId)
-  return id ? formFor(recent.matches.value, id) : undefined
-}
+const myWeek = computed(() => (league.me ? myNight(night.value, league.me.id) : null))
+const myChase = computed(() => (league.me ? chase(rankings.value, league.me.playerId) : null))
+const myMove = computed(() => (league.me ? moves.value.get(league.me.playerId)?.rankChange ?? 0 : 0))
 
 async function loadExtras() {
   loadingExtras.value = true
@@ -226,20 +238,23 @@ function statusLine(e: EventListItemDto) {
         </ul>
       </section>
 
-      <!-- PLAYER: your standing -->
-      <section v-else class="section" aria-labelledby="you-h">
+      <!-- personal: anyone linked to a player in this league -->
+      <YourWeekCard
+        v-if="league.me && !loadingExtras"
+        :group-id="groupId"
+        :me="league.me"
+        :rank="myRank?.rank ?? null"
+        :rank-change="myMove"
+        :week="myWeek"
+        :chase="myChase"
+      />
+      <section v-else-if="!league.isOrganizer && !league.me" class="section" aria-labelledby="you-h">
         <h2 id="you-h">Your standing</h2>
-        <RouterLink v-if="league.me" :to="`/groups/${groupId}/players/${league.me.id}`" class="mine">
-          <span class="mine__rank num">{{ myRank ? `#${myRank.rank}` : 'Unranked' }}</span>
-          <span class="mine__detail">
-            <span><span class="num mine__rating">{{ Math.round(league.me.rating) }}</span> rating</span>
-            <span class="muted">{{ league.me.wins }} wins, {{ league.me.losses }} losses<template v-if="league.me.ties">, {{ league.me.ties }} ties</template></span>
-          </span>
-          <ChevronRight :size="20" aria-hidden="true" />
-        </RouterLink>
-        <p v-else class="muted">Your account isn't linked to a player in this league yet. Ask the organizer for your invite link.</p>
-        <p class="muted readonly">Scores are entered by league organizers on game night.</p>
+        <p class="muted">Your account isn't linked to a player in this league yet. Ask the organizer for your invite link.</p>
       </section>
+      <p v-if="!league.isOrganizer" class="muted readonly">Scores are entered by league organizers on game night.</p>
+
+      <LastWeekCard v-if="night" :group-id="groupId" :night="night" :players="league.players" />
 
       <AwardsTeaser :group-id="groupId" />
 
@@ -315,6 +330,14 @@ function statusLine(e: EventListItemDto) {
         <ChevronRight :size="18" aria-hidden="true" />
       </RouterLink>
 
+      <RouterLink v-if="league.isOrganizer" :to="`/groups/${groupId}/awards`" class="list__row list__main payments">
+        <Trophy :size="20" aria-hidden="true" />
+        <span class="list__text">
+          <span class="list__title">Generate awards</span>
+          <span class="muted list__sub">Season awards from the stats, plus your own categories and a vote</span>
+        </span>
+        <ChevronRight :size="18" aria-hidden="true" />
+      </RouterLink>
     </template>
   </div>
 </template>

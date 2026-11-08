@@ -14,7 +14,7 @@ defineProps<{
   isMe?: boolean
   sub?: boolean
   /** jersey colour key: global player id */
-  /** last results, newest first */
+  /** last week's results, in play order */
   form?: Array<'W' | 'L' | 'T'>
 }>()
 
@@ -31,7 +31,7 @@ const word = { W: 'won', L: 'lost', T: 'tied' } as const
         <span class="visually-hidden">Record: </span>{{ wins }}–{{ losses }}<template v-if="ties">–{{ ties }}</template>
         <span v-if="sub">, sub</span>
         <span v-if="form?.length" class="form">
-          <span class="visually-hidden">, last {{ form.length }}: {{ form.map(f => word[f]).join(', ') }}</span>
+          <span class="visually-hidden">, last week: {{ form.map(f => word[f]).join(', ') }}</span>
           <!-- shape carries the meaning too: filled won, ring lost, bar tied -->
           <span v-for="(f, i) in form" :key="i" class="form__dot" :class="`form__dot--${f}`" aria-hidden="true" />
         </span>
