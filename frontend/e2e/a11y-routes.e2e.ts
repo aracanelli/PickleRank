@@ -13,7 +13,7 @@ const screens: Screen[] = [
   { name: 'leagues', path: '/groups', user: 'user_org', ready: h1 },
   { name: 'leagues (first use)', path: '/groups', user: 'user_org', scenario: 'empty', ready: h1 },
   { name: 'league home (organizer, live)', path: `/groups/${LEAGUE}`, user: 'user_org', scenario: 'live', ready: async p => { await expect(p.getByText('Round 2 of 4')).toBeVisible() } },
-  { name: 'league home (member)', path: `/groups/${LEAGUE}`, user: 'user_mem', ready: async p => { await expect(p.getByText('Your standing')).toBeVisible() } },
+  { name: 'league home (member)', path: `/groups/${LEAGUE}`, user: 'user_mem', ready: async p => { await expect(p.getByRole('heading', { name: 'Last week' })).toBeVisible() } },
   { name: 'new event', path: `/groups/${LEAGUE}/events/new`, user: 'user_org', ready: async p => { await expect(p.getByText(/players selected/)).toBeVisible() } },
   { name: 'rankings', path: `/groups/${LEAGUE}/rankings`, user: 'user_org', ready: h1 },
   { name: 'rankings (member)', path: `/groups/${LEAGUE}/rankings`, user: 'user_mem', ready: h1 },

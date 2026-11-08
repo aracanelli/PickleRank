@@ -119,7 +119,7 @@ const verdict = computed(() => {
 .dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
 .dot--T { height: 4px; border-radius: 2px; background: var(--ink-2); align-self: center; }
 
-.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); margin: 0; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: var(--s2); margin: 0; }
 .fact { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-control); }
 .fact dt { font-size: var(--text-xs); font-weight: 700; color: var(--ink-2); }
 .fact dd { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s1); }
