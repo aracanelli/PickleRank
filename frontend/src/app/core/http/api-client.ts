@@ -215,6 +215,21 @@ class ApiClient {
     return this.handleResponse<T>(response)
   }
 
+  /** PUT raw bytes (image uploads). The server ignores the content type and decodes the bytes itself. */
+  async putBlob<T>(endpoint: string, body: Blob): Promise<T> {
+    const headers = { ...(await this.getHeaders()), 'Content-Type': 'application/octet-stream' }
+    const response = await fetch(`${this.baseUrl}${endpoint}`, { method: 'PUT', headers, credentials: 'include', body })
+    return this.handleResponse<T>(response)
+  }
+
+  /** GET bytes with the bearer token, for images that an <img> tag could not authenticate. */
+  async getBlob(endpoint: string): Promise<Blob> {
+    const headers = await this.getHeaders()
+    const response = await fetch(`${this.baseUrl}${endpoint}`, { method: 'GET', headers, credentials: 'include' })
+    if (!response.ok) await this.handleResponse(response)
+    return response.blob()
+  }
+
   async delete<T>(endpoint: string): Promise<T> {
     const headers = await this.getHeaders()
     const response = await fetch(`${this.baseUrl}${endpoint}`, {

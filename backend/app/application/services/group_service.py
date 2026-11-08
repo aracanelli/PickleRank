@@ -71,6 +71,7 @@ class GroupService:
                 playerCount=g["player_count"],
                 created_at=g["created_at"],
                 is_archived=g.get("is_archived", False),
+                logoVersion=g.get("logo_version"),
             )
             for g in groups
         ]
@@ -86,6 +87,7 @@ class GroupService:
                 playerCount=g["player_count"],
                 created_at=g["created_at"],
                 is_archived=g.get("is_archived", False),
+                logoVersion=g.get("logo_version"),
             )
             for g in groups
         ]
@@ -534,6 +536,7 @@ class GroupService:
             created_at=group["created_at"],
             updated_at=group.get("updated_at"),
             is_archived=group.get("is_archived", False),
+            logoVersion=group.get("logo_version"),
         )
 
 

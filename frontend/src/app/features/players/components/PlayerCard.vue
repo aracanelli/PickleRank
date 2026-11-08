@@ -29,7 +29,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
     <div class="pcard__lines" aria-hidden="true" />
 
     <div class="pcard__top">
-      <span class="pcard__photo"><PlayerAvatar :name="player.displayName" size="xl" /></span>
+      <span class="pcard__photo"><PlayerAvatar :name="player.displayName" size="xl" :photo="player" /></span>
       <span v-if="rank" class="pcard__rank num"><span class="visually-hidden">Rank </span>#{{ rank }}</span>
     </div>
 

@@ -251,3 +251,15 @@ CREATE TRIGGER update_spond_accounts_updated_at BEFORE UPDATE ON spond_accounts
 CREATE UNIQUE INDEX uq_rating_updates_event_player ON rating_updates (event_id, group_player_id);
 CREATE UNIQUE INDEX uq_sub_payments_attendance_event_player
     ON sub_payments (event_id, group_player_id, payment_type) WHERE payment_type = 'ATTENDANCE';
+
+CREATE TABLE images (
+    kind TEXT NOT NULL CHECK (kind IN ('player', 'group')),
+    ref_id UUID NOT NULL,
+    mime TEXT NOT NULL CHECK (mime IN ('image/webp', 'image/jpeg')),
+    data BYTEA NOT NULL CHECK (octet_length(data) <= 1048576),
+    width INT NOT NULL CHECK (width BETWEEN 1 AND 512),
+    height INT NOT NULL CHECK (height BETWEEN 1 AND 512),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (kind, ref_id)
+);
+ALTER TABLE images ENABLE ROW LEVEL SECURITY;

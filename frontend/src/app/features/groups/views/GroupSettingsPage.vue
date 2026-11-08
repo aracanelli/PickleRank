@@ -18,6 +18,9 @@ import ActionBar from '@/app/core/ui/ActionBar.vue'
 import SaveStatus from '@/app/core/ui/SaveStatus.vue'
 import { confirm, toast, announce } from '@/app/core/ui/feedback'
 import HistoryImport from '../components/HistoryImport.vue'
+import LeagueCrest from '@/app/core/ui/LeagueCrest.vue'
+import PhotoControl from '@/app/core/ui/PhotoControl.vue'
+import { leagueLogoPath } from '@/app/core/ui/photo'
 import { RATING_SYSTEMS } from '../ratingSystems'
 import {
   toForm, validate, toRequest, diff, systemDefaults,
@@ -197,6 +200,19 @@ async function archive() {
     />
 
     <template v-else-if="league.group && form">
+      <section class="section" aria-labelledby="logo-h">
+        <h2 id="logo-h">League logo</h2>
+        <div class="logo">
+          <LeagueCrest :name="league.group.name" :logo="league.group" size="lg" />
+          <PhotoControl
+            kind="logo"
+            :path="leagueLogoPath(groupId)"
+            :has="!!league.group.logoVersion"
+            @changed="(v: number | null) => { if (league.group) league.group.logoVersion = v }"
+          />
+        </div>
+        <p class="muted hint">A square JPEG, PNG or WebP works best. Everyone in the league sees it.</p>
+      </section>
       <p class="warn"><AlertTriangle :size="20" aria-hidden="true" /> <span>Changes affect future events; historical events remain recorded.</span></p>
 
       <form id="settings-form" ref="formEl" class="form" novalidate @submit.prevent="save">
@@ -346,4 +362,5 @@ legend { font-size: var(--text-md); font-weight: 700; padding: 0; margin-bottom:
 
 .tools { gap: var(--s5); }
 .tool { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
+.logo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4); }
 </style>

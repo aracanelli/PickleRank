@@ -131,6 +131,7 @@ class GroupResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     is_archived: bool = Field(default=False, alias="isArchived")
+    logo_version: Optional[int] = Field(None, alias="logoVersion")
 
     class Config:
         from_attributes = True
@@ -146,6 +147,7 @@ class GroupListItem(BaseModel):
     player_count: int = Field(alias="playerCount")
     created_at: datetime
     is_archived: bool = Field(default=False, alias="isArchived")
+    logo_version: Optional[int] = Field(None, alias="logoVersion")
 
     class Config:
         from_attributes = True

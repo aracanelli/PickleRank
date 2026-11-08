@@ -10,6 +10,9 @@
  *   POST /__fake/reset   { scenario: 'default' | 'live' | 'big' | 'empty' | 'payments' }
  *   POST /__fake/config  { latencyMs?, scoreLatencyMs?, failScores?, failCompleteOnce? }
  *   GET  /__fake/log     -> recorded score PATCH bodies
+ *
+ * Photos and logos: PUT/GET/DELETE /api/groups/:id/players/:gp/photo and /api/groups/:id/logo.
+ * Bytes are kept as uploaded (fixture only; the real API decodes and re-encodes them).
  */
 import type { Plugin, Connect } from 'vite'
 import type { ServerResponse } from 'node:http'
@@ -36,6 +39,8 @@ const NAMES = [
 let state: { groups: Group[]; gps: Map<string, GP[]>; events: Ev[]; pays: Pay[] }
 let cfg = { latencyMs: 0, scoreLatencyMs: 0, failScores: 0, failCompleteOnce: false }
 let scoreLog: unknown[] = []
+const images = new Map<string, { mime: string; data: Buffer; v: number }>()
+const version = (key: string) => images.get(key)?.v
 let seq = 0
 const uid = (p: string) => `${p}_${(++seq).toString(36)}`
 const now = () => new Date().toISOString()
@@ -85,6 +90,7 @@ export function reset(scenario = 'default') {
   seq = 0
   cfg = { latencyMs: 0, scoreLatencyMs: 0, failScores: 0, failCompleteOnce: false }
   scoreLog = []
+  images.clear()
   const big = scenario === 'big'
   const g: Group = { id: 'grp_1', ownerUserId: ORGANIZER, name: 'Tuesday Ladder', settings: settings(scenario === 'payments' ? { paymentSettings: { trackPayments: true, subFeePerAttendance: 5, currency: 'USD' } } : {}), createdAt: daysAgo(90) }
   const g2: Group = { id: 'grp_2', ownerUserId: ORGANIZER, name: 'Saturday Open Play at Riverside Community Center', settings: settings(), createdAt: daysAgo(30) }
@@ -160,7 +166,7 @@ const eventDto = (e: Ev) => ({
   id: e.id, groupId: e.groupId, name: e.name, status: e.status, startsAt: e.startsAt, courts: e.courts, rounds: e.rounds,
   participantCount: e.participants.length, games: e.games.map(gameDto)
 })
-const gpDto = (p: GP, groupId: string) => ({ ...p, groupId, winRate: p.gamesPlayed ? (p.wins + 0.5 * p.ties) / p.gamesPlayed : 0 })
+const gpDto = (p: GP, groupId: string) => ({ ...p, groupId, winRate: p.gamesPlayed ? (p.wins + 0.5 * p.ties) / p.gamesPlayed : 0, photoVersion: version(`player:${p.id}`) })
 
 function canSee(user: string, g: Group) { return g.ownerUserId === user || roster(g.id).some(p => p.userId === user) }
 function isOrg(user: string, g: Group) { return g.ownerUserId === user || roster(g.id).some(p => p.userId === user && p.role === 'ORGANIZER') }
@@ -244,15 +250,15 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
   let m: RegExpMatchArray | null
   const is = (re: RegExp, verb: string) => method === verb && (m = path.match(re)) !== null
 
-  if (is(/^\/api\/groups$/, 'GET')) return { groups: state.groups.filter(g => !g.archived && g.ownerUserId === user).map(g => ({ id: g.id, name: g.name, sport: 'pickleball', playerCount: roster(g.id).length, createdAt: g.createdAt })) }
-  if (is(/^\/api\/groups\/member$/, 'GET')) return { groups: state.groups.filter(g => !g.archived && g.ownerUserId !== user && canSee(user, g)).map(g => ({ id: g.id, name: g.name, sport: 'pickleball', playerCount: roster(g.id).length, createdAt: g.createdAt })) }
+  if (is(/^\/api\/groups$/, 'GET')) return { groups: state.groups.filter(g => !g.archived && g.ownerUserId === user).map(g => ({ id: g.id, name: g.name, sport: 'pickleball', playerCount: roster(g.id).length, createdAt: g.createdAt, logoVersion: version(`group:${g.id}`) })) }
+  if (is(/^\/api\/groups\/member$/, 'GET')) return { groups: state.groups.filter(g => !g.archived && g.ownerUserId !== user && canSee(user, g)).map(g => ({ id: g.id, name: g.name, sport: 'pickleball', playerCount: roster(g.id).length, createdAt: g.createdAt, logoVersion: version(`group:${g.id}`) })) }
   if (is(/^\/api\/groups$/, 'POST')) {
     if (!String(body.name ?? '').trim()) throw new HttpError(422, 'Name is required')
     const g: Group = { id: uid('grp'), ownerUserId: user, name: String(body.name).trim(), settings: settings(body.settings ?? {}), createdAt: now() }
     state.groups.push(g); state.gps.set(g.id, [])
     return { ...g, sport: 'pickleball' }
   }
-  if (is(/^\/api\/groups\/([\w-]+)$/, 'GET')) { const g = group(m![1], user); return { ...g, sport: 'pickleball' } }
+  if (is(/^\/api\/groups\/([\w-]+)$/, 'GET')) { const g = group(m![1], user); return { ...g, sport: 'pickleball', logoVersion: version(`group:${g.id}`) } }
   if (is(/^\/api\/groups\/([\w-]+)$/, 'PATCH')) { const g = group(m![1], user); if (!isOrg(user, g)) deny(); g.name = body.name; return { ...g, sport: 'pickleball' } }
   if (is(/^\/api\/groups\/([\w-]+)\/settings$/, 'PATCH')) { const g = group(m![1], user); if (!isOrg(user, g)) deny(); g.settings = { ...g.settings, ...body }; return { ...g, sport: 'pickleball' } }
   if (is(/^\/api\/groups\/([\w-]+)\/archive$/, 'POST')) { const g = group(m![1], user); if (g.ownerUserId !== user) deny(); g.archived = true; return { success: true } }
@@ -449,6 +455,36 @@ function readBody(req: Connect.IncomingMessage): Promise<Body> {
   })
 }
 
+const MAGIC: Array<[string, (b: Buffer) => boolean]> = [
+  ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8],
+  ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
+  ['image/webp', b => b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP']
+]
+async function imageRoute(req: Connect.IncomingMessage, res: ServerResponse, groupId: string, gpId: string | undefined, user: string) {
+  const g = group(groupId, user)
+  if (gpId && !roster(g.id).some(p => p.id === gpId)) notFound('Player')
+  const key = gpId ? `player:${gpId}` : `group:${g.id}`
+  if (req.method === 'GET') {
+    const found = images.get(key) ?? notFound('Image')!
+    res.statusCode = 200
+    res.setHeader('Content-Type', found.mime)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    return res.end(found.data)
+  }
+  const mine = gpId ? roster(g.id).find(p => p.id === gpId)?.userId === user : false
+  if (!mine && !isOrg(user, g)) deny()
+  if (req.method === 'DELETE') { images.delete(key); return send(res, 204, null) }
+  if (req.method !== 'PUT') throw new HttpError(405, 'Method not allowed')
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const c of req) { size += (c as Buffer).length; if (size > 2 * 1024 * 1024) throw new HttpError(413, 'Image is too big. The limit is 2 MB.'); chunks.push(c as Buffer) }
+  const data = Buffer.concat(chunks)
+  const mime = MAGIC.find(([, ok]) => ok(data))?.[0] ?? (() => { throw new HttpError(415, 'Use a JPEG, PNG or WebP image.') })()
+  const v = Date.now()
+  images.set(key, { mime, data, v })
+  return send(res, 200, gpId ? { photoVersion: v } : { logoVersion: v })
+}
+
 export function fakeApiPlugin(): Plugin {
   reset('default')
   return {
@@ -468,6 +504,10 @@ export function fakeApiPlugin(): Plugin {
         const auth = String(req.headers.authorization ?? '')
         const user = auth.startsWith('Bearer e2e-') ? auth.slice('Bearer e2e-'.length) : ''
         if (!user) return send(res, 401, { detail: 'Not signed in' })
+        const img = url.pathname.match(/^\/api\/groups\/([\w-]+)\/(?:players\/([\w-]+)\/photo|logo)$/)
+        if (img) {
+          try { return await imageRoute(req, res, img[1], img[2], user) } catch (e) { const err = e as HttpError; return send(res, err.status ?? 500, { detail: err.message }) }
+        }
         const body = await readBody(req)
         if (cfg.latencyMs) await new Promise(r => setTimeout(r, cfg.latencyMs))
         try {

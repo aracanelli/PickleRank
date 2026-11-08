@@ -403,6 +403,7 @@ class PlayerService:
             ties=gp["ties"],
             winRate=float(win_rate),
             ratingDelta=rating_delta,
+            photoVersion=gp.get("photo_version"),
         )
 
     def _to_player_response(self, player: dict) -> PlayerResponse:
