@@ -73,7 +73,8 @@ const showTabs = computed(() =>
   border-radius: var(--r-control);
 }
 .skip:focus { top: calc(8px + var(--safe-top)); }
-main { display: block; min-height: 100dvh; }
+/* column so a page fills the screen and its ActionBar sits in the thumb zone even on short pages */
+main { display: flex; flex-direction: column; min-height: 100dvh; }
 main:focus { outline: none; }
 main.has-tabs { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom)); }
 @media (min-width: 720px) { main.has-tabs { padding-bottom: 0; } }

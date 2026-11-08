@@ -51,7 +51,19 @@ const shots = [
     await p.getByRole('button', { name: 'Go to round 3' }).waitFor(); await p.waitForTimeout(1400)
   } },
   { file: '18-member-opens-event', scenario: 'live', user: 'user_mem', path: '/events/ev_l' },
-  { file: '19-not-found', scenario: 'default', user: 'user_org', path: '/nope' }
+  { file: '19-not-found', scenario: 'default', user: 'user_org', path: '/nope' },
+  { file: '20-awards', scenario: 'default', user: 'user_org', path: '/groups/grp_1/awards' },
+  { file: '21-head-to-head', scenario: 'default', user: 'user_mem', path: '/groups/grp_1/history?h2h=pl_1,pl_2' },
+  { file: '22-swap-players', scenario: 'live', user: 'user_org', path: '/groups/grp_1', act: async p => {
+    await p.getByRole('link', { name: /Resume scoring/ }).click()
+    await p.getByRole('button', { name: 'Event options' }).click()
+    await p.getByRole('button', { name: /Swap two players/ }).click()
+    await p.getByRole('dialog').filter({ hasText: 'Swap two players' }).waitFor(); await p.waitForTimeout(400)
+  } },
+  { file: '23-spond-import', scenario: 'default', user: 'user_org', path: '/groups/grp_1/events/new', act: async p => {
+    await p.getByRole('button', { name: 'Import from Spond' }).click()
+    await p.getByText('Which Spond group is this league?').waitFor(); await p.waitForTimeout(400)
+  } }
 ]
 const narrow = ['01-league-home-organizer', '03-round-board', '04-court-sheet', '02-new-event', '07-rankings', '10-roster-50']
 
