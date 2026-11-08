@@ -13,6 +13,8 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+  /* no rubber-band past the ends: it dragged the pinned action bar with the page */
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -25,6 +27,7 @@ body {
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
 }
 
 h1, h2, h3, h4, p, ul, ol, figure, dl, dd {

@@ -19,7 +19,6 @@ import PageHeader from '@/app/core/layout/PageHeader.vue'
 import AccountButton from '@/app/core/layout/AccountButton.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
 import UiState from '@/app/core/ui/UiState.vue'
-import ActionBar from '@/app/core/ui/ActionBar.vue'
 import StandingRow from '@/app/core/ui/StandingRow.vue'
 import Podium from '@/app/core/ui/Podium.vue'
 import LeaguePulse from '../components/LeaguePulse.vue'
@@ -173,21 +172,24 @@ function statusLine(e: EventListItemDto) {
         </template>
       </PageHeader>
 
-      <!-- ORGANIZER: tonight -->
+      <!-- ORGANIZER: tonight. A compact card, not a pinned bar, so standings stay in view. -->
       <section v-if="league.isOrganizer" class="section" aria-labelledby="tonight-h">
-        <h2 id="tonight-h">Tonight</h2>
+        <h2 id="tonight-h" class="visually-hidden">Tonight</h2>
         <UiState v-if="loadingExtras" kind="loading" title="Loading events" />
-        <RouterLink v-else-if="active" :to="`/events/${active.id}`" class="tonight">
-          <span class="tonight__name">{{ eventTitle(active) }}</span>
-          <template v-if="activeProgress">
-            <span class="tonight__round num">Round {{ activeProgress.round + 1 }} of {{ active.rounds }}</span>
-            <span class="tonight__meta">
-              {{ activeProgress.roundGames.length * 4 }} players on court.
-              {{ activeProgress.roundScored }} of {{ activeProgress.roundGames.length }} courts scored this round.
-              {{ activeProgress.scored }} of {{ activeProgress.total }} games overall.
+        <RouterLink
+          v-else-if="active"
+          :to="`/events/${active.id}`"
+          class="tonight"
+        >
+          <span class="tonight__live" aria-hidden="true" />
+          <span class="tonight__text">
+            <span class="tonight__name truncate">{{ eventTitle(active) }}</span>
+            <span v-if="activeProgress" class="tonight__meta">
+              <span class="num">Round {{ activeProgress.round + 1 }} of {{ active.rounds }}.</span>
+              {{ activeProgress.roundScored }} of {{ activeProgress.roundGames.length }} courts scored.
             </span>
-            <span class="pips-label" aria-hidden="true">Courts this round</span>
-            <span class="pips" aria-hidden="true">
+            <span v-else class="tonight__meta">{{ statusLine(active) }}.</span>
+            <span v-if="activeProgress" class="pips" aria-hidden="true">
               <span
                 v-for="g in activeProgress.roundGames"
                 :key="g.id"
@@ -195,10 +197,18 @@ function statusLine(e: EventListItemDto) {
                 :class="{ 'pip--done': g.scoreTeam1 != null && g.scoreTeam2 != null }"
               ><span class="pip__n">{{ g.courtIndex + 1 }}</span></span>
             </span>
-          </template>
-          <span v-else class="tonight__meta">{{ statusLine(active) }}. {{ active.courts }} courts, {{ active.rounds }} rounds.</span>
+          </span>
+          <span class="tonight__go">{{ activeProgress ? 'Resume scoring' : 'Open' }}<ChevronRight :size="18" aria-hidden="true" /></span>
         </RouterLink>
-        <p v-else class="muted">No event in progress. Start one when players arrive.</p>
+        <div v-else class="start">
+          <p class="muted start__meta">
+            No event in progress.
+            <template v-if="!permanentCount">No regulars yet. Each court needs 4 players.</template>
+            <template v-else>{{ permanentCount }} regulars on the roster. Each court needs 4 players.</template>
+          </p>
+          <UiButton v-if="!permanentCount" variant="primary" size="lg" block :to="`/groups/${groupId}/players/manage`">Add players</UiButton>
+          <UiButton v-else variant="primary" size="lg" block :to="`/groups/${groupId}/events/new`">Start an event</UiButton>
+        </div>
 
         <ul v-if="otherUnfinished.length" role="list" class="list">
           <li v-for="e in otherUnfinished" :key="e.id" class="list__row">
@@ -305,23 +315,6 @@ function statusLine(e: EventListItemDto) {
         <ChevronRight :size="18" aria-hidden="true" />
       </RouterLink>
 
-      <ActionBar v-if="league.isOrganizer" above-tabs>
-        <template v-if="active" #meta>
-          <template v-if="activeProgress">{{ activeProgress.remaining }} of {{ activeProgress.total }} games still need scores.</template>
-          <template v-else>{{ statusLine(active) }}.</template>
-        </template>
-        <template v-else-if="!permanentCount" #meta>
-          No regulars yet. Each court needs 4 players.
-        </template>
-        <template v-else #meta>
-          {{ permanentCount }} regulars on the roster. Each court needs 4 players.
-        </template>
-        <UiButton v-if="active" variant="primary" size="lg" :to="`/events/${active.id}`">
-          {{ activeProgress ? `Resume scoring, round ${activeProgress.round + 1}` : 'Open event' }}
-        </UiButton>
-        <UiButton v-else-if="!permanentCount" variant="primary" size="lg" :to="`/groups/${groupId}/players/manage`">Add players</UiButton>
-        <UiButton v-else variant="primary" size="lg" :to="`/groups/${groupId}/events/new`">Start an event</UiButton>
-      </ActionBar>
     </template>
   </div>
 </template>
@@ -347,36 +340,61 @@ function statusLine(e: EventListItemDto) {
 
 .tonight {
   display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  padding: var(--s4);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s3) var(--s3) var(--s4);
   border-radius: var(--r-tile);
   background: var(--court);
   color: var(--on-court);
   text-decoration: none;
 }
+.tonight__live {
+  flex: none;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--optic);
+  box-shadow: 0 0 0 4px rgb(221 240 74 / 0.3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tonight__live { animation: live 1.6s var(--ease) infinite alternate; }
+  @keyframes live { to { box-shadow: 0 0 0 7px rgb(221 240 74 / 0); } }
+}
+/* basis lets the button drop below the text at large text sizes */
+.tonight__text { flex: 1 1 10rem; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .tonight__name { font-weight: 700; }
-.tonight__round { font-size: var(--text-xl); line-height: 1.1; }
 .tonight__meta { font-size: var(--text-sm); }
+.tonight__go {
+  flex: 0 1 auto;
+  max-width: 100%;
+  display: inline-flex; align-items: center; gap: 2px;
+  min-height: var(--tap);
+  padding: 0 var(--s2) 0 var(--s3);
+  border-radius: 999px;
+  background: var(--optic);
+  color: var(--on-optic);
+  font-weight: 700;
+}
+.start { display: flex; flex-direction: column; gap: var(--s2); }
+.start__meta { font-size: var(--text-sm); }
 .pips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 /* each pip is a tiny court seen from above: sidelines, a net down the middle, the court number on it */
 .pip {
   --pip-line: var(--on-court);
   --pip-fill: var(--court);
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 54px; height: 30px;
+  min-width: 36px; height: 22px;
   border-radius: 3px;
   border: 2px solid var(--pip-line);
   background: linear-gradient(var(--pip-line), var(--pip-line)) center / 2px 100% no-repeat, var(--pip-fill);
   font-family: var(--font-num);
   font-weight: 700;
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   line-height: 1;
 }
 .pip__n { padding: 1px 3px; background: var(--pip-fill); color: var(--pip-line); }
 .pip--done { --pip-line: var(--court); --pip-fill: var(--on-court); border-color: var(--on-court); }
 .pip--done .pip__n::after { content: '✓'; font-family: var(--font-ui); font-size: 12px; margin-left: 2px; }
-.pips-label { font-size: var(--text-xs); font-weight: 700; margin-top: var(--s2); }
 
 .mine {
   display: flex;

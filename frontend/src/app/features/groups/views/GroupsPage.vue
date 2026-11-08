@@ -4,7 +4,7 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { ChevronRight, Users } from 'lucide-vue-next'
+import { ChevronRight, Contact } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
 import type { GroupListItemDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
@@ -14,6 +14,7 @@ import UiField from '@/app/core/ui/UiField.vue'
 import UiSheet from '@/app/core/ui/UiSheet.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import ActionBar from '@/app/core/ui/ActionBar.vue'
+import LeagueCrest from '@/app/core/ui/LeagueCrest.vue'
 import { announce } from '@/app/core/ui/feedback'
 
 const router = useRouter()
@@ -74,38 +75,58 @@ async function create() {
 }
 
 const players = (n: number) => `${n} ${n === 1 ? 'player' : 'players'}`
+const leagues = (n: number) => `${n} ${n === 1 ? 'league' : 'leagues'}`
+const summary = computed(() => {
+  const parts: string[] = []
+  if (organized.value.length) parts.push(`You run ${leagues(organized.value.length)}`)
+  if (playing.value.length) parts.push(`${parts.length ? 'play in' : 'You play in'} ${leagues(playing.value.length)}`)
+  return parts.length ? `${parts.join(' and ')}.` : ''
+})
+const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 </script>
 
 <template>
   <div class="page">
     <PageHeader title="Your leagues">
       <template #actions><AccountButton /></template>
+      <template #title>
+        <div class="hero">
+          <svg class="hero__court" viewBox="0 0 200 100" preserveAspectRatio="xMaxYMid slice" aria-hidden="true" focusable="false">
+            <rect x="96" y="8" width="96" height="84" rx="2" />
+            <line x1="144" y1="8" x2="144" y2="92" class="hero__net" />
+            <line x1="124" y1="8" x2="124" y2="92" />
+            <line x1="164" y1="8" x2="164" y2="92" />
+            <line x1="96" y1="50" x2="124" y2="50" />
+            <line x1="164" y1="50" x2="192" y2="50" />
+          </svg>
+          <span class="hero__ball" aria-hidden="true" />
+          <p class="hero__day">{{ today }}</p>
+          <h1 class="hero__title">Your leagues</h1>
+          <p v-if="summary" class="hero__sub">{{ summary }}</p>
+        </div>
+      </template>
     </PageHeader>
 
     <UiState v-if="loading" kind="loading" title="Loading leagues" />
     <UiState v-else-if="loadError" kind="error" title="Leagues didn't load" :body="loadError" @retry="load" />
 
-    <template v-else-if="empty">
-      <UiState kind="empty" title="No leagues yet">
+    <template v-else>
+      <UiState v-if="empty" kind="empty" title="No leagues yet">
         <p><strong>Running a league?</strong> Create it here, then add your players.</p>
         <p><strong>Joining one?</strong> Open the invite link your organizer sent you. The league shows up here once it's linked.</p>
       </UiState>
-      <ActionBar>
-        <UiButton variant="primary" size="lg" @click="openCreate">Create a league</UiButton>
-      </ActionBar>
-    </template>
 
-    <template v-else>
       <section v-if="organized.length" class="section" aria-labelledby="org-h">
-        <h2 id="org-h">Leagues you organize</h2>
-        <ul role="list" class="list">
+        <h2 id="org-h">Leagues you run</h2>
+        <ul role="list" class="leagues">
           <li v-for="g in organized" :key="g.id">
-            <RouterLink :to="`/groups/${g.id}`" class="row-link">
-              <span class="row-link__text">
-                <span class="row-link__title">{{ g.name }}</span>
-                <span class="muted row-link__sub">{{ players(g.playerCount) }}</span>
+            <RouterLink :to="`/groups/${g.id}`" class="league">
+              <LeagueCrest :name="g.name" />
+              <span class="league__text">
+                <span class="league__name">{{ g.name }}</span>
+                <span class="league__sub"><span class="league__role">Organizer</span>{{ players(g.playerCount) }}</span>
               </span>
-              <ChevronRight :size="20" aria-hidden="true" />
+              <ChevronRight :size="20" aria-hidden="true" class="league__go" />
             </RouterLink>
           </li>
         </ul>
@@ -113,19 +134,28 @@ const players = (n: number) => `${n} ${n === 1 ? 'player' : 'players'}`
 
       <section v-if="playing.length" class="section" aria-labelledby="play-h">
         <h2 id="play-h">Leagues you play in</h2>
-        <ul role="list" class="list">
+        <ul role="list" class="leagues">
           <li v-for="g in playing" :key="g.id">
-            <RouterLink :to="`/groups/${g.id}`" class="row-link">
-              <Users :size="20" aria-hidden="true" class="row-link__icon" />
-              <span class="row-link__text">
-                <span class="row-link__title">{{ g.name }}</span>
-                <span class="muted row-link__sub">{{ players(g.playerCount) }}</span>
+            <RouterLink :to="`/groups/${g.id}`" class="league">
+              <LeagueCrest :name="g.name" />
+              <span class="league__text">
+                <span class="league__name">{{ g.name }}</span>
+                <span class="league__sub">{{ players(g.playerCount) }}</span>
               </span>
-              <ChevronRight :size="20" aria-hidden="true" />
+              <ChevronRight :size="20" aria-hidden="true" class="league__go" />
             </RouterLink>
           </li>
         </ul>
       </section>
+
+      <RouterLink to="/players" class="roster">
+        <span class="roster__icon"><Contact :size="22" aria-hidden="true" /></span>
+        <span class="league__text">
+          <span class="league__name">Your players</span>
+          <span class="league__sub">Everyone you've added, across all your leagues</span>
+        </span>
+        <ChevronRight :size="20" aria-hidden="true" class="league__go" />
+      </RouterLink>
 
       <ActionBar>
         <UiButton variant="primary" size="lg" @click="openCreate">Create a league</UiButton>
@@ -153,19 +183,85 @@ const players = (n: number) => `${n} ${n === 1 ? 'player' : 'players'}`
 </template>
 
 <style scoped>
-.list { display: flex; flex-direction: column; }
-.row-link {
+/* header: the page title painted beside a half court */
+.hero {
+  position: relative;
+  margin-top: var(--s2);
+  padding: var(--s5) var(--s4) var(--s4);
+  border-radius: var(--r-tile);
+  background: var(--court);
+  color: var(--on-court);
+  overflow: hidden;
+}
+.hero__court {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: var(--on-court);
+  stroke-width: 1.5;
+  opacity: 0.22;
+}
+.hero__net { stroke-width: 3; }
+.hero__ball {
+  position: absolute;
+  top: 22%;
+  right: 12%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--optic);
+}
+.hero__day, .hero__title, .hero__sub { position: relative; margin: 0; }
+.hero__day { font-size: var(--text-sm); font-weight: 700; }
+.hero__title { font-size: var(--text-xl); line-height: 1.1; }
+.hero__sub { margin-top: var(--s1); font-size: var(--text-sm); max-width: 26ch; }
+
+.leagues { display: flex; flex-direction: column; gap: var(--s2); }
+.league, .roster {
   display: flex;
   align-items: center;
   gap: var(--s3);
-  min-height: 60px;
-  padding: var(--s2) 0;
-  border-bottom: 1px solid var(--line);
+  min-height: 72px;
+  padding: var(--s2) var(--s3) var(--s2) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  background: var(--surface);
   color: var(--ink);
   text-decoration: none;
 }
-.row-link__icon { flex: none; color: var(--ink-2); }
-.row-link__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.row-link__title { font-weight: 700; overflow-wrap: anywhere; }
-.row-link__sub { font-size: var(--text-sm); }
+.league:hover, .roster:hover { border-color: var(--court); }
+.league__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.league__name {
+  font-weight: 700;
+  font-size: var(--text-lg);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.league__sub { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: 2px; font-size: var(--text-sm); color: var(--ink-2); }
+.league__role {
+  padding: 2px var(--s2);
+  border-radius: 999px;
+  background: var(--court-tint);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+.league__go { flex: none; color: var(--ink-2); }
+.roster { background: transparent; border-style: dashed; }
+.roster__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: var(--surface-sunk);
+  color: var(--ink);
+}
 </style>

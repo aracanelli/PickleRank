@@ -62,7 +62,7 @@ test.describe('league night, start to finish (organizer)', () => {
     await reset(request, 'live')
     await page.goto(`/groups/${LEAGUE}`)
     await expect(page.getByText('Round 2 of 4')).toBeVisible()
-    await page.getByRole('link', { name: 'Resume scoring, round 2' }).click()
+    await page.getByRole('link', { name: /Round 2 of 4.*Resume scoring/ }).click()
     await expect(page.getByRole('heading', { name: /Round 2/ })).toBeVisible()
     await expect(page.locator('button[data-court="1"]')).toContainText('Saved')
     await expect(page.locator('button[data-court="2"]')).toContainText('Needs score')
