@@ -8,13 +8,17 @@ Use semantic variables only, never raw hex: `--bg --surface --surface-sunk --lin
 --ink --ink-2 --court --on-court --court-tint --net --optic --on-optic --ok/--ok-tint
 --bad/--bad-tint --wait/--wait-tint --focus`. Space `--s1..--s7` (4pt), radii `--r-control`
 (8) `--r-tile` (12) `--r-sheet` (20), tap targets `--tap` (44) `--tap-lg` (52).
+Floating tab bar: `--tabbar-h`, `--tabbar-inset`, and `--tabbar-space` (the room a screen leaves for it).
+Shadows `--shadow-float` (tab bar, toast) and `--shadow-lift` (row hover) only; nothing else casts a shadow.
+Colour: `--court` is the one accent. Jerseys are muted; medals colour only the podium edge and place badge;
+form dots are ink (won) and ring (lost), never red/green. Nested corners are concentric: inner radius = outer radius minus padding.
 Type: `--font-ui` (Atkinson Hyperlegible Next) for everything; add class `num` for scores,
 ratings, ranks, counts (Barlow Condensed, tabular). Sizes `--text-xs..--text-xl`, `--num-md`, `--num-lg`.
 `--optic` is a fill only, always with `--on-optic` text. Meaning is never color alone: add an icon or word.
 
 ## Global classes (src/styles/base.css)
 `.page` (screen frame, 16px gutters, max 560px), `.section`, `.section-head`, `.stack-sm`, `.row`,
-`.truncate` (long names), `.muted`, `.num`, `.visually-hidden`.
+`.truncate` (long names), `.muted`, `.num`, `.visually-hidden`, `.icon-btn` (round 44px header icon action).
 
 ## Components (import from `@/app/core/ui/...` and `@/app/core/layout/...`)
 - `PageHeader` title, back link that names its destination (`back-label="Tuesday Ladder"`), `#actions` slot.

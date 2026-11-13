@@ -4,7 +4,7 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { ChevronRight } from 'lucide-vue-next'
+import { ChevronRight, Plus } from 'lucide-vue-next'
 import { groupsApi } from '../services/groups.api'
 import type { GroupListItemDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
@@ -13,7 +13,6 @@ import UiButton from '@/app/core/ui/UiButton.vue'
 import UiField from '@/app/core/ui/UiField.vue'
 import UiSheet from '@/app/core/ui/UiSheet.vue'
 import UiState from '@/app/core/ui/UiState.vue'
-import ActionBar from '@/app/core/ui/ActionBar.vue'
 import LeagueCrest from '@/app/core/ui/LeagueCrest.vue'
 import { toast } from '@/app/core/ui/feedback'
 import { useAuthStore } from '@/stores/auth'
@@ -32,6 +31,8 @@ const newName = ref('')
 const nameError = ref('')
 
 const empty = computed(() => !organized.value.length && !playing.value.length)
+// section titles only earn their place when there are two lists to tell apart
+const bothLists = computed(() => organized.value.length > 0 && playing.value.length > 0)
 
 function apply(owned: GroupListItemDto[], member: GroupListItemDto[]) {
   // leagues created on this phone that the server hasn't got yet stay listed
@@ -100,22 +101,16 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
 <template>
   <div class="page">
     <PageHeader title="Your leagues">
-      <template #actions><AccountButton /></template>
+      <template #actions>
+        <button type="button" class="icon-btn" aria-label="Create a league" @click="openCreate">
+          <Plus :size="22" aria-hidden="true" />
+        </button>
+        <AccountButton />
+      </template>
       <template #title>
-        <div class="hero">
-          <svg class="hero__court" viewBox="0 0 200 100" preserveAspectRatio="xMaxYMid slice" aria-hidden="true" focusable="false">
-            <rect x="96" y="8" width="96" height="84" rx="2" />
-            <line x1="144" y1="8" x2="144" y2="92" class="hero__net" />
-            <line x1="124" y1="8" x2="124" y2="92" />
-            <line x1="164" y1="8" x2="164" y2="92" />
-            <line x1="96" y1="50" x2="124" y2="50" />
-            <line x1="164" y1="50" x2="192" y2="50" />
-          </svg>
-          <span class="hero__ball" aria-hidden="true" />
-          <p class="hero__day">{{ today }}</p>
-          <h1 class="hero__title">Your leagues</h1>
-          <p v-if="summary" class="hero__sub">{{ summary }}</p>
-        </div>
+        <p class="day">{{ today }}</p>
+        <h1 class="title">Your leagues</h1>
+        <p v-if="summary" class="summary">{{ summary }}</p>
       </template>
     </PageHeader>
 
@@ -126,17 +121,18 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
       <UiState v-if="empty" kind="empty" title="No leagues yet">
         <p><strong>Running a league?</strong> Create it here, then add your players.</p>
         <p><strong>Joining one?</strong> Open the invite link your organizer sent you. The league shows up here once it's linked.</p>
+        <UiButton variant="primary" size="lg" block @click="openCreate">Create a league</UiButton>
       </UiState>
 
-      <section v-if="organized.length" class="section" aria-labelledby="org-h">
-        <h2 id="org-h">Leagues you run</h2>
+      <section v-if="organized.length" class="section" :aria-label="bothLists ? undefined : 'Leagues you run'" :aria-labelledby="bothLists ? 'org-h' : undefined">
+        <h2 v-if="bothLists" id="org-h" class="list-title">You run</h2>
         <ul role="list" class="leagues">
           <li v-for="g in organized" :key="g.id">
             <RouterLink :to="`/groups/${g.id}`" class="league">
               <LeagueCrest :name="g.name" :logo="g" />
               <span class="league__text">
                 <span class="league__name">{{ g.name }}</span>
-                <span class="league__sub"><span class="league__role">Organizer</span>{{ players(g.playerCount) }}</span>
+                <span class="league__sub">{{ players(g.playerCount) }}</span>
               </span>
               <ChevronRight :size="20" aria-hidden="true" class="league__go" />
             </RouterLink>
@@ -144,8 +140,8 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
         </ul>
       </section>
 
-      <section v-if="playing.length" class="section" aria-labelledby="play-h">
-        <h2 id="play-h">Leagues you play in</h2>
+      <section v-if="playing.length" class="section" :aria-label="bothLists ? undefined : 'Leagues you play in'" :aria-labelledby="bothLists ? 'play-h' : undefined">
+        <h2 v-if="bothLists" id="play-h" class="list-title">You play in</h2>
         <ul role="list" class="leagues">
           <li v-for="g in playing" :key="g.id">
             <RouterLink :to="`/groups/${g.id}`" class="league">
@@ -159,11 +155,6 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
           </li>
         </ul>
       </section>
-
-
-      <ActionBar above-tabs>
-        <UiButton variant="primary" size="lg" @click="openCreate">Create a league</UiButton>
-      </ActionBar>
     </template>
 
     <UiSheet :open="createOpen" title="Create a league" @close="createOpen = false">
@@ -187,74 +178,43 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
 </template>
 
 <style scoped>
-/* header: the page title painted beside a half court */
-.hero {
-  position: relative;
-  margin-top: var(--s2);
-  padding: var(--s5) var(--s4) var(--s4);
-  border-radius: var(--r-tile);
-  background: var(--court);
-  color: var(--on-court);
-  overflow: hidden;
-}
-.hero__court {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  fill: none;
-  stroke: var(--on-court);
-  stroke-width: 1.5;
-  opacity: 0.22;
-}
-.hero__net { stroke-width: 3; }
-.hero__ball {
-  position: absolute;
-  top: 22%;
-  right: 12%;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--optic);
-}
-.hero__day, .hero__title, .hero__sub { position: relative; margin: 0; }
-.hero__day { font-size: var(--text-sm); font-weight: 700; }
-.hero__title { font-size: var(--text-xl); line-height: 1.1; }
-.hero__sub { margin-top: var(--s1); font-size: var(--text-sm); max-width: 26ch; }
+.day { margin-top: var(--s2); color: var(--ink-2); font-size: var(--text-sm); font-weight: 700; }
+.title { font-size: 2.25rem; line-height: 1.05; letter-spacing: -0.02em; text-wrap: balance; }
+.summary { margin-top: var(--s1); color: var(--ink-2); font-size: var(--text-sm); }
+
+.list-title { font-size: var(--text-sm); color: var(--ink-2); }
 
 .leagues { display: flex; flex-direction: column; gap: var(--s2); }
+/* concentric corners: row radius 16 minus its 8px padding gives the crest's 8 */
 .league {
   display: flex;
   align-items: center;
   gap: var(--s3);
-  min-height: 72px;
+  min-height: 68px;
   padding: var(--s2) var(--s3) var(--s2) var(--s2);
   border: 1px solid var(--line);
-  border-radius: var(--r-tile);
+  border-radius: 16px;
   background: var(--surface);
   color: var(--ink);
   text-decoration: none;
+  transition: box-shadow var(--dur) var(--ease), translate var(--dur) var(--ease), border-color var(--dur) var(--ease), scale 120ms var(--ease);
 }
-.league:hover { border-color: var(--court); }
-.league__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+@media (hover: hover) {
+  .league:hover { box-shadow: var(--shadow-lift); translate: 0 -1px; border-color: var(--line-strong); }
+  .league:hover .league__go { translate: 2px 0; color: var(--ink); }
+}
+.league:active { opacity: 1; scale: 0.985; }
+.league__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .league__name {
   font-weight: 700;
-  font-size: var(--text-lg);
-  line-height: 1.2;
+  font-size: var(--text-md);
+  line-height: 1.25;
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.league__sub { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: 2px; font-size: var(--text-sm); color: var(--ink-2); }
-.league__role {
-  padding: 2px var(--s2);
-  border-radius: 999px;
-  background: var(--court-tint);
-  color: var(--ink);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-.league__go { flex: none; color: var(--ink-2); }
+.league__sub { font-size: var(--text-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.league__go { flex: none; color: var(--ink-2); transition: translate var(--dur) var(--ease), color var(--dur) var(--ease); }
 </style>

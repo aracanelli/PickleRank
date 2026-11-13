@@ -114,8 +114,9 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
 }
 .step__name { max-width: 100%; font-weight: 700; font-size: var(--text-sm); }
 .step__you { font-weight: 400; color: var(--ink-2); }
-.step__rating { font-size: var(--text-xl); line-height: 1; }
-.step--1 .step__rating { font-size: 2.25rem; }
+/* the rating shrinks with its plinth so large text sizes never push it past the edge */
+.step__rating { font-size: min(var(--text-xl), 30cqi); line-height: 1; }
+.step--1 .step__rating { font-size: min(2.25rem, 34cqi); }
 .step__rec { font-size: var(--text-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
 .step__move { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: var(--s2); font-size: var(--text-sm); }
 .step__move .up, .step__move .down { display: inline-flex; align-items: center; font-weight: 700; }
@@ -124,11 +125,11 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
 .step__form { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 2px; }
 /* same shapes as standings rows: filled won, ring lost, bar tied */
 .dot { width: 10px; height: 10px; border-radius: 50%; }
-.dot--W { background: var(--ok); }
-.dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
+.dot--W { background: var(--ink); }
+.dot--L { box-shadow: inset 0 0 0 2px var(--line-strong); }
 .dot--T { height: 3px; border-radius: 2px; background: var(--ink-2); align-self: center; }
 
-/* a plinth in a wash of its medal colour, edged in the full colour; text stays ink for contrast */
+/* a neutral plinth; only its top edge and place badge carry the medal colour */
 .step__block {
   --medal: var(--medal-1);
   position: relative;
@@ -137,12 +138,14 @@ const signed = (n: number) => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`
   align-items: center;
   gap: 4px;
   padding: 22px 2px var(--s3);
-  border: 2px solid var(--medal);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--medal);
   border-bottom: 0;
   border-radius: var(--r-control) var(--r-control) 0 0;
-  background: color-mix(in srgb, var(--medal) 18%, var(--surface));
+  background: var(--surface);
   color: var(--ink);
   text-align: center;
+  container-type: inline-size;
 }
 .step--1 .step__block { min-height: 176px; }
 .step--2 .step__block { --medal: var(--medal-2); min-height: 148px; }

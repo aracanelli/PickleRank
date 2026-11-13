@@ -89,6 +89,20 @@ button:disabled { cursor: not-allowed; }
 
 .muted { color: var(--ink-2); }
 
+/* Header icon actions (refresh, settings, share, more): one size, one shape everywhere */
+.icon-btn {
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  flex: none;
+  border: 0; border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  text-decoration: none;
+}
+.icon-btn:hover { background: var(--surface-sunk); }
+.icon-btn .spin, .spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .visually-hidden {
   position: absolute !important;
   width: 1px; height: 1px;

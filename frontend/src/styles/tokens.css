@@ -38,15 +38,15 @@
   --wait-tint: #fbf0d9;
 
 
-  /* player jerseys: white text on each passes 4.5:1; same in both themes */
-  --jersey-1: #1e5aa8;
-  --jersey-2: #1b7a43;
-  --jersey-3: #6d3fc0;
-  --jersey-4: #b3261e;
-  --jersey-5: #9a4d00;
-  --jersey-6: #00707a;
-  --jersey-7: #a3166e;
-  --jersey-8: #3d4a5c;
+  /* player jerseys: muted, one value range so no colour shouts; white text on each passes 4.5:1; same in both themes */
+  --jersey-1: #3a5f8f;
+  --jersey-2: #3d6b55;
+  --jersey-3: #5f5689;
+  --jersey-4: #8a4f4a;
+  --jersey-5: #7a5b34;
+  --jersey-6: #356a70;
+  --jersey-7: #7a4c69;
+  --jersey-8: #4f5b6b;
 
   /* podium medals: rings and fills, never text */
   --medal-1: #e2b007;
@@ -87,11 +87,18 @@
   --content-max: 560px;
 
   --topbar-h: 56px;
-  --tabbar-h: 64px;
+  /* floating tab bar: pill height, gap to the screen edge, and the room pages leave for it */
+  --tabbar-h: 60px;
+  --tabbar-inset: 12px;
+  --tabbar-space: calc(var(--tabbar-h) + var(--tabbar-inset) + var(--safe-bottom));
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+
+  /* one light source from above; shadows tinted with ink, used only on things that float */
+  --shadow-float: 0 1px 2px rgb(19 35 58 / 0.08), 0 8px 24px rgb(19 35 58 / 0.14);
+  --shadow-lift: 0 1px 2px rgb(19 35 58 / 0.06), 0 4px 12px rgb(19 35 58 / 0.08);
 
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --dur: 160ms;
@@ -122,6 +129,8 @@
     --wait-tint: #3a2e10;
     --focus: #ddf04a;
     --scrim: rgb(0 0 0 / 0.6);
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px rgb(0 0 0 / 0.5);
+    --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.3);
   }
 }
 
@@ -149,4 +158,6 @@
   --wait-tint: #3a2e10;
   --focus: #ddf04a;
   --scrim: rgb(0 0 0 / 0.6);
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px rgb(0 0 0 / 0.5);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.3);
 }

@@ -44,66 +44,56 @@ const items = computed(() => {
       class="tab"
       :aria-current="item.match(route.path) ? 'page' : undefined"
     >
-      <component :is="item.icon" :size="24" aria-hidden="true" />
+      <component :is="item.icon" :size="22" :stroke-width="2" aria-hidden="true" />
       <span>{{ item.label }}</span>
     </RouterLink>
   </nav>
 </template>
 
 <style scoped>
+/*
+ * A floating pill, the same shape on every screen and at every width. Tabs have a fixed width, so a
+ * two-tab bar and a five-tab bar use the same tab size and only the pill's length changes.
+ * Concentric radii: pill radius (h/2) minus its padding is the active tab's radius.
+ */
 .tabbar {
+  --pad: 4px;
   position: fixed;
-  inset: auto 0 0 0;
+  inset-inline: 0;
+  bottom: calc(var(--safe-bottom) + var(--tabbar-inset));
+  width: fit-content;
+  margin-inline: auto;
   z-index: 20;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  height: calc(var(--tabbar-h) + var(--safe-bottom));
-  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  display: flex;
+  gap: 2px;
+  height: var(--tabbar-h);
+  max-width: calc(100vw - 2 * var(--gutter) - var(--safe-left) - var(--safe-right));
+  padding: var(--pad);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--tabbar-h) / 2);
   background: var(--surface);
-  border-top: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
 }
 .tab {
+  flex: 0 1 76px;
+  width: 76px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-height: var(--tap);
+  border-radius: calc(var(--tabbar-h) / 2 - var(--pad));
   color: var(--ink-2);
   text-decoration: none;
-  font-size: var(--text-xs);
+  font-size: 0.75rem;
   font-weight: 700;
-  position: relative;
-  min-width: 0;
+  line-height: 1;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease), scale 120ms var(--ease);
 }
 .tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
-.tab[aria-current='page'] { color: var(--court); }
-.tab[aria-current='page']::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 25%;
-  right: 25%;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
-  background: var(--court);
-}
-
-@media (min-width: 720px) {
-  .tabbar {
-    position: sticky;
-    top: 0;
-    inset: auto;
-    height: var(--topbar-h);
-    padding: 0;
-    border-top: 0;
-    border-bottom: 1px solid var(--line);
-    max-width: var(--content-max);
-    margin: 0 auto;
-    background: var(--bg);
-  }
-  .tab { flex-direction: row; gap: var(--s2); font-size: var(--text-sm); }
-  .tab[aria-current='page']::before { top: auto; bottom: 0; border-radius: 3px 3px 0 0; }
-}
+.tab:hover { color: var(--ink); }
+.tab[aria-current='page'] { background: var(--court-tint); color: var(--court); }
+.tab[aria-current='page'] svg { animation: tab-pop 220ms var(--ease); }
+@keyframes tab-pop { 40% { scale: 1.12; } }
 </style>

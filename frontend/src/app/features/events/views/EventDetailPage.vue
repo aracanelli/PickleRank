@@ -748,13 +748,6 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
 <style scoped>
 .scoring { padding-bottom: 0; }
 .sub { font-size: var(--text-sm); }
-.icon-btn {
-  width: var(--tap); height: var(--tap);
-  display: grid; place-items: center;
-  border: 0; border-radius: 50%;
-  background: transparent; color: var(--ink);
-}
-.icon-btn:hover { background: var(--surface-sunk); }
 
 .rounds {
   position: sticky;

@@ -217,16 +217,6 @@ async function share() {
 </template>
 
 <style scoped>
-.icon-btn {
-  width: var(--tap); height: var(--tap);
-  display: grid; place-items: center;
-  border: 0; border-radius: 50%;
-  background: transparent;
-  color: var(--ink);
-}
-.icon-btn:hover { background: var(--surface-sunk); }
-.spin { animation: spin 900ms linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .seg {
   display: grid;

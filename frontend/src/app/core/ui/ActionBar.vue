@@ -28,12 +28,10 @@ useKeyboardInset()
   background: var(--bg);
   border-top: 1px solid var(--line);
 }
-.actionbar--tabs { bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--kb-inset, 0px)); padding-bottom: var(--s3); }
+/* one bottom zone: the bar runs to the screen edge and the floating tab pill sits inside its lower part */
+.actionbar--tabs { padding-bottom: calc(var(--tabbar-space) + var(--s3)); }
 .actionbar__inner { display: flex; flex-direction: column; gap: var(--s2); }
 .actionbar__meta { font-size: var(--text-sm); color: var(--ink-2); font-weight: 700; }
 .actionbar__buttons { display: flex; gap: var(--s2); }
 .actionbar__buttons > :deep(*) { flex: 1; }
-@media (min-width: 720px) {
-  .actionbar--tabs { bottom: calc(var(--safe-bottom) + var(--kb-inset, 0px)); }
-}
 </style>

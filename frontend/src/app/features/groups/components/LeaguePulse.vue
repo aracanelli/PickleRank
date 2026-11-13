@@ -17,7 +17,7 @@ const props = defineProps<{
   players: Pick<GroupPlayerDto, 'id' | 'playerId' | 'displayName'>[]
 }>()
 
-interface Moment { key: string; icon: Component; tone?: 'hot' | 'cold'; title: string; sub: string; to?: string }
+interface Moment { key: string; icon: Component; title: string; sub: string; to?: string }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
@@ -28,7 +28,7 @@ const moments = computed<Moment[]>(() => {
   const out: Moment[] = []
 
   const { hot, cold } = hotAndCold(props.matches, new Map(props.players.map(p => [p.id, p.displayName])))
-  if (hot) out.push({ key: 'hot', icon: Flame, tone: 'hot', title: `${hot.displayName} has won ${hot.length} straight`, sub: 'Longest current winning run', to: profile(hot.groupPlayerId) })
+  if (hot) out.push({ key: 'hot', icon: Flame, title: `${hot.displayName} has won ${hot.length} straight`, sub: 'Longest current winning run', to: profile(hot.groupPlayerId) })
 
   const rival = rivalry(props.matches)
   if (rival) {
@@ -55,7 +55,7 @@ const moments = computed<Moment[]>(() => {
     })
   }
 
-  if (cold) out.push({ key: 'cold', icon: Snowflake, tone: 'cold', title: `${cold.displayName} has dropped ${cold.length} in a row`, sub: 'Longest current losing run', to: profile(cold.groupPlayerId) })
+  if (cold) out.push({ key: 'cold', icon: Snowflake, title: `${cold.displayName} has dropped ${cold.length} in a row`, sub: 'Longest current losing run', to: profile(cold.groupPlayerId) })
   return out
 })
 </script>
@@ -66,7 +66,7 @@ const moments = computed<Moment[]>(() => {
     <ul role="list" class="pulse">
       <li v-for="m in moments" :key="m.key">
         <component :is="m.to ? RouterLink : 'div'" :to="m.to" class="moment">
-          <span class="moment__icon" :class="m.tone && `moment__icon--${m.tone}`" aria-hidden="true">
+          <span class="moment__icon" aria-hidden="true">
             <component :is="m.icon" :size="20" />
           </span>
           <span class="moment__text">
@@ -96,14 +96,12 @@ const moments = computed<Moment[]>(() => {
   flex: none;
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-control);
-  background: var(--court-tint);
-  color: var(--court);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-sunk);
+  color: var(--ink-2);
 }
-.moment__icon--hot { background: var(--bad-tint); color: var(--bad); }
-.moment__icon--cold { background: var(--surface-sunk); color: var(--ink-2); }
 .moment__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .moment__title { font-weight: 700; overflow-wrap: anywhere; }
 .moment__sub { font-size: var(--text-sm); }

@@ -78,13 +78,14 @@ const showTabs = computed(() =>
 /* column so a page fills the screen and its ActionBar sits in the thumb zone even on short pages */
 main { display: flex; flex-direction: column; min-height: 100dvh; }
 main:focus { outline: none; }
-main.has-tabs { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom)); }
-@media (min-width: 720px) { main.has-tabs { padding-bottom: 0; } }
+main.has-tabs { padding-bottom: calc(var(--tabbar-space) + var(--s2)); }
+/* a screen with an ActionBar above the tabs already reserves the tab zone inside that bar */
+main.has-tabs:has(.actionbar--tabs) { padding-bottom: 0; }
 
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--s4) + var(--kb-inset, 0px));
+  bottom: calc(var(--tabbar-space) + var(--s4) + var(--kb-inset, 0px));
   transform: translateX(-50%);
   z-index: 50;
   display: flex;
@@ -96,7 +97,7 @@ main.has-tabs { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom)); }
   background: var(--ink);
   color: var(--bg);
   font-weight: 700;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+  box-shadow: var(--shadow-float);
   animation: toast-in 180ms var(--ease);
 }
 .toast--bad { background: var(--bad); color: var(--surface); }

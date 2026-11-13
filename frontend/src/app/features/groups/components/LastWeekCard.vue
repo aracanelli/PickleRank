@@ -98,16 +98,16 @@ const headlines = computed<Headline[]>(() => {
 /* a court-side scoreboard: four numbers, read at a glance */
 .board {
   padding: var(--s3) var(--s4) var(--s4);
+  border: 1px solid var(--line);
   border-radius: var(--r-tile);
-  /* fixed night-court colours in both themes, so optic numbers always sit on dark */
-  background: #13233a;
-  color: #ffffff;
+  background: var(--surface);
+  color: var(--ink);
 }
 .board__when { margin: 0 0 var(--s2); font-size: var(--text-sm); font-weight: 700; }
 .board__nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(3.75rem, 1fr)); gap: var(--s2); margin: 0; }
 .board__nums div { display: flex; flex-direction: column-reverse; }
-.board__nums dt { font-size: var(--text-xs); font-weight: 700; opacity: 0.85; }
-.board__nums dd { margin: 0; font-size: 2.25rem; line-height: 1; color: var(--optic); }
+.board__nums dt { font-size: var(--text-xs); font-weight: 700; color: var(--ink-2); }
+.board__nums dd { margin: 0; font-size: 2.25rem; line-height: 1; color: var(--ink); }
 
 .heads { display: flex; flex-direction: column; }
 .head {
@@ -127,8 +127,8 @@ const headlines = computed<Headline[]>(() => {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--court-tint);
-  color: var(--court);
+  background: var(--surface-sunk);
+  color: var(--ink-2);
 }
 .head__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .head__title { font-weight: 700; }

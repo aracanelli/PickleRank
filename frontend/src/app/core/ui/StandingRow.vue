@@ -75,7 +75,7 @@ const word = { W: 'won', L: 'lost', T: 'tied' } as const
 
 .form { display: inline-flex; align-items: center; gap: 4px; }
 .form__dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.form__dot--W { background: var(--ok); }
-.form__dot--L { box-shadow: inset 0 0 0 2px var(--bad); }
+.form__dot--W { background: var(--ink); }
+.form__dot--L { box-shadow: inset 0 0 0 2px var(--line-strong); }
 .form__dot--T { height: 3px; border-radius: 2px; background: var(--ink-2); }
 </style>

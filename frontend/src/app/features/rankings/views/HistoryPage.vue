@@ -512,16 +512,6 @@ function byRound(list: MatchHistoryEntryDto[]) {
 </template>
 
 <style scoped>
-.icon-btn {
-  width: var(--tap); height: var(--tap);
-  display: grid; place-items: center;
-  border: 0; border-radius: 50%;
-  background: transparent;
-  color: var(--ink);
-}
-.icon-btn:hover { background: var(--surface-sunk); }
-.spin { animation: spin 900ms linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .filterbar { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s4); }
 .filterbar__text { font-weight: 700; }
