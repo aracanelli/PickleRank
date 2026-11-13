@@ -239,7 +239,10 @@ describe('Auth Store', () => {
       expect(store.user!.id).toBe('cached-user')
       expect(store.user!.firstName).toBe('Cached')
       expect(store.user!.fullName).toBe('Cached User')
-      // Not fully authenticated since no session
+      // Provisionally signed in (opens offline); Clerk confirms or clears it once loaded
+      expect(store.provisional).toBe(true)
+      expect(store.isAuthenticated).toBe(true)
+      store.clearAuth()
       expect(store.isAuthenticated).toBe(false)
     })
 
@@ -250,7 +253,7 @@ describe('Auth Store', () => {
         firstName: 'Old',
         lastName: null,
         imageUrl: null,
-        timestamp: Date.now() - 8 * 24 * 60 * 60 * 1000 // 8 days ago
+        timestamp: Date.now() - 31 * 24 * 60 * 60 * 1000 // 31 days ago
       }
       ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
         if (key === 'picklerank_session_cache') return JSON.stringify(expired)

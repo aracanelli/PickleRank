@@ -153,7 +153,8 @@ async def add_player_to_group(
     """Add a player to a group."""
     service = PlayerService(db)
     return await service.add_player_to_group(
-        user.user_id, group_id, data.player_id, data.membership_type, data.skill_level
+        user.user_id, group_id, data.player_id, data.membership_type, data.skill_level,
+        group_player_id=data.id,
     )
 
 

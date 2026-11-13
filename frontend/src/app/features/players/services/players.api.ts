@@ -22,9 +22,9 @@ export interface BulkCreatePlayersResponse {
 }
 
 export const playersApi = {
-  async list(search?: string): Promise<PlayerListResponse> {
+  async list(search?: string, onCached?: (r: PlayerListResponse) => void): Promise<PlayerListResponse> {
     const params = search ? `?search=${encodeURIComponent(search)}` : ''
-    return api.get(`/api/players${params}`)
+    return api.get(`/api/players${params}`, { onCached })
   },
 
   async get(playerId: string): Promise<PlayerDto> {

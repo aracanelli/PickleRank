@@ -55,16 +55,22 @@ const podium = computed(() => rows.value.slice(0, 3).map(r => ({
 const subCount = computed(() => rankings.value.length - rankingRows(rankings.value, league.players, 'permanent').length)
 
 async function load() {
-  loading.value = true
   loadError.value = ''
-  await league.load(groupId.value)
+  const id = groupId.value
+  // rankings and the league load side by side; the kept copies paint first
+  const req = rankingsApi.getRankings(id, r => { rankings.value = r.rankings; loading.value = false })
+  void recent.load()
+  loading.value = !rankings.value.length
+  await league.load(id)
   if (!league.error) {
     try {
-      rankings.value = (await rankingsApi.getRankings(groupId.value)).rankings
-      void recent.load()
+      const r = await req
+      if (groupId.value === id) rankings.value = r.rankings
     } catch (e) {
-      loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
+      if (!rankings.value.length) loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
     }
+  } else {
+    req.catch(() => {})
   }
   loading.value = false
 }

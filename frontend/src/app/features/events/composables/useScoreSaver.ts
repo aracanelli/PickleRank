@@ -1,20 +1,23 @@
-import { reactive } from 'vue'
-import type { GameDto, GameResult } from '@/app/core/models/dto'
+import { reactive, computed } from 'vue'
+import type { GameDto, GameResult, EventDto } from '@/app/core/models/dto'
+import { outbox as appOutbox } from '@/app/core/offline/sync'
+import { online } from '@/app/core/offline/network'
+import type { Outbox } from '@/app/core/offline/outbox'
 
 /**
- * Per-game score persistence for live scoring.
+ * Per-game score persistence for live scoring, on top of the app's durable outbox.
  *
- * Carried forward from the original EventDetailPage engine:
- * - one request in flight per game; newer values queue behind it (latest value wins)
- * - a response is not applied while a newer value is queued (no stale flicker)
- * - queued retries back off at RETRY_BASE_DELAY_MS * 2^attempt, up to MAX_RETRIES
- *
- * Changed: a final failure keeps the entered score as a draft (also in sessionStorage,
- * so it survives a reload) and marks the game failed, instead of reloading the event
- * and discarding what the organizer typed.
+ * - A saved score is written to the outbox (localStorage) before anything is sent, so it
+ *   survives no connection, a closed tab, or a killed app, and syncs on its own later.
+ * - Rapid saves of one court coalesce: only the latest value is sent.
+ * - A response is not applied while a newer value for that court is still queued (no flicker).
+ * - Each write carries `editedAt` (when it was typed). The server keeps whichever edit is newest,
+ *   so a phone that comes back online late never overwrites a newer score from another phone;
+ *   it gets the newer score back and shows that instead.
+ * - Only a refusal or repeated server errors mark a court failed; no connection is just "queued".
  */
 
-export type SaveState = 'idle' | 'saving' | 'saved' | 'failed'
+export type SaveState = 'idle' | 'saving' | 'queued' | 'saved' | 'failed'
 
 export interface ScoreDraft {
   score1?: number
@@ -28,17 +31,14 @@ export interface GameSaveStatus {
 }
 
 export interface ScoreSaverOptions {
-  updateScore: (gameId: string, body: { scoreTeam1?: number; scoreTeam2?: number }) => Promise<GameDto>
   onSaved: (game: GameDto) => void
   onFailed?: (gameId: string, draft: ScoreDraft, message: string) => void
-  storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null
-  retryBaseDelayMs?: number
-  maxRetries?: number
+  outbox?: Outbox
 }
 
-export const RETRY_BASE_DELAY_MS = 1000
-export const MAX_RETRIES = 5
-const DRAFT_PREFIX = 'picklerank:score-draft:'
+interface ScoreBody { scoreTeam1?: number; scoreTeam2?: number; editedAt: number; baseEditedAt?: number | null }
+
+const keyOf = (gameId: string) => `score:${gameId}`
 
 export function resultFromScores(score1?: number, score2?: number): GameResult {
   if (score1 == null || score2 == null) return 'UNSET'
@@ -47,178 +47,88 @@ export function resultFromScores(score1?: number, score2?: number): GameResult {
   return 'TIE'
 }
 
-function defaultStorage() {
-  try {
-    return typeof sessionStorage !== 'undefined' ? sessionStorage : null
-  } catch {
-    return null
-  }
-}
-
 export function useScoreSaver(options: ScoreSaverOptions) {
-  const storage = options.storage === undefined ? defaultStorage() : options.storage
-  const baseDelay = options.retryBaseDelayMs ?? RETRY_BASE_DELAY_MS
-  const maxRetries = options.maxRetries ?? MAX_RETRIES
+  const box = options.outbox ?? appOutbox
+  const saved = reactive(new Set<string>())
+  const offline = computed(() => !online.value || box.waiting.value)
 
-  const statuses = reactive(new Map<string, GameSaveStatus>())
-  const inFlight = new Set<string>()
-  const queued = new Map<string, ScoreDraft>()
-  const attempts = new Map<string, number>()
-  const timers = new Map<string, ReturnType<typeof setTimeout>>()
-  // Bumped by reset(); responses from an older generation are ignored.
-  let generation = 0
-
-  function writeDraft(gameId: string, draft: ScoreDraft) {
-    try { storage?.setItem(DRAFT_PREFIX + gameId, JSON.stringify(draft)) } catch { /* storage full or blocked */ }
-  }
-  function clearDraft(gameId: string) {
-    try { storage?.removeItem(DRAFT_PREFIX + gameId) } catch { /* ignore */ }
-  }
-  function readDraft(gameId: string): ScoreDraft | null {
-    try {
-      const raw = storage?.getItem(DRAFT_PREFIX + gameId)
-      return raw ? (JSON.parse(raw) as ScoreDraft) : null
-    } catch {
-      return null
+  const unsubscribe = box.subscribe(o => {
+    const key = o.op.key
+    if (!key?.startsWith('score:')) return
+    const gameId = key.slice(6)
+    if (o.ok) {
+      if (box.find(key)) return // a newer value is queued; wait for it
+      saved.add(gameId)
+      options.onSaved(o.data as GameDto)
+    } else if (o.final) {
+      const b = o.op.body as ScoreBody
+      options.onFailed?.(gameId, { score1: b.scoreTeam1, score2: b.scoreTeam2 }, o.op.error || 'Score not saved')
     }
+  })
+
+  function draftOf(gameId: string): ScoreDraft | undefined {
+    const b = box.find(keyOf(gameId))?.body as ScoreBody | undefined
+    return b ? { score1: b.scoreTeam1, score2: b.scoreTeam2 } : undefined
   }
 
-  function setStatus(gameId: string, status: GameSaveStatus) {
-    statuses.set(gameId, status)
-  }
-
-  async function send(gameId: string, draft: ScoreDraft) {
-    const gen = generation
-    inFlight.add(gameId)
-    setStatus(gameId, { state: 'saving', draft })
-    let failed: unknown = null
-    try {
-      const updated = await options.updateScore(gameId, { scoreTeam1: draft.score1, scoreTeam2: draft.score2 })
-      if (gen !== generation) return
-      if (!queued.has(gameId)) {
-        attempts.delete(gameId)
-        clearDraft(gameId)
-        setStatus(gameId, { state: 'saved' })
-        options.onSaved(updated)
-      }
-    } catch (e) {
-      if (gen !== generation) return
-      failed = e
-    } finally {
-      if (gen === generation) {
-        inFlight.delete(gameId)
-        afterSend(gameId, draft, failed)
-      }
-    }
-  }
-
-  function afterSend(gameId: string, lastDraft: ScoreDraft, failed: unknown) {
-    const next = queued.get(gameId)
-    if (failed) {
-      const count = (attempts.get(gameId) ?? 0) + 1
-      attempts.set(gameId, count)
-      if (next && count < maxRetries) {
-        queued.delete(gameId)
-        setStatus(gameId, { state: 'saving', draft: next })
-        timers.set(gameId, setTimeout(() => {
-          timers.delete(gameId)
-          void dispatch(gameId, next)
-        }, baseDelay * Math.pow(2, count)))
-        return
-      }
-      queued.delete(gameId)
-      attempts.delete(gameId)
-      const draft = next ?? lastDraft
-      writeDraft(gameId, draft)
-      const message = (failed as { message?: string })?.message
-      setStatus(gameId, { state: 'failed', draft, error: message || 'Score not saved' })
-      options.onFailed?.(gameId, draft, message || 'Score not saved')
-      return
-    }
-    if (next) {
-      queued.delete(gameId)
-      void dispatch(gameId, next)
-    }
-  }
-
-  function dispatch(gameId: string, draft: ScoreDraft): Promise<void> | void {
-    if (inFlight.has(gameId)) {
-      queued.set(gameId, draft)
-      setStatus(gameId, { state: 'saving', draft })
-      return
-    }
-    return send(gameId, draft)
-  }
-
-  /** Save a score. Rapid repeat calls coalesce: one request in flight, latest value queued. */
-  function save(gameId: string, score1?: number, score2?: number) {
-    const draft: ScoreDraft = { score1, score2 }
-    writeDraft(gameId, draft)
-    const t = timers.get(gameId)
-    if (t) {
-      clearTimeout(t)
-      timers.delete(gameId)
-    }
-    return dispatch(gameId, draft)
+  /** Save a score. Rapid repeat calls coalesce: only the latest value is sent. */
+  /** @param baseEditedAt - the game's editedAt as this device last saw it (server copy) */
+  function save(gameId: string, score1?: number, score2?: number, label = 'Court score', baseEditedAt?: number | null) {
+    saved.delete(gameId)
+    const body: ScoreBody = { scoreTeam1: score1, scoreTeam2: score2, editedAt: Date.now(), baseEditedAt: baseEditedAt ?? null }
+    box.enqueue({ key: keyOf(gameId), method: 'PATCH', url: `/api/games/${gameId}/score`, body, label })
   }
 
   function retry(gameId: string) {
-    const draft = statuses.get(gameId)?.draft ?? readDraft(gameId)
-    if (!draft) return
-    attempts.delete(gameId)
-    return save(gameId, draft.score1, draft.score2)
-  }
-
-  /** Restore unsaved drafts from a previous page load as failed entries the organizer can retry. */
-  function restoreDrafts(games: GameDto[]) {
-    for (const g of games) {
-      const draft = readDraft(g.id)
-      if (!draft) continue
-      if (draft.score1 === g.scoreTeam1 && draft.score2 === g.scoreTeam2) {
-        clearDraft(g.id)
-        continue
-      }
-      setStatus(g.id, { state: 'failed', draft, error: 'Score not saved before the page closed' })
-    }
+    const op = box.find(keyOf(gameId))
+    if (op) box.retry(op.id)
   }
 
   function discardDraft(gameId: string) {
-    clearDraft(gameId)
-    statuses.delete(gameId)
+    const op = box.find(keyOf(gameId))
+    if (op) box.discard(op.id)
+    saved.delete(gameId)
+  }
+
+  /** Drop queued scores for games that no longer exist (schedule reshuffled, event deleted). */
+  function discardAll(gameIds: string[]) {
+    gameIds.forEach(discardDraft)
   }
 
   function status(gameId: string): GameSaveStatus {
-    return statuses.get(gameId) ?? { state: 'idle' }
-  }
-
-  function hasUnsaved() {
-    for (const s of statuses.values()) {
-      if (s.state === 'saving' || s.state === 'failed') return true
+    const op = box.find(keyOf(gameId))
+    if (op) {
+      const draft = draftOf(gameId)
+      if (op.failed) return { state: 'failed', draft, error: op.error }
+      return { state: offline.value && box.sending.value !== op.id ? 'queued' : 'saving', draft }
     }
-    return false
+    return { state: saved.has(gameId) ? 'saved' : 'idle' }
   }
 
-  function isBusy() {
-    for (const s of statuses.values()) if (s.state === 'saving') return true
-    return false
+  /** Any court of these games still waiting to reach the server (queued, saving or failed). */
+  function hasUnsaved(gameIds: string[]) {
+    return gameIds.some(id => !!box.find(keyOf(id)))
   }
 
-  /** Forget in-memory state (e.g. after regenerating). Drafts for the old games are dropped. */
-  function reset() {
-    generation++
-    timers.forEach(t => clearTimeout(t))
-    timers.clear()
-    for (const id of statuses.keys()) clearDraft(id)
-    statuses.clear()
-    inFlight.clear()
-    queued.clear()
-    attempts.clear()
+  function hasFailed(gameIds: string[]) {
+    return gameIds.some(id => !!box.find(keyOf(id))?.failed)
+  }
+
+  /** Overlay queued scores on server data so progress, rounds and tiles show what was entered. */
+  function applyPending(e: EventDto): EventDto {
+    let changed = false
+    const games = e.games.map(g => {
+      const d = draftOf(g.id)
+      if (!d) return g
+      changed = true
+      return { ...g, scoreTeam1: d.score1, scoreTeam2: d.score2, result: resultFromScores(d.score1, d.score2) }
+    })
+    return changed ? { ...e, games } : e
   }
 
   function dispose() {
-    timers.forEach(t => clearTimeout(t))
-    timers.clear()
+    unsubscribe()
   }
 
-  return { save, retry, restoreDrafts, discardDraft, status, statuses, hasUnsaved, isBusy, reset, dispose }
+  return { save, retry, discardDraft, discardAll, status, hasUnsaved, hasFailed, applyPending, dispose }
 }

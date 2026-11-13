@@ -47,7 +47,13 @@ class PlayerService:
             owner_user_id=user_id,
             display_name=data.display_name,
             notes=data.notes,
+            player_id=data.id,
         )
+        if player is None:
+            # Client-generated id already used: a retried create returns the stored player.
+            player = await self.players_repo.get_by_id(data.id)
+            if not player or str(player["owner_user_id"]) != user_id:
+                raise ConflictError("A player with this id already exists")
 
         return self._to_player_response_with_token(player)
 
@@ -130,8 +136,9 @@ class PlayerService:
         membership_type: MembershipType = MembershipType.PERMANENT,
         skill_level: Optional[SkillLevel] = None,
         role: GroupRole = GroupRole.PLAYER,
+        group_player_id: Optional[UUID] = None,
     ) -> GroupPlayerResponse:
-        """Add a player to a group."""
+        """Add a player to a group (idempotent; group_player_id is an optional client-generated id)."""
         # Verify group ownership
         group = await self.groups_repo.get_by_id(group_id)
 
@@ -179,7 +186,11 @@ class PlayerService:
             membership_type=membership_type.value,
             skill_level=skill_level.value if skill_level else None,
             role=role.value,
+            group_player_id=group_player_id,
         )
+        # The client id may already belong to another membership
+        if group_player["group_id"] != group_id or group_player["player_id"] != player_id:
+            raise ConflictError("A group player with this id already exists")
 
         # Get full info
         gp = await self.group_players_repo.get_by_id(group_player["id"])

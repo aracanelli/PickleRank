@@ -28,12 +28,12 @@ const query = ref('')
 const visible = computed(() => findByName(players.value, query.value))
 
 async function load() {
-  loading.value = true
+  loading.value = !players.value.length
   error.value = ''
   try {
-    players.value = (await playersApi.list()).players
+    players.value = (await playersApi.list(undefined, kept => { players.value = kept.players; loading.value = false })).players
   } catch (e) {
-    error.value = (e as { message?: string }).message || 'Your player list did not load.'
+    if (!players.value.length) error.value = (e as { message?: string }).message || 'Your player list did not load.'
   } finally {
     loading.value = false
   }

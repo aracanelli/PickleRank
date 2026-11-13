@@ -2,9 +2,9 @@ import { api } from '@/app/core/http/api-client'
 import type { RankingsResponse, MatchHistoryResponse } from '@/app/core/models/dto'
 
 export const rankingsApi = {
-  async getRankings(groupId: string): Promise<RankingsResponse> {
+  async getRankings(groupId: string, onCached?: (r: RankingsResponse) => void): Promise<RankingsResponse> {
     // Cache rankings for 5 minutes (invalidated when events complete)
-    return api.getCached(`/api/groups/${groupId}/rankings`, 300000)
+    return api.getCached(`/api/groups/${groupId}/rankings`, 300000, { onCached })
   },
 
   async getHistory(
@@ -17,7 +17,8 @@ export const rankingsApi = {
       secondaryPlayerId?: string;
       relationship?: 'teammate' | 'opponent';
       limit?: number;
-    }
+    },
+    onCached?: (r: MatchHistoryResponse) => void
   ): Promise<MatchHistoryResponse> {
     const params = new URLSearchParams()
     if (options?.from) params.set('from', options.from)
@@ -29,7 +30,7 @@ export const rankingsApi = {
     if (options?.limit) params.set('limit', String(options.limit))
 
     const query = params.toString()
-    return api.get(`/api/groups/${groupId}/history${query ? `?${query}` : ''}`)
+    return api.get(`/api/groups/${groupId}/history${query ? `?${query}` : ''}`, { onCached })
   }
 }
 

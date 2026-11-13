@@ -81,6 +81,7 @@ CREATE INDEX idx_events_status ON events(group_id, status);
 CREATE INDEX idx_events_date ON events(group_id, starts_at DESC);
 CREATE INDEX idx_events_created_at ON events(created_at DESC);
 CREATE INDEX idx_events_group_status_date ON events(group_id, status, starts_at DESC, created_at DESC);
+CREATE INDEX idx_events_group_starts_created ON events(group_id, starts_at DESC NULLS LAST, created_at DESC);
 
 CREATE TABLE event_participants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -107,10 +108,16 @@ CREATE TABLE games (
     team2_elo NUMERIC(10, 2),
     result game_result DEFAULT 'UNSET',
     swapped BOOLEAN DEFAULT FALSE,
+    score_edited_at TIMESTAMPTZ,  -- docs/migrations/20261113_score_edited_at.sql
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_games_event ON games(event_id);
+-- docs/migrations/20261113_perf_indexes.sql
+CREATE INDEX idx_games_team1_p1 ON games(team1_p1);
+CREATE INDEX idx_games_team1_p2 ON games(team1_p2);
+CREATE INDEX idx_games_team2_p1 ON games(team2_p1);
+CREATE INDEX idx_games_team2_p2 ON games(team2_p2);
 CREATE INDEX idx_games_round ON games(event_id, round_index);
 CREATE INDEX idx_games_created_at ON games(created_at DESC);
 CREATE INDEX idx_games_group_created ON games(event_id, created_at DESC);

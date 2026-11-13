@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Check, CircleDashed, AlertTriangle, Loader2 } from 'lucide-vue-next'
+import { Check, CircleDashed, AlertTriangle, Loader2, CloudOff } from 'lucide-vue-next'
 
-export type CourtState = 'needs' | 'saving' | 'saved' | 'failed' | 'final'
+export type CourtState = 'needs' | 'saving' | 'queued' | 'saved' | 'failed' | 'final'
 defineProps<{ state: CourtState; failedText?: string }>()
 </script>
 
@@ -10,8 +10,10 @@ defineProps<{ state: CourtState; failedText?: string }>()
     <Loader2 v-if="state === 'saving'" class="spin" :size="16" aria-hidden="true" />
     <Check v-else-if="state === 'saved' || state === 'final'" :size="16" aria-hidden="true" />
     <AlertTriangle v-else-if="state === 'failed'" :size="16" aria-hidden="true" />
+    <CloudOff v-else-if="state === 'queued'" :size="16" aria-hidden="true" />
     <CircleDashed v-else :size="16" aria-hidden="true" />
     <span v-if="state === 'saving'">Saving…</span>
+    <span v-else-if="state === 'queued'">On phone · syncs later</span>
     <span v-else-if="state === 'saved'">Saved</span>
     <span v-else-if="state === 'final'">Final</span>
     <span v-else-if="state === 'failed'">{{ failedText || 'Not saved. Tap to retry' }}</span>
@@ -31,6 +33,7 @@ defineProps<{ state: CourtState; failedText?: string }>()
 }
 .status--needs { color: var(--ink-2); }
 .status--saving { color: var(--wait); background: var(--wait-tint); }
+.status--queued { color: var(--court); background: var(--court-tint); }
 .status--saved { color: var(--ok); background: var(--ok-tint); }
 .status--final { color: var(--ink-2); }
 .status--failed { color: var(--bad); background: var(--bad-tint); }

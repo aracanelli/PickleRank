@@ -15,9 +15,12 @@ import UiSheet from '@/app/core/ui/UiSheet.vue'
 import UiState from '@/app/core/ui/UiState.vue'
 import ActionBar from '@/app/core/ui/ActionBar.vue'
 import LeagueCrest from '@/app/core/ui/LeagueCrest.vue'
-import { announce } from '@/app/core/ui/feedback'
+import { toast } from '@/app/core/ui/feedback'
+import { useAuthStore } from '@/stores/auth'
+import { outbox } from '@/app/core/offline/sync'
 
 const router = useRouter()
+const auth = useAuthStore()
 
 const organized = ref<GroupListItemDto[]>([])
 const playing = ref<GroupListItemDto[]>([])
@@ -27,20 +30,35 @@ const loadError = ref('')
 const createOpen = ref(false)
 const newName = ref('')
 const nameError = ref('')
-const creating = ref(false)
 
 const empty = computed(() => !organized.value.length && !playing.value.length)
 
+function apply(owned: GroupListItemDto[], member: GroupListItemDto[]) {
+  // leagues created on this phone that the server hasn't got yet stay listed
+  const queued = outbox.ops
+    .filter(o => o.key?.startsWith('group-create:') && !owned.some(g => g.id === (o.body as { id: string }).id))
+    .map(o => { const b = o.body as { id: string; name: string }; return { id: b.id, name: b.name, sport: 'pickleball', playerCount: 0, createdAt: new Date(o.createdAt).toISOString() } })
+  organized.value = [...queued, ...owned]
+  const ownedIds = new Set(owned.map(g => g.id))
+  playing.value = member.filter(g => !ownedIds.has(g.id))
+}
+
 async function load() {
-  loading.value = true
   loadError.value = ''
+  // Paint the lists kept on this phone at once; refresh behind them.
+  let keptOwned: GroupListItemDto[] | null = null
+  let keptMember: GroupListItemDto[] | null = null
+  const showKept = () => {
+    if (keptOwned && keptMember) { apply(keptOwned, keptMember); loading.value = false }
+  }
   try {
-    const [owned, member] = await Promise.all([groupsApi.list(), groupsApi.listMemberGroups()])
-    organized.value = owned.groups
-    const ownedIds = new Set(owned.groups.map(g => g.id))
-    playing.value = member.groups.filter(g => !ownedIds.has(g.id))
+    const [owned, member] = await Promise.all([
+      groupsApi.list(r => { keptOwned = r.groups; showKept() }),
+      groupsApi.listMemberGroups(r => { keptMember = r.groups; showKept() })
+    ])
+    apply(owned.groups, member.groups)
   } catch (e) {
-    loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
+    if (loading.value) loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
   } finally {
     loading.value = false
   }
@@ -60,18 +78,12 @@ async function create() {
     nameError.value = 'Enter a league name.'
     return
   }
-  creating.value = true
-  nameError.value = ''
-  try {
-    const group = await groupsApi.create({ name })
-    createOpen.value = false
-    await router.push(`/groups/${group.id}`)
-  } catch (e) {
-    nameError.value = (e as { message?: string }).message || 'League not created. Check your connection and try again.'
-    announce(nameError.value, true)
-  } finally {
-    creating.value = false
-  }
+  // Optimistic and offline-safe: the league exists on this phone now and syncs when it can.
+  const { group, settled } = groupsApi.createQueued(name, auth.userId || '')
+  createOpen.value = false
+  await router.push(`/groups/${group.id}`)
+  const res = await settled
+  if (!res.ok) toast(`${name} was not created: ${res.error.message || 'the server refused it'}. Open the sync list to retry.`, 'bad')
 }
 
 const players = (n: number) => `${n} ${n === 1 ? 'player' : 'players'}`
@@ -168,7 +180,7 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month:
       </form>
       <template #actions>
         <UiButton variant="quiet" @click="createOpen = false">Cancel</UiButton>
-        <UiButton type="submit" form="create-league" variant="primary" :loading="creating">Create league</UiButton>
+        <UiButton type="submit" form="create-league" variant="primary">Create league</UiButton>
       </template>
     </UiSheet>
   </div>

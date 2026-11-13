@@ -28,8 +28,8 @@ export interface VoteResponse {
 
 export const awardsApi = {
   /** Latest awards edition for the group, or null when none exists yet. */
-  async getAwards(groupId: string): Promise<AwardEditionDto | null> {
-    return api.get<AwardEditionDto | null>(`/api/groups/${groupId}/awards`)
+  async getAwards(groupId: string, onCached?: (e: AwardEditionDto | null) => void): Promise<AwardEditionDto | null> {
+    return api.get<AwardEditionDto | null>(`/api/groups/${groupId}/awards`, { onCached })
   },
 
   /** Create a DRAFT edition with a frozen stat-award snapshot. */

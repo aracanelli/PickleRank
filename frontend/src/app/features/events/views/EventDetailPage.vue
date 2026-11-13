@@ -2,14 +2,14 @@
 /**
  * Live scoring: the round board.
  * Every court in the round is a tile; tap the court you were told about, enter two numbers,
- * "Save court N". Confirmed scores live in `event`; unsent or failed ones live in the saver,
- * so completion is never offered while a score is still on its way.
+ * "Save court N". Entered scores show at once (optimistic) and go through the durable outbox,
+ * so they survive no connection and sync later; completion queues behind them in order.
  */
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave, RouterLink } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { ChevronLeft, ChevronRight, MoreHorizontal, Shuffle, Share2, Pencil, Trash2, Check, Wrench, ArrowLeftRight, Users } from 'lucide-vue-next'
-import { eventsApi } from '../services/events.api'
-import type { EventDto, GameDto, RatingUpdateDto } from '@/app/core/models/dto'
+import { eventsApi, scheduleKey } from '../services/events.api'
+import type { EventDto, GameDto, RatingUpdateDto, GenerateResponse } from '@/app/core/models/dto'
 import { useLeagueStore } from '@/stores/league'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
 import CourtTile from '@/app/core/ui/CourtTile.vue'
@@ -29,7 +29,10 @@ import NightRecap from '../components/NightRecap.vue'
 import PlayerAvatar from '@/app/core/ui/PlayerAvatar.vue'
 import { useWakeLock } from '@/app/core/ui/useWakeLock'
 import { mergeLive, relaxNote } from '../liveEdits'
-import { useScoreSaver } from '../composables/useScoreSaver'
+import { useScoreSaver, resultFromScores } from '../composables/useScoreSaver'
+import { api } from '@/app/core/http/api-client'
+import { outbox, whenSettled } from '@/app/core/offline/sync'
+import { online } from '@/app/core/offline/network'
 import { gamesByRound, currentRoundIndex, progress, eventTitle, isScored } from '../eventProgress'
 import { validatePair, digitsOnly } from '../scoreInput'
 
@@ -48,12 +51,15 @@ const scheduleError = ref((route.query.scheduleError as string) || '')
 const flashId = ref<string | null>(null)
 let loadToken = 0
 
+// When this device last changed each game; a live-sync response older than that is ignored.
+const localChangeAt = new Map<string, number>()
 const saver = useScoreSaver({
-  updateScore: (id, body) => eventsApi.updateScore(id, body),
   onSaved: (game: GameDto) => {
     if (!event.value) return
     const i = event.value.games.findIndex(g => g.id === game.id)
-    if (i !== -1) event.value.games[i] = game
+    if (i === -1) return
+    localChangeAt.set(game.id, Date.now())
+    event.value.games[i] = game
     if (event.value.status === 'GENERATED') event.value.status = 'IN_PROGRESS'
     flashId.value = game.id
     setTimeout(() => { if (flashId.value === game.id) flashId.value = null }, 1300)
@@ -86,17 +92,32 @@ function retryFailed() {
   for (const g of failedGames.value) void saver.retry(g.id)
   announce(failedGames.value.length === 1 ? 'Retrying 1 court.' : `Retrying ${failedGames.value.length} courts.`)
 }
-const canComplete = computed(() => !!prog.value?.allScored && !saver.hasUnsaved() && !completed.value)
+const gameIds = computed(() => event.value?.games.map(g => g.id) ?? [])
+// Queued scores send before the completion (one ordered queue), so only a failed score blocks it.
+const canComplete = computed(() => !!prog.value?.allScored && !saver.hasFailed(gameIds.value) && !completed.value)
+const unsynced = computed(() => saver.hasUnsaved(gameIds.value))
+
+/** Show an entered score right away, before the server confirms it. */
+function patchGame(id: string, score1?: number, score2?: number) {
+  const ev = event.value
+  const g = ev?.games.find(x => x.id === id)
+  if (!ev || !g) return
+  g.scoreTeam1 = score1
+  g.scoreTeam2 = score2
+  g.result = resultFromScores(score1, score2)
+  localChangeAt.set(id, Date.now())
+  if (ev.status === 'GENERATED') ev.status = 'IN_PROGRESS'
+}
 
 function tileState(g: GameDto): CourtState {
   if (completed.value) return 'final'
   const s = saver.status(g.id).state
-  if (s === 'saving' || s === 'failed') return s
+  if (s === 'saving' || s === 'failed' || s === 'queued') return s
   return isScored(g) ? 'saved' : 'needs'
 }
 function tileScores(g: GameDto) {
   const st = saver.status(g.id)
-  if ((st.state === 'saving' || st.state === 'failed') && st.draft) return [st.draft.score1, st.draft.score2] as const
+  if ((st.state === 'saving' || st.state === 'failed' || st.state === 'queued') && st.draft) return [st.draft.score1, st.draft.score2] as const
   return [g.scoreTeam1, g.scoreTeam2] as const
 }
 
@@ -105,23 +126,66 @@ async function load(opts: { keepRound?: boolean } = {}) {
   loading.value = !event.value
   loadError.value = null
   try {
-    const e = await eventsApi.get(eventId.value)
+    // Paint the last known copy at once (also offline), then refresh.
+    const e = await eventsApi.get(eventId.value, kept => {
+      if (token !== loadToken || event.value) return
+      event.value = saver.applyPending(kept)
+      loading.value = false
+      if (!opts.keepRound) round.value = currentRoundIndex(event.value)
+    })
     if (token !== loadToken) return
-    event.value = e
+    // pick the round from real games: the kept copy may be a just-created event with none yet
+    const hadGames = !!event.value?.games.length
+    event.value = saver.applyPending(e)
     void league.load(e.groupId)
-    saver.restoreDrafts(e.games)
-    if (!opts.keepRound) round.value = currentRoundIndex(e)
+    if (!opts.keepRound && !hadGames) round.value = currentRoundIndex(event.value)
   } catch (err) {
     if (token !== loadToken) return
-    const x = err as { status?: number; message?: string }
-    loadError.value = { status: x.status, message: x.message || 'Event did not load' }
+    const x = err as { status?: number; message?: string; offline?: boolean }
+    // Keep showing what we have when offline, or while this phone's own "create" is still queued.
+    // Deleted or no longer visible: drop the kept copy and say so instead of offering dead courts.
+    const ownCreate = !!outbox.find(`event-create:${eventId.value}`)
+    if (event.value && !x.offline && !ownCreate && (x.status === 403 || x.status === 404)) {
+      api.forget(`/api/events/${eventId.value}`)
+      event.value = null
+    }
+    if (!event.value) loadError.value = { status: x.status, message: x.offline ? 'No connection, and this event has not been opened on this phone yet.' : x.message || 'Event did not load' }
   } finally {
     if (token === loadToken) loading.value = false
   }
 }
 
-onMounted(load)
-watch(eventId, () => { saver.reset(); event.value = null; void load() })
+// An event started on this phone: its schedule is still in the outbox. Show it when it lands.
+const scheduleOp = computed(() => outbox.find(scheduleKey(eventId.value)))
+function followSchedule() {
+  const op = scheduleOp.value
+  if (!op) return
+  const id = eventId.value
+  const settle = (ok: boolean, data: unknown, message?: string) => {
+    if (eventId.value !== id || !event.value) return
+    if (ok) {
+      const r = data as GenerateResponse
+      event.value = { ...event.value, status: r.status, generationMeta: r.generationMeta, games: r.games }
+      round.value = 0
+      toast('Schedule made')
+    } else {
+      scheduleError.value = message || 'Schedule not made'
+      announce(scheduleError.value, true)
+      outbox.discard(op.id)
+    }
+  }
+  if (op.failed) return settle(false, null, op.error)
+  void whenSettled(op).then(r => settle(r.ok, r.ok ? r.data : null, r.ok ? undefined : r.error.message))
+}
+
+onMounted(() => { void load(); followSchedule() })
+watch(eventId, () => { event.value = null; localChangeAt.clear(); void load(); followSchedule() })
+// Keep the device copy current, so reopening this event (offline too) shows what is on screen now.
+let keepTimer: number | undefined
+watch(event, e => {
+  clearTimeout(keepTimer)
+  if (e) keepTimer = window.setTimeout(() => api.setCached(`/api/events/${e.id}`, e), 400)
+}, { deep: true })
 
 // ---- court sheet ----
 const sheetGame = ref<GameDto | null>(null)
@@ -178,8 +242,9 @@ function saveCourt() {
     closeSheet()
     return
   }
-  void saver.save(g.id, v.score1, v.score2)
-  announce(`Saving court ${court}.`)
+  saver.save(g.id, v.score1, v.score2, `Court ${court} score`, g.editedAt)
+  patchGame(g.id, v.score1, v.score2)
+  announce(online.value ? `Saving court ${court}.` : `Court ${court} saved on this phone. It syncs when you are back online.`)
   closeSheet()
 }
 
@@ -193,7 +258,8 @@ async function clearCourt() {
     danger: true
   })
   if (!ok) return
-  void saver.save(g.id, undefined, undefined)
+  saver.save(g.id, undefined, undefined, `Court ${g.courtIndex + 1} score`, g.editedAt)
+  patchGame(g.id, undefined, undefined)
   closeSheet()
 }
 
@@ -224,7 +290,7 @@ async function generate(isRegenerate: boolean) {
   busy.value = 'generate'
   scheduleError.value = ''
   try {
-    saver.reset()
+    if (isRegenerate) saver.discardAll(gameIds.value)
     const res = await eventsApi.generate(event.value.id, isRegenerate)
     event.value = { ...event.value, status: res.status, generationMeta: res.generationMeta, games: res.games }
     round.value = 0
@@ -247,21 +313,26 @@ async function completeEvent() {
     confirmLabel: 'Complete event'
   })
   if (!ok) return
-  busy.value = 'complete'
-  try {
-    const res = await eventsApi.complete(event.value.id, event.value.groupId)
-    saver.reset()
-    event.value = { ...event.value, status: res.status }
-    wake.release()
+  const ev = event.value
+  const prevStatus = ev.status
+  // Queued behind any unsent scores, so the server completes the event with every score in.
+  // afterAll: never complete with a score that failed to sync ahead of it
+  const op = outbox.enqueue({ key: `complete:${ev.id}`, method: 'POST', url: `/api/events/${ev.id}/complete`, label: `Complete ${eventTitle(ev)}`, afterAll: true })
+  ev.status = 'COMPLETED'
+  wake.release()
+  if (!online.value) toast('Event completes when you are back online. Scores are safe on this phone.')
+  const res = await whenSettled(op)
+  if (event.value?.id !== ev.id) return
+  if (res.ok) {
+    const data = res.data as { status: EventDto['status']; ratingUpdates?: RatingUpdateDto[] }
+    event.value.status = data.status
     toast('Event completed. Rankings updated.')
-    reveal.value = res.ratingUpdates ?? []
-    revealOpen.value = true
-  } catch (e) {
-    const msg = (e as { message?: string }).message || 'Event not completed'
-    toast(`${msg}. Your scores are saved; try again.`, 'bad')
-    await load({ keepRound: true })
-  } finally {
-    busy.value = ''
+    reveal.value = data.ratingUpdates ?? []
+    revealOpen.value = !!reveal.value.length
+  } else {
+    event.value.status = prevStatus
+    outbox.discard(op.id)
+    toast(`${res.error.message || 'Event not completed'}. Your scores are saved; try again.`, 'bad')
   }
 }
 
@@ -274,13 +345,17 @@ const LIVE_SYNC_MS = 8000
 let syncTimer: number | undefined
 let syncing = false
 async function syncTick() {
-  if (syncing || document.visibilityState !== 'visible' || !event.value || completed.value || busy.value) return
+  if (syncing || !online.value || document.visibilityState !== 'visible' || !event.value || completed.value || busy.value) return
   syncing = true
+  const startedAt = Date.now()
   try {
     const fresh = await eventsApi.get(event.value.id)
     if (!event.value || fresh.id !== event.value.id) return
     const open = sheetGame.value?.id
-    event.value = mergeLive(event.value, fresh, id => id === open || saver.status(id).state === 'saving' || saver.status(id).state === 'failed')
+    // Leave alone: the open court, courts with a score still queued, and courts this device
+    // changed after this request started (that response is older than what is on screen).
+    event.value = saver.applyPending(mergeLive(event.value, fresh, id =>
+      id === open || saver.hasUnsaved([id]) || (localChangeAt.get(id) ?? 0) >= startedAt))
   } catch { /* next tick retries */ } finally {
     syncing = false
   }
@@ -308,13 +383,18 @@ async function deleteGame() {
   })
   if (!ok) return
   closeSheet()
-  try {
-    await eventsApi.deleteGame(g.id)
-    saver.discardDraft(g.id)
-    toast('Game deleted')
-    await load({ keepRound: true })
-  } catch (e) {
-    toast((e as { message?: string }).message || 'Game not deleted', 'bad')
+  saver.discardDraft(g.id)
+  const ev = event.value
+  if (!ev) return
+  const i = ev.games.findIndex(x => x.id === g.id)
+  if (i !== -1) ev.games.splice(i, 1)
+  const op = outbox.enqueue({ method: 'DELETE', url: `/api/games/${g.id}`, label: `Delete court ${g.courtIndex + 1} game` })
+  toast('Game deleted')
+  const res = await whenSettled(op)
+  if (!res.ok) {
+    outbox.discard(op.id)
+    toast(res.error.message || 'Game not deleted', 'bad')
+    if (event.value?.id === ev.id) await load({ keepRound: true })
   }
 }
 async function afterLineupChange() {
@@ -338,18 +418,17 @@ async function saveName() {
   if (!event.value) return
   const name = newName.value.trim()
   if (!name) return
-  busy.value = 'rename'
-  const old = event.value.name
-  try {
-    event.value.name = name
-    await eventsApi.update(event.value.id, { name })
-    renameOpen.value = false
-    toast('Event renamed')
-  } catch (e) {
-    event.value.name = old
-    toast((e as { message?: string }).message || 'Name not saved', 'bad')
-  } finally {
-    busy.value = ''
+  const ev = event.value
+  const old = ev.name
+  ev.name = name
+  renameOpen.value = false
+  const op = outbox.enqueue({ key: `event-name:${ev.id}`, method: 'PATCH', url: `/api/events/${ev.id}`, body: { name }, label: 'Event name' })
+  toast('Event renamed')
+  const res = await whenSettled(op)
+  if (!res.ok) {
+    outbox.discard(op.id)
+    if (event.value?.id === ev.id && ev.name === name) ev.name = old
+    toast(res.error.message || 'Name not saved', 'bad')
   }
 }
 async function share() {
@@ -376,37 +455,23 @@ async function deleteEvent() {
     danger: true
   })
   if (!ok) return
-  busy.value = 'delete'
-  try {
-    await eventsApi.delete(event.value.id)
-    saver.reset()
-    toast('Event deleted')
-    await router.replace(`/groups/${event.value.groupId}`)
-  } catch (e) {
-    toast((e as { message?: string }).message || 'Event not deleted', 'bad')
-  } finally {
-    busy.value = ''
+  const ev = event.value
+  saver.discardAll(gameIds.value)
+  const op = outbox.enqueue({ method: 'DELETE', url: `/api/events/${ev.id}`, label: `Delete ${eventTitle(ev)}` })
+  toast('Event deleted')
+  await router.replace(`/groups/${ev.groupId}`)
+  const res = await whenSettled(op)
+  if (!res.ok) {
+    outbox.discard(op.id)
+    toast(res.error.message || 'Event not deleted', 'bad')
   }
 }
 
-// ---- leaving with unsaved scores ----
-function beforeUnload(e: BeforeUnloadEvent) {
-  if (saver.hasUnsaved()) { e.preventDefault(); e.returnValue = '' }
-}
+// Unsent scores live in the outbox (on this phone) and sync from any screen, so leaving is safe.
 onMounted(() => {
-  window.addEventListener('beforeunload', beforeUnload)
   syncTimer = window.setInterval(() => void syncTick(), LIVE_SYNC_MS)
 })
-onUnmounted(() => { window.removeEventListener('beforeunload', beforeUnload); clearInterval(syncTimer); saver.dispose() })
-onBeforeRouteLeave(async () => {
-  if (!saver.hasUnsaved()) return true
-  return confirm({
-    title: 'Some scores are not saved',
-    body: 'They stay on this phone and come back when you reopen this event, but nobody else will see them until they save.',
-    confirmLabel: 'Leave anyway',
-    cancelLabel: 'Stay and retry'
-  })
-})
+onUnmounted(() => { clearInterval(syncTimer); clearTimeout(keepTimer); saver.dispose() })
 
 const backTo = computed(() => (event.value ? `/groups/${event.value.groupId}` : '/groups'))
 const nextRoundLabel = computed(() => `Go to round ${round.value + 2}`)
@@ -462,7 +527,10 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
           <span class="muted">Try again, or loosen the pairing rules in league settings.</span>
         </div>
         <p v-else>Make the schedule to see who plays on which court each round.</p>
-        <UiButton variant="primary" size="lg" :loading="busy === 'generate'" @click="generate(false)">Make schedule</UiButton>
+        <p v-if="scheduleOp && !scheduleOp.failed" class="notice" role="status">
+          {{ online ? 'Making the schedule…' : 'The schedule is made as soon as this phone is back online. Your event is saved.' }}
+        </p>
+        <UiButton v-else variant="primary" size="lg" :loading="busy === 'generate'" @click="generate(false)">Make schedule</UiButton>
         <RouterLink v-if="scheduleError" :to="`/groups/${event.groupId}/settings`" class="link">Open league settings</RouterLink>
       </section>
 
@@ -530,7 +598,8 @@ const roundNeeds = computed(() => roundGames.value.filter(g => !isScored(g)).len
         <p v-if="!completed" class="dock__meta" aria-live="polite">
           <template v-if="failedGames.length === 1">Court {{ failedGames[0].courtIndex + 1 }}{{ failedGames[0].roundIndex !== round ? `, round ${failedGames[0].roundIndex + 1},` : '' }} is not saved. Your score is kept on this phone.</template>
           <template v-else-if="failedGames.length">{{ failedGames.length }} courts are not saved. Your scores are kept on this phone.</template>
-          <template v-else-if="saver.hasUnsaved()">Saving scores…</template>
+          <template v-else-if="unsynced && !online">Scores are saved on this phone and sync when you are back online.</template>
+          <template v-else-if="unsynced">Saving scores…</template>
           <template v-else-if="prog?.allScored">All {{ prog.total }} games scored.</template>
           <template v-else-if="roundNeeds">{{ roundNeeds }} {{ roundNeeds === 1 ? 'court needs a score' : 'courts need scores' }} this round.</template>
           <template v-else>Round {{ round + 1 }} is fully scored.</template>

@@ -12,22 +12,33 @@ class GroupsRepository:
         self.conn = conn
 
     async def create(
-        self, owner_user_id: str, name: str, sport: str, settings: Dict[str, Any]
+        self,
+        owner_user_id: str,
+        name: str,
+        sport: str,
+        settings: Dict[str, Any],
+        group_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
-        """Create a new group."""
+        """Create a new group.
+
+        With a client-generated group_id an existing row is returned untouched
+        (callers must check it belongs to the same owner).
+        """
         row = await self.conn.fetchrow(
             """
-            INSERT INTO groups (owner_user_id, name, sport, settings_json)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO groups (id, owner_user_id, name, sport, settings_json)
+            VALUES (COALESCE($5::uuid, gen_random_uuid()), $1, $2, $3, $4)
+            ON CONFLICT (id) DO NOTHING
             RETURNING id
             """,
             UUID(owner_user_id),
             name,
             sport,
             json.dumps(settings),
+            group_id,
         )
         # Fetch via get_by_id to include clerk_user_id from JOIN
-        return await self.get_by_id(row["id"])
+        return await self.get_by_id(row["id"] if row else group_id)
 
     async def get_by_id(self, group_id: UUID) -> Optional[Dict[str, Any]]:
         """Get a group by ID."""

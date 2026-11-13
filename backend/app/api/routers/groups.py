@@ -73,7 +73,8 @@ async def get_group(
     db: Connection = Depends(get_db),
 ):
     """Get a specific group."""
-    response.headers["Cache-Control"] = "private, max-age=30"
+    # Settings change on edit; always revalidate so the browser never shows stale settings.
+    response.headers["Cache-Control"] = "private, no-cache"
     service = GroupService(db)
     return await service.get_group(user.user_id, group_id)
 

@@ -35,14 +35,16 @@ async def get_rankings(
     # Per-user data that changes when an event completes: never let the browser or a CDN reuse it.
     response.headers["Cache-Control"] = "private, no-cache"
     
-    # Check server-side cache first
+    service = RankingService(db)
+    # Access check before the cache: the cache is keyed by group only and shared across users.
+    await service.ensure_access(user.user_id, group_id)
+
     cache_key = f"rankings:{group_id}"
     cached = await rankings_cache.get(cache_key)
     if cached:
         return cached
-    
-    service = RankingService(db)
-    rankings = await service.get_rankings(user.user_id, group_id)
+
+    rankings = await service.list_rankings(group_id)
     response_data = RankingsResponse(rankings=rankings)
     
     # Cache the response

@@ -47,6 +47,8 @@ class GameResponse(BaseModel):
     team1_elo: Optional[float] = Field(None, alias="team1Elo")
     team2_elo: Optional[float] = Field(None, alias="team2Elo")
     result: GameResult
+    # Epoch ms of the last accepted score edit (null if never scored through PATCH /score).
+    edited_at: Optional[int] = Field(None, alias="editedAt")
 
     class Config:
         populate_by_name = True
@@ -109,6 +111,8 @@ class EventListResponse(BaseModel):
 class EventCreate(BaseModel):
     """Request to create an event."""
 
+    # Optional client-generated id: retrying the same create returns the existing row instead of a duplicate.
+    id: Optional[UUID] = None
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     starts_at: datetime = Field(default_factory=datetime.now, alias="startsAt")
     courts: int = Field(ge=1, le=10)
@@ -128,6 +132,8 @@ class GenerateRequest(BaseModel):
     """Request to generate schedule."""
 
     new_seed: bool = Field(default=False, alias="newSeed")
+    # Regenerate even if games already have scores (they are deleted).
+    force: bool = False
 
     class Config:
         populate_by_name = True

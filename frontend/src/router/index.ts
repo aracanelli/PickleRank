@@ -120,27 +120,15 @@ router.beforeEach(async (to, _from) => {
   const { useAuthStore } = await import('@/stores/auth')
   const authStore = useAuthStore()
 
-  // Wait for auth to be fully initialized (including session restoration)
-  await authStore.waitForAuth()
+  // A session cached on this device lets navigation proceed at once (and offline);
+  // otherwise wait for Clerk to restore one.
+  if (!authStore.provisional) await authStore.waitForAuth()
 
-  if (to.meta.requiresAuth) {
-    // Check reactive auth state
-    if (!authStore.isAuthenticated) {
-      return { name: 'login', query: { redirect: to.fullPath } }
-    }
-
-    // Verify we can get a valid token (session is actually valid)
-    try {
-      const token = await authStore.getToken()
-      if (!token) {
-        // Session might be expired, redirect to login
-        console.warn('No valid token available, redirecting to login')
-        return { name: 'login', query: { redirect: to.fullPath } }
-      }
-    } catch (error) {
-      console.error('Error getting token:', error)
-      return { name: 'login', query: { redirect: to.fullPath } }
-    }
+  // No per-navigation token check: it cost a Clerk round trip on every screen change and,
+  // offline, bounced organizers to the login page mid-event. An expired session surfaces as
+  // a 401 from the API, which clears auth.
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
 
   // If user is authenticated and trying to go to login or signup, redirect to groups

@@ -32,6 +32,8 @@ class GroupRole(str, Enum):
 class PlayerCreate(BaseModel):
     """Request to create a player."""
 
+    # Optional client-generated id: retrying the same create returns the existing row instead of a duplicate.
+    id: Optional[UUID] = None
     display_name: str = Field(..., min_length=1, max_length=100, alias="displayName")
     notes: Optional[str] = Field(None, max_length=500)
 
@@ -152,6 +154,8 @@ class BulkPlayerCreateResponseWithToken(BaseModel):
 class AddPlayerToGroupRequest(BaseModel):
     """Request to add player to group."""
 
+    # Optional client-generated id: retrying the same create returns the existing row instead of a duplicate.
+    id: Optional[UUID] = None
     player_id: UUID = Field(alias="playerId")
     membership_type: MembershipType = Field(
         default=MembershipType.PERMANENT, alias="membershipType"

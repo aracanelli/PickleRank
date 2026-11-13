@@ -76,6 +76,8 @@ class GroupSettings(BaseModel):
 class GroupCreate(BaseModel):
     """Request to create a group."""
 
+    # Optional client-generated id: retrying the same create returns the existing row instead of a duplicate.
+    id: Optional[UUID] = None
     name: str = Field(..., min_length=1, max_length=100)
     sport: str = Field(default="pickleball", max_length=50)
     settings: Optional[GroupSettings] = None

@@ -78,7 +78,11 @@ async function loadHistory() {
   loading.value = true
   loadError.value = ''
   try {
-    const res = await rankingsApi.getHistory(groupId.value, historyOptions(filters.value))
+    const res = await rankingsApi.getHistory(groupId.value, historyOptions(filters.value), kept => {
+      if (mine !== token) return
+      matches.value = kept.matches
+      loading.value = false
+    })
     if (mine !== token) return
     matches.value = res.matches
     if (!league.isOrganizer) {
@@ -89,7 +93,7 @@ async function loadHistory() {
     }
   } catch (e) {
     if (mine !== token) return
-    loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
+    if (loading.value) loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
   }
   loading.value = false
   maybeAutoOpen()

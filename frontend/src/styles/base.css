@@ -55,6 +55,23 @@ input, select, textarea { font-size: max(16px, 1rem); }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
+/*
+ * Press feedback. The native tap highlight is off (above), so every tappable thing answers the
+ * finger itself: buttons sink slightly, links and rows dim. Uses the `scale` property so it
+ * composes with components that position themselves with `transform`.
+ */
+:where(button, [role='button'], a[href], summary, label:has(> input[type='checkbox'], > input[type='radio'])) {
+  transition: scale 120ms var(--ease), opacity 120ms var(--ease), background-color 120ms var(--ease);
+  touch-action: manipulation;
+}
+:where(button, [role='button'], summary):active:not(:disabled, [aria-disabled='true']) { scale: 0.96; }
+:where(a[href], label:has(> input[type='checkbox'], > input[type='radio'])):active { opacity: 0.68; }
+:where(a[href].btn):active { opacity: 1; scale: 0.96; }
+@media (prefers-reduced-motion: reduce) {
+  :where(button, [role='button'], summary):active:not(:disabled, [aria-disabled='true']),
+  :where(a[href].btn):active { scale: none; opacity: 0.68; }
+}
+
 :focus { outline: none; }
 :focus-visible {
   outline: 3px solid var(--focus);

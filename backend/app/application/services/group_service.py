@@ -1,7 +1,7 @@
 """
 Group service - handles group-related use cases.
 """
-import json
+from collections import defaultdict
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -14,11 +14,9 @@ from app.api.schemas.groups import (
     GroupSettings,
     GroupSettingsUpdate,
 )
-from app.exceptions import ForbiddenError, NotFoundError
-from app.infrastructure.repositories.groups_repo import GroupsRepository
-from app.infrastructure.repositories.players_repo import GroupPlayersRepository
-from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
+from app.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.infrastructure.repositories.games_repo import GamesRepository
+from app.infrastructure.repositories.groups_repo import GroupsRepository
 from app.infrastructure.repositories.players_repo import GroupPlayersRepository
 from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRepository
 from app.logging_config import get_logger
@@ -56,7 +54,11 @@ class GroupService:
             name=data.name,
             sport=data.sport,
             settings=settings_dict,
+            group_id=data.id,
         )
+        # A retried create returns the existing group; an id owned by someone else is a conflict.
+        if str(group["owner_user_id"]) != user_id:
+            raise ConflictError("A group with this id already exists")
 
         return self._to_response(group)
 
@@ -173,7 +175,6 @@ class GroupService:
         """
         from app.domain.ratings.base import GameForRating, PlayerRating, GameResult as DomainGameResult
         from app.domain.ratings.factory import create_rating_system
-        from app.infrastructure.repositories.players_repo import GroupPlayersRepository
         
         # Verify ownership
         group = await self.groups_repo.get_by_id(group_id)
@@ -213,210 +214,190 @@ class GroupService:
             
             current_ratings[player["id"]] = initial_rating
         
-        # Reset all player stats in DB
-        await self.conn.execute(
-            """
-            UPDATE group_players 
-            SET wins = 0, losses = 0, ties = 0, games_played = 0
-            WHERE group_id = $1
-            """,
-            group_id
-        )
-        
-        # Get all completed events in chronological order
-        completed_events = await self.conn.fetch(
-            """
-            SELECT id, name, starts_at FROM events 
-            WHERE group_id = $1 AND status = 'COMPLETED'
-            ORDER BY starts_at ASC, created_at ASC
-            """,
-            group_id
-        )
-        
         # Create rating system
         rating_system = create_rating_system(
             settings.get("ratingSystem", "SERIOUS_ELO"),
             k_factor=settings.get("kFactor", 32),
             elo_const=settings.get("eloConst"),
         )
-        
-        group_players_repo = GroupPlayersRepository(self.conn)
+
         events_processed = 0
         player_stats = {}  # Track wins/losses/ties per player
-        
-        # Delete all existing rating_updates for this group's events
-        # This is needed to regenerate accurate +/- deltas
-        await self.conn.execute(
-            """
-            DELETE FROM rating_updates 
-            WHERE event_id IN (
-                SELECT id FROM events WHERE group_id = $1
+        team_elo_rows = []
+        rating_update_rows = []
+
+        # Nested inside a caller's transaction this becomes a savepoint.
+        async with self.conn.transaction():
+            # One recalculation per group at a time: two phones replaying edits to a completed
+            # event must not each rebuild ratings from a view missing the other's edit.
+            await self.conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(group_id))
+            # Every game of every completed event, events in chronological order
+            games_all = await self.conn.fetch(
+                """
+                SELECT g.id, g.event_id, g.round_index, g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
+                       g.score_team1, g.score_team2, g.result,
+                       p1.display_name as t1p1_name, p2.display_name as t1p2_name,
+                       p3.display_name as t2p1_name, p4.display_name as t2p2_name
+                FROM games g
+                JOIN events e ON e.id = g.event_id
+                JOIN group_players gp1 ON gp1.id = g.team1_p1
+                JOIN group_players gp2 ON gp2.id = g.team1_p2
+                JOIN group_players gp3 ON gp3.id = g.team2_p1
+                JOIN group_players gp4 ON gp4.id = g.team2_p2
+                JOIN players p1 ON p1.id = gp1.player_id
+                JOIN players p2 ON p2.id = gp2.player_id
+                JOIN players p3 ON p3.id = gp3.player_id
+                JOIN players p4 ON p4.id = gp4.player_id
+                WHERE e.group_id = $1 AND e.status = 'COMPLETED'
+                ORDER BY e.starts_at ASC, e.created_at ASC, e.id, g.round_index, g.court_index
+                """,
+                group_id
             )
-            """,
-            group_id
-        )
-        
-        for event in completed_events:
-            try:
-                # Get games for this event (including round_index for round-by-round processing)
-                games = await self.conn.fetch(
-                    """
-                    SELECT g.id, g.round_index, g.team1_p1, g.team1_p2, g.team2_p1, g.team2_p2,
-                           g.score_team1, g.score_team2, g.result,
-                           p1.display_name as t1p1_name, p2.display_name as t1p2_name,
-                           p3.display_name as t2p1_name, p4.display_name as t2p2_name
-                    FROM games g
-                    JOIN group_players gp1 ON gp1.id = g.team1_p1
-                    JOIN group_players gp2 ON gp2.id = g.team1_p2
-                    JOIN group_players gp3 ON gp3.id = g.team2_p1
-                    JOIN group_players gp4 ON gp4.id = g.team2_p2
-                    JOIN players p1 ON p1.id = gp1.player_id
-                    JOIN players p2 ON p2.id = gp2.player_id
-                    JOIN players p3 ON p3.id = gp3.player_id
-                    JOIN players p4 ON p4.id = gp4.player_id
-                    WHERE g.event_id = $1
-                    ORDER BY g.round_index, g.court_index
-                    """,
-                    event["id"]
-                )
-                
-                if not games:
-                    continue
-                
-                # Snapshot ratings BEFORE this event for the rating_updates table
-                # Get all players involved in this event's games
-                event_players = set()
-                for game in games:
-                    event_players.update([game["team1_p1"], game["team1_p2"], game["team2_p1"], game["team2_p2"]])
-                
-                ratings_before_event = {
-                    player_id: current_ratings.get(player_id, base_rating)
-                    for player_id in event_players
-                }
-                
-                # Group games by round_index for round-by-round processing
-                from collections import defaultdict
-                games_by_round = defaultdict(list)
-                for game in games:
-                    if game["result"] != "UNSET":
-                        games_by_round[game["round_index"]].append(game)
-                
-                # Process each round in order
-                for round_index in sorted(games_by_round.keys()):
-                    round_games = games_by_round[round_index]
-                    
-                    # Build all games in this round for rating calculation
-                    games_for_rating = []
-                    for game in round_games:
-                        t1p1_rating = current_ratings.get(game["team1_p1"], base_rating)
-                        t1p2_rating = current_ratings.get(game["team1_p2"], base_rating)
-                        t2p1_rating = current_ratings.get(game["team2_p1"], base_rating)
-                        t2p2_rating = current_ratings.get(game["team2_p2"], base_rating)
-                        
-                        # Calculate team ELOs (average of players)
-                        team1_elo = (t1p1_rating + t1p2_rating) / 2
-                        team2_elo = (t2p1_rating + t2p2_rating) / 2
-                        
-                        # Store team ELO in the games table
-                        await self.conn.execute(
-                            """
-                            UPDATE games SET team1_elo = $1, team2_elo = $2 WHERE id = $3
-                            """,
-                            team1_elo,
-                            team2_elo,
-                            game["id"]
-                        )
-                        
-                        games_for_rating.append(GameForRating(
-                            team1=(
-                                PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
-                                PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
-                            ),
-                            team2=(
-                                PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
-                                PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
-                            ),
-                            result=DomainGameResult(game["result"]),
-                            score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
-                            score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
-                        ))
-                    
-                    # Calculate deltas for all games in this round together
-                    deltas = rating_system.calculate_deltas(games_for_rating, current_ratings)
-                    
-                    # Update local ratings dictionary for next round
-                    for player_id, delta in deltas.items():
-                        current_ratings[player_id] = delta.rating_after
-                    
-                    # Track wins/losses/ties for all players in this round
-                    for game in round_games:
-                        for player_id, team in [
-                            (game["team1_p1"], 1), (game["team1_p2"], 1),
-                            (game["team2_p1"], 2), (game["team2_p2"], 2)
-                        ]:
-                            if player_id not in player_stats:
-                                player_stats[player_id] = {"wins": 0, "losses": 0, "ties": 0, "games": 0}
-                            
-                            player_stats[player_id]["games"] += 1
-                            if game["result"] == "TIE":
-                                player_stats[player_id]["ties"] += 1
-                            elif game["result"] == "TEAM1_WIN":
-                                if team == 1:
-                                    player_stats[player_id]["wins"] += 1
-                                else:
-                                    player_stats[player_id]["losses"] += 1
-                            else:  # TEAM2_WIN
-                                if team == 2:
-                                    player_stats[player_id]["wins"] += 1
-                                else:
-                                    player_stats[player_id]["losses"] += 1
-                
-                # Create rating_updates records for this event
-                rating_updates = []
-                for player_id in event_players:
-                    rating_before = ratings_before_event.get(player_id, base_rating)
-                    rating_after = current_ratings.get(player_id, rating_before)
-                    delta = rating_after - rating_before
-                    if delta != 0:  # Only record if there was a change
-                        rating_updates.append((
-                            event["id"],
-                            player_id,
-                            rating_before,
-                            rating_after,
-                            delta,
-                            settings.get("ratingSystem", "SERIOUS_ELO"),
-                        ))
-                
-                if rating_updates:
-                    await self.conn.executemany(
-                        """
-                        INSERT INTO rating_updates (event_id, group_player_id, rating_before, rating_after, delta, system)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        """,
-                        rating_updates
-                    )
-                
-                events_processed += 1
-            except Exception as e:
-                print(f"Error processing event {event['id']}: {e}")
-        
-        # Apply final ratings and stats to database
-        for player_id, rating in current_ratings.items():
-            stats = player_stats.get(player_id, {"wins": 0, "losses": 0, "ties": 0, "games": 0})
+            games_by_event = defaultdict(list)  # insertion order keeps the chronological event order
+            for game in games_all:
+                games_by_event[game["event_id"]].append(game)
+
+            for event_id, games in games_by_event.items():
+                try:
+                    # Snapshot ratings BEFORE this event for the rating_updates table
+                    # Get all players involved in this event's games
+                    event_players = set()
+                    for game in games:
+                        event_players.update([game["team1_p1"], game["team1_p2"], game["team2_p1"], game["team2_p2"]])
+
+                    ratings_before_event = {
+                        player_id: current_ratings.get(player_id, base_rating)
+                        for player_id in event_players
+                    }
+
+                    # Group games by round_index for round-by-round processing
+                    games_by_round = defaultdict(list)
+                    for game in games:
+                        if game["result"] != "UNSET":
+                            games_by_round[game["round_index"]].append(game)
+
+                    # Process each round in order
+                    for round_index in sorted(games_by_round.keys()):
+                        round_games = games_by_round[round_index]
+
+                        # Build all games in this round for rating calculation
+                        games_for_rating = []
+                        for game in round_games:
+                            t1p1_rating = current_ratings.get(game["team1_p1"], base_rating)
+                            t1p2_rating = current_ratings.get(game["team1_p2"], base_rating)
+                            t2p1_rating = current_ratings.get(game["team2_p1"], base_rating)
+                            t2p2_rating = current_ratings.get(game["team2_p2"], base_rating)
+
+                            # Calculate team ELOs (average of players), stored on the game below
+                            team1_elo = (t1p1_rating + t1p2_rating) / 2
+                            team2_elo = (t2p1_rating + t2p2_rating) / 2
+                            team_elo_rows.append((team1_elo, team2_elo, game["id"]))
+
+                            games_for_rating.append(GameForRating(
+                                team1=(
+                                    PlayerRating(player_id=game["team1_p1"], rating=t1p1_rating, display_name=game["t1p1_name"]),
+                                    PlayerRating(player_id=game["team1_p2"], rating=t1p2_rating, display_name=game["t1p2_name"]),
+                                ),
+                                team2=(
+                                    PlayerRating(player_id=game["team2_p1"], rating=t2p1_rating, display_name=game["t2p1_name"]),
+                                    PlayerRating(player_id=game["team2_p2"], rating=t2p2_rating, display_name=game["t2p2_name"]),
+                                ),
+                                result=DomainGameResult(game["result"]),
+                                score_team1=float(game["score_team1"]) if game.get("score_team1") is not None else None,
+                                score_team2=float(game["score_team2"]) if game.get("score_team2") is not None else None,
+                            ))
+
+                        # Calculate deltas for all games in this round together
+                        deltas = rating_system.calculate_deltas(games_for_rating, current_ratings)
+
+                        # Update local ratings dictionary for next round
+                        for player_id, delta in deltas.items():
+                            current_ratings[player_id] = delta.rating_after
+
+                        # Track wins/losses/ties for all players in this round
+                        for game in round_games:
+                            for player_id, team in [
+                                (game["team1_p1"], 1), (game["team1_p2"], 1),
+                                (game["team2_p1"], 2), (game["team2_p2"], 2)
+                            ]:
+                                if player_id not in player_stats:
+                                    player_stats[player_id] = {"wins": 0, "losses": 0, "ties": 0, "games": 0}
+
+                                player_stats[player_id]["games"] += 1
+                                if game["result"] == "TIE":
+                                    player_stats[player_id]["ties"] += 1
+                                elif game["result"] == "TEAM1_WIN":
+                                    if team == 1:
+                                        player_stats[player_id]["wins"] += 1
+                                    else:
+                                        player_stats[player_id]["losses"] += 1
+                                else:  # TEAM2_WIN
+                                    if team == 2:
+                                        player_stats[player_id]["wins"] += 1
+                                    else:
+                                        player_stats[player_id]["losses"] += 1
+
+                    # Create rating_updates records for this event
+                    for player_id in event_players:
+                        rating_before = ratings_before_event.get(player_id, base_rating)
+                        rating_after = current_ratings.get(player_id, rating_before)
+                        delta = rating_after - rating_before
+                        if delta != 0:  # Only record if there was a change
+                            rating_update_rows.append((
+                                event_id,
+                                player_id,
+                                rating_before,
+                                rating_after,
+                                delta,
+                                settings.get("ratingSystem", "SERIOUS_ELO"),
+                            ))
+
+                    events_processed += 1
+                except Exception:
+                    logger.exception("Rating recalculation failed for event %s in group %s", event_id, group_id)
+                    raise
+
+            # Delete all existing rating_updates for this group's events
+            # This is needed to regenerate accurate +/- deltas
             await self.conn.execute(
                 """
-                UPDATE group_players 
-                SET rating = $1, games_played = $2, wins = $3, losses = $4, ties = $5
-                WHERE id = $6
+                DELETE FROM rating_updates
+                WHERE event_id IN (
+                    SELECT id FROM events WHERE group_id = $1
+                )
                 """,
-                rating,
-                stats["games"],
-                stats["wins"],
-                stats["losses"],
-                stats["ties"],
-                player_id
+                group_id
             )
-        
+            if team_elo_rows:
+                await self.conn.executemany(
+                    "UPDATE games SET team1_elo = $1, team2_elo = $2 WHERE id = $3",
+                    team_elo_rows,
+                )
+            if rating_update_rows:
+                await self.conn.executemany(
+                    """
+                    INSERT INTO rating_updates (event_id, group_player_id, rating_before, rating_after, delta, system)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    """,
+                    rating_update_rows
+                )
+
+            # Apply final ratings and stats; also zeroes stats of players with no games
+            player_rows = []
+            for player_id, rating in current_ratings.items():
+                stats = player_stats.get(player_id, {"wins": 0, "losses": 0, "ties": 0, "games": 0})
+                player_rows.append((rating, stats["games"], stats["wins"], stats["losses"], stats["ties"], player_id))
+            if player_rows:
+                await self.conn.executemany(
+                    """
+                    UPDATE group_players
+                    SET rating = $1, games_played = $2, wins = $3, losses = $4, ties = $5
+                    WHERE id = $6
+                    """,
+                    player_rows
+                )
+
+        # After commit, so a concurrent reader can't re-cache pre-commit ratings.
         from app.infrastructure.cache import invalidate_rankings
         await invalidate_rankings(group_id)
 

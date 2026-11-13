@@ -43,15 +43,19 @@ const savingVote = ref<string | null>(null)
 const errMsg = (e: unknown, fallback: string) => (e as { message?: string }).message || fallback
 
 async function load() {
-  loading.value = true
   loadError.value = ''
+  let kept = false
+  const req = awardsApi.getAwards(groupId.value, e => { edition.value = e; kept = true })
+  loading.value = !kept
   await league.load(groupId.value)
   if (!league.error) {
     try {
-      edition.value = (await awardsApi.getAwards(groupId.value)) ?? null
+      edition.value = (await req) ?? null
     } catch (e) {
-      loadError.value = errMsg(e, 'Check your connection and try again.')
+      if (!kept) loadError.value = errMsg(e, 'Check your connection and try again.')
     }
+  } else {
+    req.catch(() => {})
   }
   loading.value = false
 }

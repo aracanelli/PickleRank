@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { rankingsApi } from '../services/rankings.api'
+import { readPersisted, writePersisted } from '@/app/core/offline/persist'
 import type { MatchHistoryEntryDto } from '@/app/core/models/dto'
 
 const TTL_MS = 60_000
@@ -32,6 +33,9 @@ export function useGroupHistory(groupId: Ref<string>) {
       matches.value = cached.data
       return
     }
+    // the query has a date in it, so keep the last answer under a stable key for an instant paint
+    const keptKey = `/local/recent-history/${key}`
+    if (!matches.value.length) matches.value = cached?.data ?? readPersisted<MatchHistoryEntryDto[]>(keptKey) ?? []
     isLoading.value = true
     error.value = ''
     try {
@@ -44,8 +48,10 @@ export function useGroupHistory(groupId: Ref<string>) {
         const newest = (await rankingsApi.getHistory(key, { limit: 1 })).matches[0]
         if (newest) data = (await rankingsApi.getHistory(key, { eventId: newest.eventId })).matches
       }
+      if (groupId.value !== key) return
       matches.value = data
       memo.set(key, { ts: Date.now(), data })
+      writePersisted(keptKey, data)
     } catch (e) {
       error.value = (e as Error)?.message || 'Failed to load history'
     } finally {

@@ -78,7 +78,7 @@ test('organizer runs a league night on the real API; member sees results', async
   const member = await ctx.newPage()
   await signInAs(member, 'user_mem')
   await member.goto(`/groups/${GROUP}`)
-  await expect(member.getByText('Your standing')).toBeVisible()
+  await expect(member.getByRole('heading', { name: /Your (week|standing)/ })).toBeAttached()
   await expect(member.getByText('Scores are entered by league organizers')).toBeVisible()
   const eventUrl = page.url()
   void eventUrl

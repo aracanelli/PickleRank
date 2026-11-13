@@ -1,4 +1,7 @@
 import { api } from '@/app/core/http/api-client'
+import { outbox, whenSettled } from '@/app/core/offline/sync'
+import { newId } from '@/app/core/offline/network'
+import type { OutboxOutcome } from '@/app/core/offline/outbox'
 import type {
   EventDto,
   EventListResponse,
@@ -27,14 +30,35 @@ export interface ScoreUpdateRequest {
   scoreTeam2?: number
 }
 
+/** Outbox key of an event's queued "make the schedule" request. */
+export const scheduleKey = (eventId: string) => `event-gen:${eventId}`
+
 export const eventsApi = {
-  async list(groupId: string, status?: string): Promise<EventListResponse> {
+  async list(groupId: string, status?: string, onCached?: (r: EventListResponse) => void): Promise<EventListResponse> {
     const params = status ? `?status=${status}` : ''
-    return api.get(`/api/groups/${groupId}/events${params}`)
+    return api.get(`/api/groups/${groupId}/events${params}`, { onCached })
   },
 
-  async get(eventId: string): Promise<EventDto> {
-    return api.get(`/api/events/${eventId}`)
+  /** @param onCached - receives the last copy kept on this device first, for an instant paint */
+  async get(eventId: string, onCached?: (e: EventDto) => void): Promise<EventDto> {
+    return api.get(`/api/events/${eventId}`, { onCached })
+  },
+
+  /**
+   * Start an event on this device right away (works offline): queue "create" (with an id made
+   * here, so the server creates it once even if replayed) and "make the schedule" behind it.
+   * Matchmaking runs on the server, so the schedule appears once the queue reaches it.
+   */
+  createQueued(groupId: string, data: CreateEventRequest): { event: EventDto; schedule: Promise<OutboxOutcome> } {
+    const id = newId()
+    const event: EventDto = {
+      id, groupId, name: data.name, status: 'DRAFT', startsAt: data.startsAt,
+      courts: data.courts, rounds: data.rounds, participantCount: data.participantIds.length, games: []
+    }
+    api.setCached(`/api/events/${id}`, event)
+    outbox.enqueue({ key: `event-create:${id}`, method: 'POST', url: `/api/groups/${groupId}/events`, body: { ...data, id }, label: `Create ${data.name || 'event'}` })
+    const gen = outbox.enqueue({ key: scheduleKey(id), method: 'POST', url: `/api/events/${id}/generate`, body: { newSeed: false }, label: 'Make the schedule' })
+    return { event, schedule: whenSettled(gen) }
   },
 
   async create(groupId: string, data: CreateEventRequest): Promise<EventDto> {
@@ -42,7 +66,9 @@ export const eventsApi = {
   },
 
   async generate(eventId: string, newSeed: boolean = false): Promise<GenerateResponse> {
-    return api.post(`/api/events/${eventId}/generate`, { newSeed })
+    // Reshuffling an event with scores deletes them; the server requires force for that and the
+    // UI only reshuffles after the organizer confirmed.
+    return api.post(`/api/events/${eventId}/generate`, newSeed ? { newSeed, force: true } : { newSeed })
   },
 
   async swap(eventId: string, data: SwapRequest): Promise<SwapResponse> {

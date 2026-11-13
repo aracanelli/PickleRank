@@ -10,6 +10,8 @@ import { useLeagueStore } from '@/stores/league'
 import { groupsApi } from '../services/groups.api'
 import { playersApi } from '@/app/features/players/services/players.api'
 import { api } from '@/app/core/http/api-client'
+import { outbox, whenSettled } from '@/app/core/offline/sync'
+import type { OutboxMethod } from '@/app/core/offline/outbox'
 import type { GroupPlayerDto, PlayerDto, MembershipType, SkillLevel } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
 import AccountButton from '@/app/core/layout/AccountButton.vue'
@@ -67,6 +69,28 @@ async function run(task: () => Promise<unknown>, done: string, failed: string) {
   }
 }
 
+/**
+ * Roster edits apply on screen at once and go through the outbox (so they also work offline).
+ * If the server refuses one, say so and reload the roster from the server, which is the truth.
+ */
+function queueChange(apply: () => void, op: { key?: string; method: OutboxMethod; url: string; body?: unknown; label: string }, done: string, failed: string) {
+  const gid = groupId.value
+  apply()
+  api.setCached(`/api/groups/${gid}/players`, { players: league.players })
+  toast(done)
+  const o = outbox.enqueue(op)
+  void whenSettled(o).then(r => {
+    // once the last roster change lands, take the server's roster (the truth) quietly
+    if (r.ok) {
+      if (groupId.value === gid && !outbox.ops.some(x => x.url.startsWith(`/api/groups/${gid}/players`))) void reload()
+      return
+    }
+    outbox.discard(o.id)
+    toast(r.error.message || failed, 'bad')
+    if (groupId.value === gid) void reload()
+  })
+}
+
 // ---- one player's sheet ----
 // ?edit=<group player id> opens that player's sheet (linked from the profile page)
 const activeId = ref<string | null>(typeof route.query.edit === 'string' ? route.query.edit : null)
@@ -75,8 +99,9 @@ const closeActive = () => { activeId.value = null }
 
 function setMembership(p: GroupPlayerDto) {
   const next: MembershipType = p.membershipType === 'PERMANENT' ? 'SUB' : 'PERMANENT'
-  void run(
-    () => groupsApi.updateGroupPlayer(groupId.value, p.id, { membershipType: next }),
+  queueChange(
+    () => { p.membershipType = next },
+    { key: `gp:${p.id}:membership`, method: 'PATCH', url: `/api/groups/${groupId.value}/players/${p.id}`, body: { membershipType: next }, label: `${p.displayName}: membership` },
     `${p.displayName} is now a ${next === 'SUB' ? 'sub' : 'regular'}`,
     'Membership not changed. Try again.'
   )
@@ -84,8 +109,9 @@ function setMembership(p: GroupPlayerDto) {
 
 function setSkill(p: GroupPlayerDto, e: Event) {
   const skillLevel = (e.target as HTMLSelectElement).value as SkillLevel
-  void run(
-    () => groupsApi.updateGroupPlayer(groupId.value, p.id, { skillLevel }),
+  queueChange(
+    () => { p.skillLevel = skillLevel },
+    { key: `gp:${p.id}:skill`, method: 'PATCH', url: `/api/groups/${groupId.value}/players/${p.id}`, body: { skillLevel }, label: `${p.displayName}: skill level` },
     `Skill level set to ${skillWord(skillLevel)}`,
     'Skill level not saved. Try again.'
   )
@@ -103,8 +129,10 @@ async function setRole(p: GroupPlayerDto) {
     })
     if (!ok) return
   }
-  void run(
-    () => groupsApi.updateGroupPlayer(groupId.value, p.id, { role: promote ? 'ORGANIZER' : 'PLAYER' }),
+  const role = promote ? 'ORGANIZER' : 'PLAYER'
+  queueChange(
+    () => { p.role = role },
+    { key: `gp:${p.id}:role`, method: 'PATCH', url: `/api/groups/${groupId.value}/players/${p.id}`, body: { role }, label: `${p.displayName}: role` },
     promote ? `${p.displayName} is now an organizer` : `${p.displayName} is no longer an organizer`,
     'Role not changed. Try again.'
   )
@@ -143,7 +171,13 @@ async function remove(p: GroupPlayerDto) {
     confirmLabel: 'Remove from league',
     danger: true
   })
-  if (ok) await run(() => groupsApi.removePlayer(groupId.value, p.id), `${p.displayName} removed`, 'Player not removed. Try again.')
+  if (!ok) return
+  queueChange(
+    () => { league.players = league.players.filter(x => x.id !== p.id) },
+    { method: 'DELETE', url: `/api/groups/${groupId.value}/players/${p.id}`, label: `Remove ${p.displayName}` },
+    `${p.displayName} removed`,
+    'Player not removed. Try again.'
+  )
 }
 
 // ---- add existing players ----

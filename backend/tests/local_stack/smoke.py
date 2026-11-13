@@ -58,6 +58,7 @@ def main() -> None:
     first = None
     for i in range(2):  # resend the same score twice: must be idempotent
         r = must(org.patch(f"/games/{games[1]['id']}/score", json={"scoreTeam1": 7, "scoreTeam2": 7}), f"PATCH resend #{i + 1}")
+        r.pop("editedAt", None)  # write time; differs per resend by design
         first = first or r
         check(f"resend #{i + 1} identical", r == first, f"{r} != {first}")
 

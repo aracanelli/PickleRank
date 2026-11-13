@@ -47,19 +47,28 @@ const drill = ref<{ name: string; points: SeriesPoint[] } | null>(null)
 const games = ref<MatchHistoryEntryDto[]>([])
 
 async function loadStats() {
-  loading.value = true
   error.value = null
   drill.value = null
-  rankingsApi.getRankings(groupId.value).then(r => { ranked.value = r.rankings }).catch(() => { ranked.value = [] })
+  const pid = playerId.value
+  // History filters take the global player id; the roster (often kept) already has it, so the
+  // history request need not wait behind the stats request.
+  const globalId = league.players.find(p => p.id === pid)?.playerId
+  const loadGames = (gid: string) => rankingsApi.getHistory(groupId.value, { playerId: gid }, r => { if (playerId.value === pid) games.value = r.matches })
+    .then(r => { if (playerId.value === pid) games.value = r.matches })
+    .catch(() => {})
+  if (stats.value?.player.id !== pid) { stats.value = null; games.value = [] }
+  if (globalId) void loadGames(globalId)
+  rankingsApi.getRankings(groupId.value, r => { ranked.value = r.rankings }).then(r => { ranked.value = r.rankings }).catch(() => {})
+  let kept = false
+  const statsReq = groupsApi.getPlayerStats(groupId.value, pid, s => { stats.value = s; kept = true })
+  loading.value = !kept
   try {
-    const [s] = await Promise.all([groupsApi.getPlayerStats(groupId.value, playerId.value), league.load(groupId.value)])
+    const [s] = await Promise.all([statsReq, league.load(groupId.value)])
+    if (playerId.value !== pid) return
     stats.value = s
-    games.value = []
-    // history filters take the global player id
-    rankingsApi.getHistory(groupId.value, { playerId: s.player.playerId })
-      .then(r => { if (stats.value?.player.id === s.player.id) games.value = r.matches })
-      .catch(() => { games.value = [] })
+    if (!globalId) void loadGames(s.player.playerId)
   } catch (e) {
+    if (kept) return
     const err = e as { status?: number; message?: string }
     error.value = { status: err.status, message: err.message || 'Stats did not load.' }
     stats.value = null

@@ -154,3 +154,30 @@ async def test_complete_event_rejects_invalid_tie_before_writes():
     service.group_players_repo.update_ratings_bulk.assert_not_awaited()
     service.rating_updates_repo.create_many.assert_not_awaited()
     service.events_repo.update_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_complete_event_invalidates_rankings_only_after_commit(monkeypatch):
+    event_id = uuid4()
+    service, _conn, _event, group_id = _service(event_id)
+    _PaymentService.calls = []
+    _PaymentService.error = None
+    monkeypatch.setattr("app.application.services.payment_service.PaymentService", _PaymentService)
+    seen = []
+    exited = []
+    original_aexit = _Transaction.__aexit__
+
+    async def _aexit(self, *a):
+        exited.append(True)
+        return await original_aexit(self, *a)
+
+    monkeypatch.setattr(_Transaction, "__aexit__", _aexit)
+
+    async def _invalidate_after_exit(gid):
+        seen.append((gid, bool(exited)))
+
+    monkeypatch.setattr("app.infrastructure.cache.invalidate_rankings", _invalidate_after_exit)
+    await service.complete_event("organizer", event_id)
+
+    assert seen == [(group_id, True)]
+    service.groups_repo.get_by_id.assert_awaited_once()  # group fetched once, not again inside the lock

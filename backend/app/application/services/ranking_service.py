@@ -21,9 +21,8 @@ class RankingService:
         self.groups_repo = GroupsRepository(conn)
         self.group_players_repo = GroupPlayersRepository(conn)
 
-    async def get_rankings(self, user_id: str, group_id: UUID) -> List[RankingEntry]:
-        """Get rankings for a group."""
-        # Verify group ownership or membership
+    async def ensure_access(self, user_id: str, group_id: UUID) -> None:
+        """Raise unless the user owns or belongs to the group."""
         group = await self.groups_repo.get_by_id(group_id)
         if not group:
             raise NotFoundError("Group", str(group_id))
@@ -32,6 +31,13 @@ class RankingService:
             if not is_member:
                 raise ForbiddenError("You don't have access to this group")
 
+    async def get_rankings(self, user_id: str, group_id: UUID) -> List[RankingEntry]:
+        """Get rankings for a group."""
+        await self.ensure_access(user_id, group_id)
+        return await self.list_rankings(group_id)
+
+    async def list_rankings(self, group_id: UUID) -> List[RankingEntry]:
+        """Rankings for a group; the caller must have checked access."""
         # Get all players sorted by rating
         players = await self.group_players_repo.list_by_group(group_id)
 

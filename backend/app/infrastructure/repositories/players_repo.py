@@ -11,21 +11,28 @@ class PlayersRepository:
         self.conn = conn
 
     async def create(
-        self, owner_user_id: str, display_name: str, notes: Optional[str] = None, user_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Create a new global player."""
+        self,
+        owner_user_id: str,
+        display_name: str,
+        notes: Optional[str] = None,
+        user_id: Optional[str] = None,
+        player_id: Optional[UUID] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create a new global player. Returns None if a client-generated player_id already exists."""
         row = await self.conn.fetchrow(
             """
-            INSERT INTO players (owner_user_id, display_name, notes, user_id)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO players (id, owner_user_id, display_name, notes, user_id)
+            VALUES (COALESCE($5::uuid, gen_random_uuid()), $1, $2, $3, $4)
+            ON CONFLICT (id) DO NOTHING
             RETURNING id, display_name, notes, user_id, invite_token, created_at, updated_at
             """,
             UUID(owner_user_id),
             display_name,
             notes,
             UUID(user_id) if user_id else None,
+            player_id,
         )
-        return dict(row)
+        return dict(row) if row else None
 
     async def get_by_id(self, player_id: UUID) -> Optional[Dict[str, Any]]:
         """Get a player by ID."""
@@ -257,13 +264,18 @@ class GroupPlayersRepository:
         membership_type: str = "PERMANENT",
         skill_level: Optional[str] = None,
         role: str = "PLAYER",
+        group_player_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
-        """Add a player to a group with optional skill level for subs."""
+        """Add a player to a group with optional skill level for subs.
+
+        Idempotent: if the membership (or a client-generated group_player_id) already
+        exists, that existing row is returned; callers must check its group/player.
+        """
         row = await self.conn.fetchrow(
             """
-            INSERT INTO group_players (group_id, player_id, rating, membership_type, skill_level, role)
-            VALUES ($1, $2, $3, $4::membership_type, $5, $6)
-            ON CONFLICT (group_id, player_id) DO NOTHING
+            INSERT INTO group_players (id, group_id, player_id, rating, membership_type, skill_level, role)
+            VALUES (COALESCE($7::uuid, gen_random_uuid()), $1, $2, $3, $4::membership_type, $5, $6)
+            ON CONFLICT DO NOTHING
             RETURNING id, group_id, player_id, membership_type, skill_level, role, rating, games_played, wins, losses, ties, created_at
             """,
             group_id,
@@ -272,17 +284,21 @@ class GroupPlayersRepository:
             membership_type,
             skill_level,
             role,
+            group_player_id,
         )
         if row is None:
-            # Already exists, fetch it
+            # Already exists (same membership, or the client id is taken): fetch it, id match first
             row = await self.conn.fetchrow(
                 """
                 SELECT id, group_id, player_id, membership_type, skill_level, role, rating, games_played, wins, losses, ties, created_at
                 FROM group_players
-                WHERE group_id = $1 AND player_id = $2
+                WHERE id = $3::uuid OR (group_id = $1 AND player_id = $2)
+                ORDER BY (id = $3::uuid) IS TRUE DESC
+                LIMIT 1
                 """,
                 group_id,
                 player_id,
+                group_player_id,
             )
         return dict(row)
 

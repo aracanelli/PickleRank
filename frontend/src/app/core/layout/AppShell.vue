@@ -5,6 +5,7 @@ import { CheckCircle2, AlertTriangle } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useLeagueStore } from '@/stores/league'
 import TabBar from './TabBar.vue'
+import SyncStatus from './SyncStatus.vue'
 import UiSheet from '@/app/core/ui/UiSheet.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
 import { liveRegion, confirmState, settleConfirm, toastState } from '@/app/core/ui/feedback'
@@ -27,6 +28,7 @@ const showTabs = computed(() =>
   <a class="skip" href="#main">Skip to content</a>
   <TabBar v-if="showTabs" />
   <main id="main" tabindex="-1" :class="{ 'has-tabs': showTabs }">
+    <SyncStatus v-if="auth.isAuthenticated" />
     <slot />
   </main>
 

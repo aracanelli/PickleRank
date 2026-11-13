@@ -108,7 +108,8 @@ async def generate_schedule(
     """Generate match schedule for an event."""
     service = EventService(db)
     new_seed = data.new_seed if data else False
-    return await service.generate_schedule(user.user_id, event_id, new_seed)
+    force = data.force if data else False
+    return await service.generate_schedule(user.user_id, event_id, new_seed, force)
 
 
 @router.post("/events/{event_id}/swap", response_model=SwapResponse)

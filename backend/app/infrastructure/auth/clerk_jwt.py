@@ -1,8 +1,8 @@
 import time
 from typing import Any, Dict, Optional
 
-import httpx
 import jwt
+from fastapi.concurrency import run_in_threadpool
 from jwt import PyJWKClient
 
 from app.config import get_settings
@@ -52,9 +52,9 @@ async def verify_clerk_token(token: str) -> Dict[str, Any]:
     settings = get_settings()
 
     try:
-        # Get the signing key
+        # Get the signing key; fetching the JWKS is blocking urllib I/O, keep it off the event loop
         jwks_client = get_jwks_client()
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        signing_key = await run_in_threadpool(jwks_client.get_signing_key_from_jwt, token)
 
         # Decode and verify the token
         payload = jwt.decode(

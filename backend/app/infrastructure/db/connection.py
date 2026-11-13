@@ -69,8 +69,8 @@ async def init_db_pool() -> asyncpg.Pool:
             timeout=10,
             # Disable prepared statement caching for pgbouncer compatibility
             statement_cache_size=0,
-            # Clean up idle connections after 60 seconds
-            max_inactive_connection_lifetime=60,
+            # Keep idle connections for warm invocations; avoids reconnect cost
+            max_inactive_connection_lifetime=300,
         )
         logger.info("Database connection pool initialized")
     except Exception as e:

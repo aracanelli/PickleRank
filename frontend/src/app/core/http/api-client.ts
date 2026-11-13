@@ -1,10 +1,17 @@
+import { reportReachable } from '@/app/core/offline/network'
+import { readPersisted, writePersisted, forgetPersisted, getPersistScope } from '@/app/core/offline/persist'
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 export interface ApiError {
   status: number
   message: string
   detail?: string
+  /** true when no response arrived (offline, unreachable, or no session token while offline) */
+  offline?: boolean
 }
+
+const offlineError = (): ApiError => ({ status: 0, message: 'No connection. Your changes are saved on this phone.', offline: true })
 
 /**
  * Simple TTL cache for API responses.
@@ -90,10 +97,20 @@ class ApiClient {
 
     // Get token from auth store if available
     if (this.authStore) {
+      // No connection and Clerk not restored yet: fail fast instead of waiting out waitForAuth.
+      if (!this.authStore.session && this.authStore.user && typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw offlineError()
+      }
       await this.authStore.waitForAuth()
       const token = await this.authStore.getToken()
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
+      } else if (this.authStore.user) {
+        // Signed in on this device but Clerk can't mint a token (offline launch or no connection).
+        // Sending without a token would 401 and sign the user out mid-event. Nudge Clerk to retry
+        // (a captive Wi-Fi never fires an "online" event).
+        void import('@/app/core/auth/clerk').then(m => (m as { retryInit?: () => void }).retryInit?.())
+        throw offlineError()
       }
     } else {
       // Fallback to direct clerk import (for backwards compatibility)
@@ -106,6 +123,19 @@ class ApiClient {
     }
 
     return headers
+  }
+
+  /** fetch that turns "no response" into an ApiError with offline: true and tracks reachability. */
+  private async send(endpoint: string, init: RequestInit): Promise<Response> {
+    let response: Response
+    try {
+      response = await fetch(`${this.baseUrl}${endpoint}`, { credentials: 'include', ...init })
+    } catch {
+      reportReachable(false)
+      throw offlineError()
+    }
+    reportReachable(true)
+    return response
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {
@@ -144,30 +174,64 @@ class ApiClient {
     return response.json()
   }
 
-  async get<T>(endpoint: string): Promise<T> {
-    const headers = await this.getHeaders()
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'GET',
-      headers,
-      credentials: 'include' // Include cookies for session management
-    })
-    return this.handleResponse<T>(response)
+  /**
+   * GET. Successful responses are kept on the device (per user) so the next visit, or an
+   * offline visit, can show them at once. With no connection the last kept copy is returned.
+   *
+   * @param opts.onCached - called synchronously with the last kept copy (if any) before the
+   *   request goes out, so a screen can paint immediately and refresh when the call resolves.
+   */
+  async get<T>(endpoint: string, opts: { onCached?: (data: T) => void } = {}): Promise<T> {
+    if (opts.onCached) {
+      const kept = this.peek<T>(endpoint)
+      if (kept != null) opts.onCached(kept)
+    }
+    const forUser = getPersistScope()
+    try {
+      const headers = await this.getHeaders()
+      const response = await this.send(endpoint, { method: 'GET', headers })
+      const data = await this.handleResponse<T>(response)
+      writePersisted(endpoint, data, forUser)
+      return data
+    } catch (e) {
+      if ((e as ApiError).offline) {
+        const kept = readPersisted<T>(endpoint)
+        if (kept != null) return kept
+      }
+      throw e
+    }
+  }
+
+  /** Last known response for an endpoint (memory, then device), regardless of age. */
+  peek<T>(endpoint: string): T | null {
+    return this.apiCache.get<T>(endpoint, Number.POSITIVE_INFINITY) ?? readPersisted<T>(endpoint)
+  }
+
+  /** Drop the kept copy of an endpoint (it is gone or no longer visible to this user). */
+  forget(endpoint: string): void {
+    this.apiCache.invalidate(endpoint)
+    forgetPersisted(endpoint)
+  }
+
+  /** Replace what's cached for an endpoint, e.g. after an optimistic change. */
+  setCached<T>(endpoint: string, data: T): void {
+    this.apiCache.set(endpoint, data)
+    writePersisted(endpoint, data)
   }
 
   /**
-   * GET request with caching support.
-   * Use for frequently accessed, rarely changing data like rankings.
-   * 
+   * GET request with in-memory TTL caching, falling back to the kept copy offline.
+   *
    * @param endpoint - API endpoint
    * @param ttl - Cache TTL in milliseconds (default: 30000ms = 30s)
    */
-  async getCached<T>(endpoint: string, ttl?: number): Promise<T> {
+  async getCached<T>(endpoint: string, ttl?: number, opts: { onCached?: (data: T) => void } = {}): Promise<T> {
     const cached = this.apiCache.get<T>(endpoint, ttl)
     if (cached) {
       return cached
     }
 
-    const data = await this.get<T>(endpoint)
+    const data = await this.get<T>(endpoint, opts)
     this.apiCache.set(endpoint, data)
     return data
   }
@@ -184,59 +248,49 @@ class ApiClient {
 
   async post<T>(endpoint: string, data?: unknown): Promise<T> {
     const headers = await this.getHeaders()
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: data ? JSON.stringify(data) : undefined
-    })
+    const response = await this.send(endpoint, { method: 'POST', headers, body: data ? JSON.stringify(data) : undefined })
     return this.handleResponse<T>(response)
   }
 
   async patch<T>(endpoint: string, data: unknown): Promise<T> {
     const headers = await this.getHeaders()
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'PATCH',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify(data)
-    })
+    const response = await this.send(endpoint, { method: 'PATCH', headers, body: JSON.stringify(data) })
     return this.handleResponse<T>(response)
   }
 
   async put<T>(endpoint: string, data: unknown): Promise<T> {
     const headers = await this.getHeaders()
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'PUT',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify(data)
-    })
+    const response = await this.send(endpoint, { method: 'PUT', headers, body: JSON.stringify(data) })
     return this.handleResponse<T>(response)
   }
 
   /** PUT raw bytes (image uploads). The server ignores the content type and decodes the bytes itself. */
   async putBlob<T>(endpoint: string, body: Blob): Promise<T> {
     const headers = { ...(await this.getHeaders()), 'Content-Type': 'application/octet-stream' }
-    const response = await fetch(`${this.baseUrl}${endpoint}`, { method: 'PUT', headers, credentials: 'include', body })
+    const response = await this.send(endpoint, { method: 'PUT', headers, body })
     return this.handleResponse<T>(response)
   }
 
   /** GET bytes with the bearer token, for images that an <img> tag could not authenticate. */
   async getBlob(endpoint: string): Promise<Blob> {
     const headers = await this.getHeaders()
-    const response = await fetch(`${this.baseUrl}${endpoint}`, { method: 'GET', headers, credentials: 'include' })
+    const response = await this.send(endpoint, { method: 'GET', headers })
     if (!response.ok) await this.handleResponse(response)
     return response.blob()
   }
 
+  /** Any method; used by the outbox to replay queued writes. */
+  async request<T>(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', endpoint: string, data?: unknown, asUser?: string): Promise<T> {
+    const headers = await this.getHeaders()
+    // a queued write belongs to the user who made it; never send it with another user's token
+    if (asUser !== undefined && this.authStore && this.authStore.userId !== asUser) throw offlineError()
+    const response = await this.send(endpoint, { method, headers, body: data === undefined ? undefined : JSON.stringify(data) })
+    return this.handleResponse<T>(response)
+  }
+
   async delete<T>(endpoint: string): Promise<T> {
     const headers = await this.getHeaders()
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'DELETE',
-      headers,
-      credentials: 'include'
-    })
+    const response = await this.send(endpoint, { method: 'DELETE', headers })
     return this.handleResponse<T>(response)
   }
 }

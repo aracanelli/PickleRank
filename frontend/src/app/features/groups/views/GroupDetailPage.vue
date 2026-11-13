@@ -10,11 +10,13 @@ import { useLeagueStore } from '@/stores/league'
 import { eventsApi } from '@/app/features/events/services/events.api'
 import { rankingsApi } from '@/app/features/rankings/services/rankings.api'
 import { paymentsApi } from '@/app/features/payments/services/payments.api'
+import { awardsApi } from '@/app/features/awards/services/awards.api'
+import { outbox, whenSettled } from '@/app/core/offline/sync'
 import { formatMoney } from '@/app/features/payments/money'
 import { useGroupHistory, bustGroupHistory } from '@/app/features/rankings/composables/useGroupHistory'
 import AwardsTeaser from '@/app/features/awards/components/AwardsTeaser.vue'
 import { api } from '@/app/core/http/api-client'
-import type { EventDto, EventListItemDto, RankingEntryDto, MatchHistoryEntryDto } from '@/app/core/models/dto'
+import type { EventDto, EventListItemDto, EventListResponse, RankingEntryDto, MatchHistoryEntryDto, AwardEditionDto } from '@/app/core/models/dto'
 import PageHeader from '@/app/core/layout/PageHeader.vue'
 import AccountButton from '@/app/core/layout/AccountButton.vue'
 import UiButton from '@/app/core/ui/UiButton.vue'
@@ -42,6 +44,7 @@ const myGames = ref<MatchHistoryEntryDto[]>([])
 const loadingExtras = ref(true)
 const refreshing = ref(false)
 const totalOwed = ref<number | null>(null)
+const awards = ref<AwardEditionDto | null>(null)
 // last 30 days of league games, shared with other screens for a minute
 const recent = useGroupHistory(groupId)
 
@@ -79,37 +82,66 @@ const podium = computed(() => regulars.value.slice(0, 3).map(({ entry: r, rankCh
 const myWeek = computed(() => (league.me ? myNight(night.value, league.me.id) : null))
 const myChase = computed(() => (league.me ? chase(meRow.value?.sub ? rankings.value : standings.value, league.me.playerId) : null))
 
+/**
+ * Everything below the header. Each request first hands back the copy kept on this device, so a
+ * revisit (or an offline visit) paints the whole page at once and refreshes in place. On a first
+ * visit one page-shaped skeleton stands in until all blocks are ready, then they land together:
+ * no card pops in above the standings and pushes them down.
+ */
 async function loadExtras() {
-  loadingExtras.value = true
   const id = groupId.value
-  await league.load(id)
-  if (league.error) {
+  const leagueLoad = league.load(id)
+  // The league's own data decides what else to fetch (organizer or player); wait only when
+  // there was no kept copy to read that from.
+  if (league.group?.id !== id) await leagueLoad
+  if (league.error || groupId.value !== id) {
     loadingExtras.value = false
     return
   }
-  totalOwed.value = null
+  let kept = false
+  const applyEvents = async (res: EventListResponse, fresh: boolean) => {
+    // events whose delete is still queued stay hidden
+    const deleting = new Set(outbox.ops.filter(o => o.method === 'DELETE' && o.url.startsWith('/api/events/')).map(o => o.url.slice('/api/events/'.length)))
+    const open = orderUnfinished(res.events.filter(e => e.status !== 'COMPLETED' && !deleting.has(e.id)))
+    unfinished.value = open
+    recentEvents.value = res.events.filter(e => e.status === 'COMPLETED').slice(0, 3)
+    if (!open[0]) { active.value = null; return }
+    const e = await eventsApi.get(open[0].id, k => { if (!active.value || active.value.id !== k.id) active.value = k })
+    if (fresh || !active.value || active.value.id === e.id) active.value = e
+  }
   const tasks: Promise<unknown>[] = [
-    rankingsApi.getRankings(id).then(r => { rankings.value = r.rankings }).catch(() => { rankings.value = [] }),
-    recent.load()
+    rankingsApi.getRankings(id, r => { rankings.value = r.rankings; kept = true })
+      .then(r => { rankings.value = r.rankings }).catch(() => { if (!kept) rankings.value = [] }),
+    recent.load(),
+    awardsApi.getAwards(id, e => { awards.value = e })
+      .then(e => { awards.value = e ?? null }).catch(() => { /* teaser just stays hidden */ })
   ]
   if (league.isOrganizer) {
-    tasks.push(eventsApi.list(id).then(async res => {
-      const open = orderUnfinished(res.events.filter(e => e.status !== 'COMPLETED'))
-      unfinished.value = open
-      recentEvents.value = res.events.filter(e => e.status === 'COMPLETED').slice(0, 3)
-      active.value = open[0] ? await eventsApi.get(open[0].id).catch(() => null) : null
-    }).catch(() => { unfinished.value = []; active.value = null }))
+    let keptEvents: EventListResponse | null = null
+    tasks.push(eventsApi.list(id, undefined, r => { keptEvents = r; kept = true })
+      .then(res => applyEvents(res, true))
+      .catch(() => { if (!keptEvents) { unfinished.value = []; active.value = null } }))
+    if (keptEvents) void applyEvents(keptEvents, false).catch(() => {})
     if (league.trackPayments) {
-      tasks.push(paymentsApi.getBalances(id).then(r => { totalOwed.value = r.totalOwed }).catch(() => { totalOwed.value = null }))
+      tasks.push(paymentsApi.getBalances(id, r => { totalOwed.value = r.totalOwed })
+        .then(r => { totalOwed.value = r.totalOwed }).catch(() => {}))
     }
   } else if (league.me) {
-    tasks.push(rankingsApi.getHistory(id, { playerId: league.me.playerId }).then(r => { myGames.value = r.matches.slice(0, 3) }).catch(() => { myGames.value = [] }))
+    tasks.push(rankingsApi.getHistory(id, { playerId: league.me.playerId }, r => { myGames.value = r.matches.slice(0, 3) })
+      .then(r => { myGames.value = r.matches.slice(0, 3) }).catch(() => {}))
   }
+  // A kept copy is on screen: no skeleton, refresh quietly.
+  loadingExtras.value = !kept
   await Promise.all(tasks)
-  loadingExtras.value = false
+  if (groupId.value === id) loadingExtras.value = false
 }
 
-watch(groupId, () => { void loadExtras() }, { immediate: true })
+watch(groupId, () => {
+  unfinished.value = []; active.value = null; recentEvents.value = []; rankings.value = []
+  myGames.value = []; awards.value = null; totalOwed.value = null
+  loadingExtras.value = true
+  void loadExtras()
+}, { immediate: true })
 
 /** Scoring in progress first, then the soonest upcoming event, then undated or past drafts, newest first. */
 function orderUnfinished(open: EventListItemDto[]) {
@@ -138,12 +170,17 @@ async function removeEvent(e: EventListItemDto) {
     danger: true
   })
   if (!ok) return
-  try {
-    await eventsApi.delete(e.id)
-    toast('Event deleted')
-    await loadExtras()
-  } catch (err) {
-    toast((err as { message?: string }).message || 'Event not deleted', 'bad')
+  // Gone from the list now; the outbox deletes it on the server (also after an offline stretch).
+  const before = unfinished.value
+  unfinished.value = before.filter(x => x.id !== e.id)
+  if (active.value?.id === e.id) active.value = null
+  const op = outbox.enqueue({ method: 'DELETE', url: `/api/events/${e.id}`, label: `Delete ${eventTitle(e)}` })
+  toast('Event deleted')
+  const res = await whenSettled(op)
+  if (!res.ok) {
+    outbox.discard(op.id)
+    toast(res.error.message || 'Event not deleted', 'bad')
+    void loadExtras()
   }
 }
 
@@ -158,7 +195,10 @@ function statusLine(e: EventListItemDto) {
 
 <template>
   <div class="page">
-    <UiState v-if="league.loading && !league.group" kind="loading" title="Loading league" />
+    <template v-if="league.loading && !league.group">
+      <UiState kind="loading" shape="header" title="Loading league" />
+      <UiState kind="loading" shape="home" title="Loading league" />
+    </template>
 
     <UiState
       v-else-if="league.error?.status === 403 || league.error?.status === 404"
@@ -192,7 +232,7 @@ function statusLine(e: EventListItemDto) {
       <!-- ORGANIZER: tonight. A compact card, not a pinned bar, so standings stay in view. -->
       <section v-if="league.isOrganizer" class="section" aria-labelledby="tonight-h">
         <h2 id="tonight-h" class="visually-hidden">Tonight</h2>
-        <UiState v-if="loadingExtras" kind="loading" title="Loading events" />
+        <UiState v-if="loadingExtras" kind="loading" shape="default" title="Loading events" />
         <RouterLink
           v-else-if="active"
           :to="`/events/${active.id}`"
@@ -243,6 +283,9 @@ function statusLine(e: EventListItemDto) {
         </ul>
       </section>
 
+      <!-- first visit: one skeleton for the blocks below, so they arrive together -->
+      <UiState v-if="loadingExtras" kind="loading" shape="home" title="Loading standings" />
+
       <!-- personal: anyone linked to a player in this league -->
       <YourWeekCard
         v-if="league.me && !loadingExtras"
@@ -254,23 +297,23 @@ function statusLine(e: EventListItemDto) {
         :week="myWeek"
         :chase="myChase"
       />
-      <section v-else-if="!league.isOrganizer && !league.me" class="section" aria-labelledby="you-h">
+      <section v-else-if="!loadingExtras && !league.isOrganizer && !league.me" class="section" aria-labelledby="you-h">
         <h2 id="you-h">Your standing</h2>
         <p class="muted">Your account isn't linked to a player in this league yet. Ask the organizer for your invite link.</p>
       </section>
       <p v-if="!league.isOrganizer" class="muted readonly">Scores are entered by league organizers on game night.</p>
 
+      <template v-if="!loadingExtras">
       <LastWeekCard v-if="night" :group-id="groupId" :night="night" :players="league.players" />
 
-      <AwardsTeaser :group-id="groupId" />
+      <AwardsTeaser :group-id="groupId" :edition="awards" />
 
       <section class="section" aria-labelledby="stand-h">
         <div class="section-head">
           <h2 id="stand-h">Standings</h2>
           <RouterLink :to="`/groups/${groupId}/rankings`" class="more">All rankings</RouterLink>
         </div>
-        <UiState v-if="loadingExtras && !standings.length" kind="loading" title="Loading standings" />
-        <p v-else-if="!standings.length" class="muted">Standings appear after the first completed event.</p>
+        <p v-if="!standings.length" class="muted">Standings appear after the first completed event.</p>
         <div v-else>
           <Podium :entries="podium" />
           <StandingRow
@@ -290,6 +333,7 @@ function statusLine(e: EventListItemDto) {
       </section>
 
       <LeaguePulse :group-id="groupId" :matches="recent.matches.value" :rankings="rankings" :players="league.players" />
+      </template>
 
       <section v-if="!league.isOrganizer && myGames.length" class="section" aria-labelledby="games-h">
         <div class="section-head">

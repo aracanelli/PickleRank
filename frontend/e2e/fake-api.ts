@@ -8,7 +8,7 @@
  *
  * Test control:
  *   POST /__fake/reset   { scenario: 'default' | 'live' | 'big' | 'empty' | 'payments' }
- *   POST /__fake/config  { latencyMs?, scoreLatencyMs?, failScores?, failCompleteOnce? }
+ *   POST /__fake/config  { latencyMs?, scoreLatencyMs?, failScores? (503), refuseScores? (422), failCompleteOnce? (500), refuseCompleteOnce? (409) }
  *   GET  /__fake/log     -> recorded score PATCH bodies
  *
  * Photos and logos: PUT/GET/DELETE /api/groups/:id/players/:gp/photo and /api/groups/:id/logo.
@@ -22,7 +22,7 @@ import { spondRoutes } from './fake-spond'
 type Membership = 'PERMANENT' | 'SUB'
 type Role = 'ORGANIZER' | 'PLAYER'
 export interface GP { ratingDelta?: number; id: string; playerId: string; displayName: string; membershipType: Membership; role: Role; userId?: string; rating: number; gamesPlayed: number; wins: number; losses: number; ties: number; skillLevel?: string; inviteToken?: string }
-interface Game { id: string; roundIndex: number; courtIndex: number; t1: [string, string]; t2: [string, string]; s1?: number; s2?: number }
+interface Game { id: string; roundIndex: number; courtIndex: number; t1: [string, string]; t2: [string, string]; s1?: number; s2?: number; edited?: number }
 export interface Ev { id: string; groupId: string; name?: string; status: 'DRAFT' | 'GENERATED' | 'IN_PROGRESS' | 'COMPLETED'; startsAt: string; courts: number; rounds: number; participants: string[]; games: Game[]; seed: number }
 export interface Group { id: string; ownerUserId: string; name: string; settings: Record<string, unknown>; createdAt: string; archived?: boolean }
 interface Pay { id: string; gpId: string; amount: number; paymentType: 'ATTENDANCE' | 'PAYMENT' | 'ADJUSTMENT'; eventId?: string; notes?: string; createdAt: string }
@@ -37,7 +37,7 @@ const NAMES = [
 ]
 
 let state: { groups: Group[]; gps: Map<string, GP[]>; events: Ev[]; pays: Pay[] }
-let cfg = { latencyMs: 0, scoreLatencyMs: 0, failScores: 0, failCompleteOnce: false }
+let cfg = { latencyMs: 0, scoreLatencyMs: 0, failScores: 0, refuseScores: 0, failCompleteOnce: false, refuseCompleteOnce: false }
 let scoreLog: unknown[] = []
 const images = new Map<string, { mime: string; data: Buffer; v: number }>()
 const version = (key: string) => images.get(key)?.v
@@ -88,7 +88,7 @@ function seedEvent(g: Group, roster: GP[], name: string, courts: number, rounds:
 
 export function reset(scenario = 'default') {
   seq = 0
-  cfg = { latencyMs: 0, scoreLatencyMs: 0, failScores: 0, failCompleteOnce: false }
+  cfg = { latencyMs: 0, scoreLatencyMs: 0, failScores: 0, refuseScores: 0, failCompleteOnce: false, refuseCompleteOnce: false }
   scoreLog = []
   images.clear()
   const big = scenario === 'big'
@@ -160,7 +160,8 @@ const result = (s1?: number, s2?: number) => (s1 == null || s2 == null ? 'UNSET'
 const info = (id: string) => ({ id, displayName: gpById(id)?.displayName ?? 'Unknown' })
 const gameDto = (g: Game) => ({
   id: g.id, roundIndex: g.roundIndex, courtIndex: g.courtIndex,
-  team1: g.t1.map(info), team2: g.t2.map(info), scoreTeam1: g.s1 ?? null, scoreTeam2: g.s2 ?? null, result: result(g.s1, g.s2)
+  team1: g.t1.map(info), team2: g.t2.map(info), scoreTeam1: g.s1 ?? null, scoreTeam2: g.s2 ?? null, result: result(g.s1, g.s2),
+  editedAt: g.edited ?? null
 })
 const eventDto = (e: Ev) => ({
   id: e.id, groupId: e.groupId, name: e.name, status: e.status, startsAt: e.startsAt, courts: e.courts, rounds: e.rounds,
@@ -255,7 +256,9 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
   if (is(/^\/api\/groups\/member$/, 'GET')) return { groups: state.groups.filter(g => !g.archived && g.ownerUserId !== user && canSee(user, g)).map(g => ({ id: g.id, name: g.name, sport: 'pickleball', playerCount: roster(g.id).length, createdAt: g.createdAt, logoVersion: version(`group:${g.id}`) })) }
   if (is(/^\/api\/groups$/, 'POST')) {
     if (!String(body.name ?? '').trim()) throw new HttpError(422, 'Name is required')
-    const g: Group = { id: uid('grp'), ownerUserId: user, name: String(body.name).trim(), settings: settings(body.settings ?? {}), createdAt: now() }
+    const again = body.id && state.groups.find(x => x.id === body.id)
+    if (again) { if (again.ownerUserId !== user) throw new HttpError(409, 'Id in use'); return { ...again, sport: 'pickleball' } }
+    const g: Group = { id: body.id ?? uid('grp'), ownerUserId: user, name: String(body.name).trim(), settings: settings(body.settings ?? {}), createdAt: now() }
     state.groups.push(g); state.gps.set(g.id, [])
     return { ...g, sport: 'pickleball' }
   }
@@ -297,7 +300,9 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
   if (is(/^\/api\/groups\/([\w-]+)\/events$/, 'POST')) {
     const g = group(m![1], user); if (!isOrg(user, g)) deny()
     if ((body.participantIds ?? []).length !== body.courts * 4) throw new HttpError(400, `Exactly ${body.courts * 4} players are needed for ${body.courts} courts`)
-    const e: Ev = { id: uid('ev'), groupId: g.id, name: body.name, status: 'DRAFT', startsAt: body.startsAt ?? now(), courts: body.courts, rounds: body.rounds, participants: body.participantIds, games: [], seed: 0 }
+    const again = body.id && state.events.find(x => x.id === body.id)
+    if (again) { if (again.groupId !== g.id) throw new HttpError(409, 'Id in use'); return eventDto(again) }
+    const e: Ev = { id: body.id ?? uid('ev'), groupId: g.id, name: body.name, status: 'DRAFT', startsAt: body.startsAt ?? now(), courts: body.courts, rounds: body.rounds, participants: body.participantIds, games: [], seed: 0 }
     state.events.push(e); return eventDto(e)
   }
   if (is(/^\/api\/events\/([\w-]+)$/, 'GET')) return eventDto(eventFor(m![1], user))
@@ -313,6 +318,7 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
   if (is(/^\/api\/events\/([\w-]+)\/complete$/, 'POST')) {
     const e = eventFor(m![1], user)
     if (cfg.failCompleteOnce) { cfg.failCompleteOnce = false; throw new HttpError(500, 'Server error while completing') }
+    if (cfg.refuseCompleteOnce) { cfg.refuseCompleteOnce = false; throw new HttpError(409, 'Event changed while completing') }
     if (e.status === 'COMPLETED' || e.status === 'DRAFT') throw new HttpError(400, 'Event cannot be completed')
     const before = new Map(e.participants.map(id => [id, gpById(id)!.rating]))
     complete(e)
@@ -350,7 +356,11 @@ async function route(method: string, path: string, q: URLSearchParams, body: Bod
     const { e, g } = gameFor(m![1], user)
     scoreLog.push({ gameId: g.id, ...body, at: Date.now() })
     if (cfg.failScores > 0) { cfg.failScores--; throw new HttpError(503, 'Score service unavailable') }
+    if (cfg.refuseScores > 0) { cfg.refuseScores--; throw new HttpError(422, 'Score not accepted') }
     if ((body.scoreTeam1 != null && body.scoreTeam1 < 0) || (body.scoreTeam2 != null && body.scoreTeam2 < 0)) throw new HttpError(422, 'Scores must be 0 or more')
+    const edited = Math.min(body.editedAt ?? Date.now(), Date.now())
+    if (g.edited && g.edited > edited) return gameDto(g)
+    g.edited = edited
     g.s1 = body.scoreTeam1 ?? undefined; g.s2 = body.scoreTeam2 ?? undefined
     if (e.status === 'GENERATED') e.status = 'IN_PROGRESS'
     return gameDto(g)

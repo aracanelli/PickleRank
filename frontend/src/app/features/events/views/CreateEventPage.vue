@@ -98,27 +98,16 @@ async function create() {
   if (!ready.value || creating.value) return
   creating.value = true
   error.value = ''
-  try {
-    const event = await eventsApi.create(groupId.value, {
-      name: name.value.trim() || undefined,
-      courts: courts.value,
-      rounds: rounds.value,
-      participantIds: Array.from(selected.value)
-    })
-    // Make the schedule right away; if matchmaking can't find one, the event page explains and offers a retry.
-    let scheduleError = ''
-    try {
-      await eventsApi.generate(event.id, false)
-    } catch (e) {
-      scheduleError = (e as { message?: string }).message || 'Schedule not made'
-    }
-    await router.replace({ path: `/events/${event.id}`, query: scheduleError ? { scheduleError } : {} })
-  } catch (e) {
-    error.value = (e as { message?: string }).message || 'Event not created. Check your connection and try again.'
-    announce(error.value, true)
-  } finally {
-    creating.value = false
-  }
+  // Opens the event at once, offline too. The event page shows the schedule when the server
+  // makes it, or explains and offers a retry if matchmaking can't find one.
+  const { event } = eventsApi.createQueued(groupId.value, {
+    name: name.value.trim() || undefined,
+    courts: courts.value,
+    rounds: rounds.value,
+    participantIds: Array.from(selected.value)
+  })
+  await router.replace(`/events/${event.id}`)
+  creating.value = false
 }
 </script>
 

@@ -51,14 +51,18 @@ function balParts(balance: number): [string, string, string] {
 const canView = computed(() => league.isOrganizer && league.trackPayments)
 
 async function loadBalances() {
-  loading.value = true
+  loading.value = !balances.value.length
   loadError.value = ''
   try {
-    const r = await paymentsApi.getBalances(groupId.value)
+    const r = await paymentsApi.getBalances(groupId.value, kept => {
+      balances.value = kept.balances
+      totalOwed.value = kept.totalOwed
+      loading.value = false
+    })
     balances.value = r.balances
     totalOwed.value = r.totalOwed
   } catch (e) {
-    loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
+    if (!balances.value.length) loadError.value = (e as { message?: string }).message || 'Check your connection and try again.'
   } finally {
     loading.value = false
   }

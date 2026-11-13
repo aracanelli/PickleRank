@@ -4,28 +4,18 @@
  * Voting you haven't finished beats voting you have; final results beat a draft;
  * members see awards only once published (or while voting is open). Load failures render nothing; the awards page has the error state.
  */
-import { ref, computed, watch } from 'vue'
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Trophy, ChevronRight } from 'lucide-vue-next'
 import { useLeagueStore } from '@/stores/league'
-import { awardsApi } from '../services/awards.api'
 import type { AwardEditionDto } from '@/app/core/models/dto'
 
-const props = defineProps<{ groupId: string }>()
+const props = defineProps<{ groupId: string; edition: AwardEditionDto | null }>()
 
 const league = useLeagueStore()
-const edition = ref<AwardEditionDto | null>(null)
-
-watch(() => props.groupId, async id => {
-  edition.value = null
-  try {
-    const e = await awardsApi.getAwards(id)
-    if (id === props.groupId) edition.value = e ?? null
-  } catch { /* nothing useful to show */ }
-}, { immediate: true })
 
 const item = computed(() => {
-  const e = edition.value
+  const e = props.edition
   if (!e) return null
   const cats = e.categories
   if (e.status === 'VOTING_OPEN') {

@@ -10,7 +10,6 @@ from typing import List, Optional, Tuple
 from uuid import UUID
 
 from asyncpg import Connection
-from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.exceptions import AppException, ForbiddenError, NotFoundError
 from app.infrastructure.repositories.groups_repo import GroupsRepository
@@ -25,9 +24,6 @@ MAX_SIDE = 512
 MAX_INPUT_PIXELS = 40_000_000
 ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP")
 OUTPUT_MIME = "image/webp"
-
-# Pillow raises DecompressionBombError past 2x this; we also check dimensions ourselves before load.
-Image.MAX_IMAGE_PIXELS = MAX_INPUT_PIXELS
 
 
 class PayloadTooLargeError(AppException):
@@ -44,6 +40,11 @@ def normalize_image(raw: bytes) -> Tuple[bytes, int, int]:
     """Decode an untrusted upload and return (webp_bytes, width, height). Metadata is dropped."""
     if len(raw) > MAX_UPLOAD_BYTES:
         raise PayloadTooLargeError()
+    # Imported here so cold starts that never touch images don't pay for Pillow.
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    # Pillow raises DecompressionBombError past 2x this; we also check dimensions ourselves before load.
+    Image.MAX_IMAGE_PIXELS = MAX_INPUT_PIXELS
     try:
         with Image.open(BytesIO(raw), formats=ALLOWED_FORMATS) as img:
             if img.format not in ALLOWED_FORMATS:

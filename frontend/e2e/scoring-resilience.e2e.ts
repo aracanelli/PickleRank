@@ -39,9 +39,20 @@ test.describe('scoring holds up courtside', () => {
     await expect(page.locator('[aria-live="polite"]').filter({ hasText: 'Court 2 saved, 11 to 4.' })).toHaveCount(1)
   })
 
-  test('failed save keeps the score, survives reload, and retries', async ({ page, request }) => {
+  test('a server hiccup is retried on its own and the score lands', async ({ page, request }) => {
     await openLive(page)
     await fakeConfig(request, { failScores: 1 })
+    await enterScore(page, 2, 11, 5)
+    const tile = page.locator('button[data-court="2"]')
+    await expect(tile).toContainText('11')
+    await expect(tile).toContainText('Saved', { timeout: 8000 })
+    const log = await scoreLog(request)
+    expect(log.filter(l => l.scoreTeam1 === 11 && l.scoreTeam2 === 5).length).toBe(2)
+  })
+
+  test('a refused score keeps the numbers, survives reload, and retries', async ({ page, request }) => {
+    await openLive(page)
+    await fakeConfig(request, { refuseScores: 1 })
     await enterScore(page, 2, 11, 3)
     const tile = page.locator('button[data-court="2"]')
     await expect(tile).toContainText('Not saved. Tap to retry')
@@ -51,7 +62,7 @@ test.describe('scoring holds up courtside', () => {
     await expect(page.getByRole('button', { name: 'Retry court 2' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Complete event' })).toHaveCount(0)
 
-    // nothing reached the server, the draft survives a reload
+    // the server refused it; the entry survives a reload
     await page.reload()
     await expect(page.locator('button[data-court="2"]')).toContainText('Not saved')
 
@@ -66,7 +77,7 @@ test.describe('scoring holds up courtside', () => {
 
   test('the thumb-zone retry resends every unsaved court', async ({ page, request }) => {
     await openLive(page)
-    await fakeConfig(request, { failScores: 2 })
+    await fakeConfig(request, { refuseScores: 2 })
     await enterScore(page, 2, 11, 1)
     await enterScore(page, 3, 11, 2)
     const retry = page.getByRole('button', { name: 'Retry 2 courts' })
@@ -77,16 +88,37 @@ test.describe('scoring holds up courtside', () => {
     await expect(page.getByRole('button', { name: /Retry/ })).toHaveCount(0)
   })
 
-  test('leaving with an unsaved score asks first', async ({ page, request }) => {
+  test('offline: scores are kept on the phone, survive leaving, and sync on reconnect', async ({ page, request, context }) => {
     await openLive(page)
-    await fakeConfig(request, { failScores: 1 })
+    await context.setOffline(true)
     await enterScore(page, 3, 11, 9)
-    await expect(page.locator('button[data-court="3"]')).toContainText('Not saved')
+    const tile = page.locator('button[data-court="3"]')
+    await expect(tile).toContainText('On phone · syncs later')
+    await expect(tile).toContainText('11')
+    await expect(page.getByText(/Offline · 1 change on this phone/)).toBeVisible()
+    // leaving is safe: no prompt, the score stays queued
     await page.getByRole('link', { name: 'Tuesday Ladder' }).click()
-    const dialog = page.getByRole('dialog')
-    await expect(dialog).toContainText('Some scores are not saved')
-    await dialog.getByRole('button', { name: 'Stay and retry' }).click()
-    await expect(page).toHaveURL(/\/events\//)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect((await scoreLog(request)).filter(l => l.scoreTeam2 === 9)).toHaveLength(0)
+    await context.setOffline(false)
+    await expect.poll(async () => (await scoreLog(request)).filter(l => l.scoreTeam1 === 11 && l.scoreTeam2 === 9).length, { timeout: 15000 }).toBe(1)
+    await expect(page.getByText(/change on this phone|Syncing/)).toHaveCount(0)
+  })
+
+  test('a late offline replay never overwrites a newer score from another phone', async ({ page, request, context }) => {
+    await openLive(page)
+    await context.setOffline(true)
+    await enterScore(page, 2, 11, 1) // typed now, queued
+    // another organizer saves court 2 afterwards, straight to the server
+    const ev = await (await request.get(page.url().replace(/.*\/events\//, '/api/events/'), { headers: { authorization: 'Bearer e2e-user_org' } })).json()
+    const round = Number((await page.getByRole('heading', { name: /Round \d/ }).first().textContent())!.match(/Round (\d)/)![1]) - 1
+    const target = ev.games.find((g: { roundIndex: number; courtIndex: number }) => g.roundIndex === round && g.courtIndex === 1)
+    await request.patch(`/api/games/${target.id}/score`, { headers: { authorization: 'Bearer e2e-user_org' }, data: { scoreTeam1: 4, scoreTeam2: 11, editedAt: Date.now() + 1000 } })
+    await context.setOffline(false)
+    // the phone's older entry reaches the server, loses, and the newer score comes back
+    await expect(page.locator('button[data-court="2"]')).toContainText('4', { timeout: 15000 })
+    const after = await (await request.get(`/api/events/${ev.id}`, { headers: { authorization: 'Bearer e2e-user_org' } })).json()
+    expect(after.games.find((g: { id: string }) => g.id === target.id)).toMatchObject({ scoreTeam1: 4, scoreTeam2: 11 })
   })
 
   test('invalid scores are caught in the sheet, not sent', async ({ page, request }) => {
@@ -130,7 +162,7 @@ test.describe('scoring holds up courtside', () => {
       }
       if (r < 4) await page.getByRole('button', { name: `Go to round ${r + 1}` }).click()
     }
-    await fakeConfig(request, { failCompleteOnce: true })
+    await fakeConfig(request, { refuseCompleteOnce: true })
     await page.getByRole('button', { name: 'Complete event' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Complete event' }).click()
     await expect(page.locator('[aria-live="assertive"]')).toContainText('Your scores are saved')

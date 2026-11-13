@@ -124,6 +124,8 @@ export interface GameDto {
   team1Elo?: number
   team2Elo?: number
   result: GameResult
+  /** epoch ms of the last accepted score edit (server clock-clamped) */
+  editedAt?: number | null
 }
 
 export interface GenerationMeta {

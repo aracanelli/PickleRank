@@ -31,12 +31,14 @@ class EventsRepository:
         starts_at: Optional[datetime],
         courts: int,
         rounds: int,
-    ) -> Dict[str, Any]:
-        """Create a new event."""
+        event_id: Optional[UUID] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create a new event. Returns None if a client-generated event_id already exists."""
         row = await self.conn.fetchrow(
             """
-            INSERT INTO events (group_id, name, starts_at, courts, rounds)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO events (id, group_id, name, starts_at, courts, rounds)
+            VALUES (COALESCE($6::uuid, gen_random_uuid()), $1, $2, $3, $4, $5)
+            ON CONFLICT (id) DO NOTHING
             RETURNING id, group_id, name, starts_at, courts, rounds, status, 
                       generation_meta, created_at, updated_at
             """,
@@ -45,6 +47,7 @@ class EventsRepository:
             starts_at,
             courts,
             rounds,
+            event_id,
         )
         return dict(row) if row else None
 

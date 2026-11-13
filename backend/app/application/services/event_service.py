@@ -4,12 +4,12 @@ Event service - handles event-related use cases.
 import csv
 import io
 from collections import defaultdict
-from datetime import datetime
+from contextlib import nullcontext
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, FrozenSet, List, Optional, Set
 from uuid import UUID
 
 from asyncpg import Connection
-from fastapi import UploadFile
 from fastapi import UploadFile
 from fastapi.concurrency import run_in_threadpool
 
@@ -32,7 +32,7 @@ from app.domain.matchmaking.constraints import ConstraintChecker, ConstraintConf
 from app.domain.matchmaking.generator import ScheduleGenerator
 from app.domain.ratings.base import GameForRating, GameResult as DomainGameResult, PlayerRating, RatingDelta
 from app.domain.ratings.factory import create_rating_system
-from app.exceptions import BadRequestError, ForbiddenError, MatchmakingError, NotFoundError
+from app.exceptions import BadRequestError, ConflictError, ForbiddenError, MatchmakingError, NotFoundError
 from app.infrastructure.repositories.events_repo import EventsRepository
 from app.infrastructure.repositories.games_repo import GamesRepository
 from app.infrastructure.repositories.groups_repo import GroupsRepository
@@ -41,6 +41,8 @@ from app.infrastructure.repositories.rating_updates_repo import RatingUpdatesRep
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class EventService:
@@ -189,17 +191,23 @@ class EventService:
         # Verify all participants exist in group
         if not await self.group_players_repo.check_players_exist(group_id, data.participant_ids):
             raise BadRequestError("One or more players not found in group")
-        # Create event
-        event = await self.events_repo.create(
-            group_id=group_id,
-            name=data.name,
-            starts_at=data.starts_at,
-            courts=data.courts,
-            rounds=data.rounds,
-        )
+        async with self.conn.transaction():
+            event = await self.events_repo.create(
+                group_id=group_id,
+                name=data.name,
+                starts_at=data.starts_at,
+                courts=data.courts,
+                rounds=data.rounds,
+                event_id=data.id,
+            )
+            if event is None:
+                # Client-generated id already used: a retried create returns the stored event.
+                existing = await self.events_repo.get_by_id(data.id)
+                if not existing or existing["group_id"] != group_id:
+                    raise ConflictError("An event with this id already exists")
+                return await self.get_event(user_id, data.id)
 
-        # Add participants
-        await self.events_repo.add_participants(event["id"], data.participant_ids)
+            await self.events_repo.add_participants(event["id"], data.participant_ids)
 
         return EventResponse(
             id=event["id"],
@@ -247,9 +255,9 @@ class EventService:
         event = await self.events_repo.get_by_id(event_id)
         if not event:
             raise NotFoundError("Event", str(event_id))
-        # Fetch group to check ownership or organizer role
-        group = await self.groups_repo.get_by_id(event["group_id"])
-        if not await self._is_owner_or_organizer(user_id, group):
+        # The event row already carries the group's owner; no need to fetch the group
+        access = {"id": event["group_id"], "owner_user_id": event["owner_user_id"]}
+        if not await self._is_owner_or_organizer(user_id, access):
             raise ForbiddenError("Only owners and organizers can view this event")
 
         participant_count = await self.events_repo.get_participant_count(event_id)
@@ -332,7 +340,7 @@ class EventService:
         )
 
     async def generate_schedule(
-        self, user_id: str, event_id: UUID, new_seed: bool = False
+        self, user_id: str, event_id: UUID, new_seed: bool = False, force: bool = False
     ) -> GenerateResponse:
         """Generate match schedule for an event."""
         event = await self.events_repo.get_by_id(event_id)
@@ -346,8 +354,17 @@ class EventService:
         if event["status"] == "COMPLETED":
             raise BadRequestError("Cannot regenerate a completed event")
 
-        # Get group settings
-        group = await self.groups_repo.get_by_id(event["group_id"])
+        # Regenerating deletes every game; never silently wipe entered scores.
+        if (
+            not force
+            and event["status"] != "DRAFT"
+            and await self.games_repo.has_scored_games(event_id)
+        ):
+            raise ConflictError(
+                "This event already has scores. Regenerating would delete them; "
+                "send force: true to regenerate anyway."
+            )
+
         settings = group["settings"]
 
         # Get participants with ratings
@@ -404,9 +421,6 @@ class EventService:
         if not result.success:
             raise MatchmakingError(result.error_message or "Failed to generate schedule")
 
-        # Delete existing games and create new ones
-        await self.games_repo.delete_by_event(event_id)
-
         # Build player rating lookup for team ELO calculation
         player_ratings = {p.id: p.rating for p in players}
 
@@ -428,12 +442,13 @@ class EventService:
                 "team2_elo": team2_elo,
             })
 
-        await self.games_repo.create_many(games_to_create)
-
-        # Update event status
-        await self.events_repo.update_status(
-            event_id, "GENERATED", result.metadata
-        )
+        # Replace the games atomically so a failed insert can't leave the event empty
+        async with self.conn.transaction():
+            await self.games_repo.delete_by_event(event_id)
+            await self.games_repo.create_many(games_to_create)
+            await self.events_repo.update_status(
+                event_id, "GENERATED", result.metadata
+            )
 
         # Get games with player info
         games = await self._get_games_with_players(event_id)
@@ -534,46 +549,45 @@ class EventService:
         game_id: UUID,
         score_team1: Optional[float],
         score_team2: Optional[float],
+        edited_at_ms: Optional[int] = None,
+        base_edited_at_ms: Optional[int] = None,
     ) -> GameResponse:
-        """Update game score."""
-        game = await self.games_repo.get_by_id(game_id)
-        if not game:
+        """Update game score; last write wins by edit time, so an old offline replay never clobbers a newer score."""
+        ctx = await self.games_repo.get_score_context(game_id)
+        if not ctx:
             raise NotFoundError("Game", str(game_id))
-
-        # Verify ownership or organizer role through group
-        group = await self.groups_repo.get_by_id(game["group_id"])
-        if not await self._is_owner_or_organizer(user_id, group):
+        if str(ctx["owner_user_id"]) != user_id and not await self.group_players_repo.is_organizer(
+            user_id, ctx["group_id"]
+        ):
             raise ForbiddenError("Only owners and organizers can update scores")
 
-        # Check event status
-        event = await self.events_repo.get_by_id(game["event_id"])
-        
-        # ALLOW updates for COMPLETED events (Request #4)
-        # if event["status"] == "COMPLETED":
-        #     raise BadRequestError("Cannot update score of a completed event")
+        # Clamp device clocks running ahead so they can't lock out later edits.
+        now = datetime.now(timezone.utc)
+        edited_at = now
+        if edited_at_ms is not None:
+            edited_at = min(_EPOCH + timedelta(milliseconds=edited_at_ms), now)
 
-        # Update score
-        updated = await self.games_repo.update_score(game_id, score_team1, score_team2)
+        # Scores of COMPLETED events stay editable (Request #4) and trigger a recalculation,
+        # done in the same transaction so a failed recalculation doesn't leave a half-applied score.
+        completed = ctx["event_status"] == "COMPLETED"
+        async with self.conn.transaction() if completed else nullcontext():
+            updated = await self.games_repo.update_score(game_id, score_team1, score_team2, edited_at, base_edited_at_ms)
+            # updated is None when the stored score is newer: skip side effects, return the stored game
+            if updated and ctx["event_status"] == "GENERATED":
+                await self.events_repo.update_status(ctx["event_id"], "IN_PROGRESS")
+            if updated and completed:
+                # We import locally to avoid circular dependencies
+                from app.application.services.group_service import GroupService
+                await GroupService(self.conn).recalculate_ratings(user_id, ctx["group_id"])
+        if updated and completed:
+            # again after the outer commit; the recalculation's own invalidation ran inside it
+            from app.infrastructure.cache import invalidate_rankings
+            await invalidate_rankings(ctx["group_id"])
 
-        # Update event status to IN_PROGRESS if needed
-        if event["status"] == "GENERATED":
-            await self.events_repo.update_status(event["id"], "IN_PROGRESS")
-            
-        # If event was COMPLETED, trigger recalculation
-        if event["status"] == "COMPLETED":
-            # Recalculate ratings for the whole group
-            # We import locally to avoid circular dependencies
-            from app.application.services.group_service import GroupService
-            group_service = GroupService(self.conn)
-            await group_service.recalculate_ratings(user_id, group["id"])
-
-        # Get player info
-        games_with_players = await self._get_games_with_players(game["event_id"])
-        for g in games_with_players:
-            if g.id == game_id:
-                return g
-
-        raise NotFoundError("Game", str(game_id))
+        games = await self._get_games_with_players(ctx["event_id"], game_id)
+        if not games:
+            raise NotFoundError("Game", str(game_id))
+        return games[0]
 
     async def delete_game(self, user_id: str, game_id: UUID) -> None:
         """Delete a game and trigger rating recalculation."""
@@ -590,14 +604,19 @@ class EventService:
         event = await self.events_repo.get_by_id(game["event_id"])
         was_completed = event["status"] == "COMPLETED"
 
-        # Delete the game
-        await self.games_repo.delete(game_id)
+        # Delete and recalculate atomically, so a failed recalculation keeps the game
+        async with self.conn.transaction() if was_completed else nullcontext():
+            await self.games_repo.delete(game_id)
 
-        # If event was COMPLETED, trigger recalculation
+            # If event was COMPLETED, trigger recalculation
+            if was_completed:
+                from app.application.services.group_service import GroupService
+                group_service = GroupService(self.conn)
+                await group_service.recalculate_ratings(user_id, group["id"])
         if was_completed:
-            from app.application.services.group_service import GroupService
-            group_service = GroupService(self.conn)
-            await group_service.recalculate_ratings(user_id, group["id"])
+            # again after the outer commit; the recalculation's own invalidation ran inside it
+            from app.infrastructure.cache import invalidate_rankings
+            await invalidate_rankings(group["id"])
 
     async def update_game_players(
         self,
@@ -622,26 +641,28 @@ class EventService:
         event = await self.events_repo.get_by_id(game["event_id"])
         was_completed = event["status"] == "COMPLETED"
 
-        # Update players
-        await self.games_repo.update_players(game_id, team1_p1, team1_p2, team2_p1, team2_p2)
+        async with self.conn.transaction() if was_completed else nullcontext():
+            # Update players
+            await self.games_repo.update_players(game_id, team1_p1, team1_p2, team2_p1, team2_p2)
 
-        # Update event status to IN_PROGRESS if needed
-        if event["status"] == "GENERATED":
-            await self.events_repo.update_status(event["id"], "IN_PROGRESS")
+            # Update event status to IN_PROGRESS if needed
+            if event["status"] == "GENERATED":
+                await self.events_repo.update_status(event["id"], "IN_PROGRESS")
 
-        # If event was COMPLETED, trigger recalculation
+            # If event was COMPLETED, trigger recalculation
+            if was_completed:
+                from app.application.services.group_service import GroupService
+                group_service = GroupService(self.conn)
+                await group_service.recalculate_ratings(user_id, group["id"])
         if was_completed:
-            from app.application.services.group_service import GroupService
-            group_service = GroupService(self.conn)
-            await group_service.recalculate_ratings(user_id, group["id"])
+            # again after the outer commit; the recalculation's own invalidation ran inside it
+            from app.infrastructure.cache import invalidate_rankings
+            await invalidate_rankings(group["id"])
 
-        # Get player info
-        games_with_players = await self._get_games_with_players(game["event_id"])
-        for g in games_with_players:
-            if g.id == game_id:
-                return g
-
-        raise NotFoundError("Game", str(game_id))
+        games = await self._get_games_with_players(game["event_id"], game_id)
+        if not games:
+            raise NotFoundError("Game", str(game_id))
+        return games[0]
 
     async def complete_event(self, user_id: str, event_id: UUID) -> CompleteResponse:
         """Complete an event atomically and make retries safe."""
@@ -681,10 +702,15 @@ class EventService:
                     ],
                 )
 
-            return await self._complete_event_locked(user_id, event_id, event)
+            response = await self._complete_event_locked(user_id, event_id, event, group)
+
+        # After commit, so a concurrent reader can't re-cache pre-commit ratings.
+        from app.infrastructure.cache import invalidate_rankings
+        await invalidate_rankings(event["group_id"])
+        return response
 
     async def _complete_event_locked(
-        self, user_id: str, event_id: UUID, event: Dict[str, Any]
+        self, user_id: str, event_id: UUID, event: Dict[str, Any], group: Dict[str, Any]
     ) -> CompleteResponse:
         """Apply completion side effects; caller must hold the event lock."""
 
@@ -694,8 +720,6 @@ class EventService:
         if event["status"] == "DRAFT":
             raise BadRequestError("Cannot complete an event without generated games")
 
-        # Get group settings for rating system
-        group = await self.groups_repo.get_by_id(event["group_id"])
         settings = group["settings"]
 
         # Get all games with player details, ordered by round/court
@@ -852,10 +876,6 @@ class EventService:
             event_id, event["group_id"], user_id
         )
 
-        # After commit: drop cached rankings so the league sees new ratings now.
-        from app.infrastructure.cache import invalidate_rankings
-        await invalidate_rankings(event["group_id"])
-
         return CompleteResponse(
             status=EventStatus.COMPLETED,
             ratingUpdates=[
@@ -885,9 +905,11 @@ class EventService:
         
         await self.events_repo.delete(event_id)
 
-    async def _get_games_with_players(self, event_id: UUID) -> List[GameResponse]:
-        """Get all games for an event with player details."""
-        games = await self.games_repo.list_by_event_with_players(event_id)
+    async def _get_games_with_players(
+        self, event_id: UUID, game_id: Optional[UUID] = None
+    ) -> List[GameResponse]:
+        """Get all games for an event (or just game_id) with player details."""
+        games = await self.games_repo.list_by_event_with_players(event_id, game_id)
 
         return [
             GameResponse(
@@ -912,6 +934,11 @@ class EventService:
                     (float(g["t2p1_rating"]) + float(g["t2p2_rating"])) / 2
                 ),
                 result=GameResult(g["result"]),
+                editedAt=(
+                    (g["score_edited_at"] - _EPOCH) // timedelta(milliseconds=1)
+                    if g.get("score_edited_at") is not None
+                    else None
+                ),
             )
             for g in games
         ]

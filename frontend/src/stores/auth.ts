@@ -32,7 +32,8 @@ interface CachedSession {
 // Storage keys
 const SESSION_CACHE_KEY = 'picklerank_session_cache'
 const MULTI_SESSION_KEY = 'picklerank_sessions'
-const SESSION_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000 // 7 days
+// Long enough to open the app offline after a couple of weeks off; the server still checks real tokens.
+const SESSION_CACHE_DURATION = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 /**
  * Auth Store - Manages authentication state with Clerk
@@ -51,9 +52,12 @@ export const useAuthStore = defineStore('auth', () => {
   const isInitialized = ref(false)
   const error = ref<string | null>(null)
   const cachedSessions = ref<CachedSession[]>([])
+  // Signed in on this device per the cached session, not yet confirmed by Clerk (still loading,
+  // or offline). Lets the app open straight away and work offline; Clerk replaces or clears it.
+  const provisional = ref(false)
 
   // Computed
-  const isAuthenticated = computed(() => !!user.value && !!session.value)
+  const isAuthenticated = computed(() => !!user.value && (!!session.value || provisional.value))
   const userId = computed(() => user.value?.id || null)
   const userEmail = computed(() => 
     user.value?.primaryEmailAddress?.emailAddress || 
@@ -168,6 +172,7 @@ export const useAuthStore = defineStore('auth', () => {
   function setAuth(clerkUser: ClerkUser | null, clerkSession: ClerkSession | null) {
     user.value = clerkUser
     session.value = clerkSession
+    provisional.value = false
     error.value = null
 
     if (clerkUser && clerkSession) {
@@ -179,6 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
   function clearAuth() {
     user.value = null
     session.value = null
+    provisional.value = false
     clearSessionCache()
   }
 
@@ -280,6 +286,7 @@ export const useAuthStore = defineStore('auth', () => {
         emailAddresses: cached.email ? [{ emailAddress: cached.email }] : [],
         imageUrl: cached.imageUrl
       }
+      provisional.value = true
     }
   }
 
@@ -289,6 +296,7 @@ export const useAuthStore = defineStore('auth', () => {
     session,
     isLoading,
     isInitialized,
+    provisional,
     error,
     cachedSessions,
 

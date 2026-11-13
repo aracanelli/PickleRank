@@ -126,6 +126,30 @@ class TestUpdateScore:
         assert response.json()["result"] == "UNSET"
 
 
+    @patch("app.application.services.event_service.EventService.update_score")
+    def test_update_score_passes_edited_at_and_returns_it(self, mock_update, client):
+        """editedAt (epoch ms) reaches the service and the stored edit time comes back."""
+        game_id = uuid4()
+        stored = _make_game_response(game_id=game_id, score_team1=11.0, score_team2=9.0)
+        stored.edited_at = 1_763_000_000_000
+        mock_update.return_value = stored
+
+        response = client.patch(
+            f"/api/games/{game_id}/score",
+            json={"scoreTeam1": 11, "scoreTeam2": 9, "editedAt": 1_762_000_000_000},
+        )
+
+        assert response.status_code == 200
+        assert mock_update.await_args.args[-2] == 1_762_000_000_000
+        assert response.json()["editedAt"] == 1_763_000_000_000
+
+    def test_update_score_rejects_negative_edited_at(self, client):
+        response = client.patch(
+            f"/api/games/{uuid4()}/score", json={"scoreTeam1": 1, "scoreTeam2": 2, "editedAt": -1}
+        )
+        assert response.status_code == 422
+
+
 class TestDeleteGame:
     """DELETE /api/games/{game_id}"""
 

@@ -10,6 +10,11 @@ class ScoreUpdateRequest(BaseModel):
 
     score_team1: Optional[float] = Field(None, ge=0, alias="scoreTeam1")
     score_team2: Optional[float] = Field(None, ge=0, alias="scoreTeam2")
+    # Epoch ms when the score was typed on the device; replays older than the stored edit are ignored.
+    edited_at: Optional[int] = Field(None, ge=0, alias="editedAt")
+    # editedAt of the game as this device last saw it. If nobody changed the score since, the write
+    # wins whatever the device clock says (a slow clock must not lose a deliberate correction).
+    base_edited_at: Optional[int] = Field(None, ge=0, alias="baseEditedAt")
 
     class Config:
         populate_by_name = True

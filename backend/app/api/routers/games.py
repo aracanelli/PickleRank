@@ -23,7 +23,9 @@ async def update_score(
 ):
     """Update game score."""
     service = EventService(db)
-    return await service.update_score(user.user_id, game_id, data.score_team1, data.score_team2)
+    return await service.update_score(
+        user.user_id, game_id, data.score_team1, data.score_team2, data.edited_at, data.base_edited_at
+    )
 
 
 @router.delete("/games/{game_id}")

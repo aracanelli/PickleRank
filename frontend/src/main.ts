@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
@@ -6,6 +6,7 @@ import { initClerk, setAuthStore } from '@/app/core/auth/clerk'
 import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
 import { initApiClient } from './app/core/http/api-client'
+import { startSync, outbox } from './app/core/offline/sync'
 import '@fontsource/atkinson-hyperlegible-next/latin-400.css'
 import '@fontsource/atkinson-hyperlegible-next/latin-700.css'
 import '@fontsource/barlow-condensed/latin-600.css'
@@ -31,13 +32,23 @@ async function bootstrap() {
   setAuthStore(authStore)
   initApiClient(authStore)
 
-  // Initialize Clerk (will automatically update auth store)
-  await initClerk()
+  // Clerk is a ~2.6 MB chunk plus a network handshake. With a session cached on this device,
+  // paint the app now (from kept data) and let Clerk confirm in the background; this is also
+  // what lets the app open with no connection. Signed-out visitors wait, since sign-in needs Clerk.
+  const clerkReady = initClerk()
+  if (!authStore.provisional) await clerkReady
 
-  // Add router after auth is initialized
   app.use(router)
-
+  startSync(() => authStore.userId)
   app.mount('#app')
+
+  // Clerk (or a 401) says the session is gone: leave protected screens.
+  watch(() => authStore.isAuthenticated, isAuth => {
+    const route = router.currentRoute.value
+    if (!isAuth && route.meta.requiresAuth) void router.replace({ name: 'login', query: { redirect: route.fullPath } })
+  })
+  // A real session arrived (Clerk loaded, or reconnected): send anything queued while waiting.
+  watch(() => authStore.session, s => { if (s) outbox.kick() })
 }
 
 bootstrap()

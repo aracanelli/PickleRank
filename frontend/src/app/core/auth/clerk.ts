@@ -48,7 +48,7 @@ function handleAuthChange(resources: { user: any; session: any; client?: any }) 
       authStoreInstance.setAuth(user, session)
     } else {
       // Only clear if we're actually signed out (not just loading)
-      if (clerkLoaded && !user) {
+      if (clerkLoaded && !user && !(authStoreInstance.provisional && deviceOffline())) {
         authStoreInstance.clearAuth()
       }
     }
@@ -112,6 +112,10 @@ async function doInitClerk(): Promise<ClerkInstance | null> {
     if (authStoreInstance) {
       if (clerkInstance.user && clerkInstance.session) {
         authStoreInstance.setAuth(clerkInstance.user, clerkInstance.session)
+      } else if (authStoreInstance.provisional && deviceOffline()) {
+        // Clerk can load without reaching its servers; that is not a sign-out.
+        clerkLoadPromise = null
+        retryWhenOnline()
       } else {
         // No active session
         authStoreInstance.clearAuth()
@@ -127,11 +131,39 @@ async function doInitClerk(): Promise<ClerkInstance | null> {
     console.error('Failed to initialize Clerk:', error)
     clerkLoaded = true
     if (authStoreInstance) {
-      authStoreInstance.setError('Failed to initialize authentication')
+      // Offline launch: keep the cached (provisional) user so the app works offline, and try
+      // again when the connection returns. Only a loaded Clerk can say the user is signed out.
+      if (!authStoreInstance.provisional) authStoreInstance.setError('Failed to initialize authentication')
       authStoreInstance.setInitialized(true)
     }
+    clerkLoadPromise = null
+    clerkLoaded = false
+    retryWhenOnline()
     return null
   }
+}
+
+let lastRetry = 0
+/** Signed in on this device but no session yet: try loading Clerk again (at most every 20 s). */
+export function retryInit() {
+  if (clerkInstance?.session || clerkLoadPromise || Date.now() - lastRetry < 20_000) return
+  lastRetry = Date.now()
+  void initClerk()
+}
+
+const deviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
+
+let retryArmed = false
+function retryWhenOnline() {
+  if (retryArmed || typeof window === 'undefined') return
+  retryArmed = true
+  void import('@/app/core/offline/network').then(({ onReconnect }) => {
+    const off = onReconnect(() => {
+      off()
+      retryArmed = false
+      void initClerk()
+    })
+  })
 }
 
 /**

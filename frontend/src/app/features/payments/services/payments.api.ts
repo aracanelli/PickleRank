@@ -21,8 +21,8 @@ export const paymentsApi = {
     /**
      * Get balance summaries for all sub players in a group
      */
-    async getBalances(groupId: string): Promise<SubBalanceListResponse> {
-        return api.get<SubBalanceListResponse>(`/api/groups/${groupId}/payments/balances`)
+    async getBalances(groupId: string, onCached?: (r: SubBalanceListResponse) => void): Promise<SubBalanceListResponse> {
+        return api.get<SubBalanceListResponse>(`/api/groups/${groupId}/payments/balances`, { onCached })
     },
 
     /**
